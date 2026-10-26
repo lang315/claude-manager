@@ -23,12 +23,14 @@ type App struct {
 
 	overview overview
 	sessions sessions
+	config   configPage
 }
 
 func New(s *store.Store) *App {
 	a := &App{Store: s, Go: func(f func()) { go f() }, page: "overview"}
 	a.overview.init()
 	a.sessions.init()
+	a.config.init()
 	return a
 }
 
@@ -36,6 +38,7 @@ func New(s *store.Store) *App {
 func (a *App) Rescan() {
 	a.overview.load(a)
 	a.sessions.load(a)
+	a.config.load(a)
 	// Each screen adds its load here.
 }
 
@@ -66,6 +69,8 @@ func (a *App) View(c *ui.Context) {
 				a.overview.view(c, a)
 			case "sessions":
 				a.sessions.view(c, a)
+			case "config":
+				a.config.view(c, a)
 				// Each screen adds its case here.
 			}
 		})
