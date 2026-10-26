@@ -41,3 +41,7 @@ Found in review and left for later.
 - `int(days)` truncates a fractional number of days.
 - Untitled sessions are rescanned up to 8 MB on each rescan.
 - The file-history orphan group offers non-UUID entries such as `.DS_Store`.
+- Credential masking is over-broad: `basic …`, `--…key…=` flags and `sig`/`pass` inside query words also hide ordinary config strings (fails safe: hides, never reveals). An MCP `"--header", "X-API-Key: …"` pair still shows the key.
+- Move to Trash stays disabled until a transcript left with Back finishes reading.
+- Each days-stepper click rescans all sessions (correct, but costly on rapid clicks).
+- The spec says a title past 8 MB "reads as untitled"; the row actually falls back to the first prompt.
