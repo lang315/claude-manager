@@ -41,7 +41,7 @@ type Project struct {
 var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // headLimit is how much of a session is read for its metadata; past it only
-// lines holding an ai-title are parsed, and nothing is read past titleLimit.
+// lines holding an ai-title or a user record are parsed, and nothing is read past titleLimit.
 const headLimit = 64 << 10
 
 // titleLimit caps the whole read: a session whose ai-title lies past it
@@ -49,6 +49,7 @@ const headLimit = 64 << 10
 const titleLimit = 8 << 20
 
 var aiTitle = []byte(`"ai-title"`)
+var userType = []byte(`"type":"user"`)
 
 // LiveIDs returns the ids of the sessions whose process runs, from
 // sessions/<pid>.json.
@@ -172,12 +173,12 @@ func readHead(file string, x *Session) error {
 		line, err := r.ReadBytes('\n')
 		head := read < headLimit
 		read += len(line)
-		if head || bytes.Contains(line, aiTitle) {
+		if head || (x.Title == "" && bytes.Contains(line, aiTitle)) || (x.FirstPrompt == "" && bytes.Contains(line, userType)) {
 			if rec, ok := parseRecord(line); ok {
 				x.note(rec, head)
 			}
 		}
-		if err == io.EOF || (!head && (x.Title != "" || read >= titleLimit)) {
+		if err == io.EOF || (!head && (x.Title != "" && x.FirstPrompt != "" || read >= titleLimit)) {
 			return nil
 		}
 		if err != nil {
@@ -190,14 +191,13 @@ func (x *Session) note(r record, head bool) {
 	if r.Type == "ai-title" && x.Title == "" {
 		x.Title = r.AITitle
 	}
-	if !head {
-		return
-	}
-	x.Cwd = cmp.Or(x.Cwd, r.Cwd)
-	x.Branch = cmp.Or(x.Branch, r.GitBranch)
-	x.Version = cmp.Or(x.Version, r.Version)
-	if x.Started.IsZero() {
-		x.Started = r.time()
+	if head {
+		x.Cwd = cmp.Or(x.Cwd, r.Cwd)
+		x.Branch = cmp.Or(x.Branch, r.GitBranch)
+		x.Version = cmp.Or(x.Version, r.Version)
+		if x.Started.IsZero() {
+			x.Started = r.time()
+		}
 	}
 	if x.FirstPrompt != "" {
 		return

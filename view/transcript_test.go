@@ -22,7 +22,7 @@ func TestTranscript(t *testing.T) {
 		return n
 	}
 	must(t, tt.Click("Sessions"))
-	must(t, tt.Click("/Users/me/proj"))
+	must(t, tt.Click("me/proj"))
 	must(t, tt.Click("Login bug fix"))
 	must(t, tt.Click("Open Transcript"))
 	tt.Frame()
@@ -75,7 +75,7 @@ func TestNewRowLabel(t *testing.T) {
 func openLogin(t *testing.T, tt *ui.Tester) {
 	t.Helper()
 	must(t, tt.Click("Sessions"))
-	must(t, tt.Click("/Users/me/proj"))
+	must(t, tt.Click("me/proj"))
 	must(t, tt.Click("Login bug fix"))
 	must(t, tt.Click("Open Transcript"))
 }

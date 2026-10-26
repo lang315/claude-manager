@@ -11,7 +11,7 @@ import (
 func TestTrashSession(t *testing.T) {
 	a, tt, d, trashed := newApp(t)
 	must(t, tt.Click("Sessions"))
-	must(t, tt.Click("/Users/me/proj"))
+	must(t, tt.Click("me/proj"))
 	must(t, tt.Click("Login bug fix"))
 	must(t, tt.Click("Move to Trash…"))
 	if !tt.HasText("Move 1 sessions to the Trash?") {
@@ -39,7 +39,7 @@ func TestTrashSession(t *testing.T) {
 func TestTrashSkipsLiveSession(t *testing.T) {
 	a, tt, d, trashed := newApp(t)
 	must(t, tt.Click("Sessions"))
-	must(t, tt.Click("/Users/me/proj"))
+	must(t, tt.Click("me/proj"))
 	must(t, tt.Click("Live work (live)"))
 	tt.Click("Move to Trash…") // disabled: a click does nothing
 	if tt.HasText("to the Trash?") || len(*trashed) > 0 {
@@ -68,7 +68,7 @@ func TestTrashSkipsLiveSession(t *testing.T) {
 func TestSessionSearch(t *testing.T) {
 	a, tt, _, _ := newApp(t)
 	must(t, tt.Click("Sessions"))
-	must(t, tt.Click("/Users/me/proj"))
+	must(t, tt.Click("me/proj"))
 	a.sessions.table.SetSearch("Session", "login")
 	tt.Frame()
 	if a.sessions.table.Len() != 1 || !tt.HasText("Login bug fix") || tt.HasText("Late title") {
@@ -78,5 +78,19 @@ func TestSessionSearch(t *testing.T) {
 	tt.Frame()
 	if a.sessions.table.Len() != 1 || !tt.HasText("Late title") {
 		t.Errorf("search by first prompt shows %d rows", a.sessions.table.Len())
+	}
+}
+
+func TestShortPath(t *testing.T) {
+	for in, want := range map[string]string{
+		"/Users/lang/lang315/mygo": "lang315/mygo",
+		"/Users/me/proj":           "me/proj",
+		"/proj":                    "/proj",
+		"proj":                     "proj",
+		"":                         "",
+	} {
+		if got := shortPath(in); got != want {
+			t.Errorf("shortPath(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

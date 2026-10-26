@@ -114,3 +114,26 @@ func TestRootWithGlobChars(t *testing.T) {
 		t.Errorf("projects %d err %v, want 2", len(p), err)
 	}
 }
+
+func TestReadHeadFindsPromptPastHead(t *testing.T) {
+	filler := strings.Repeat(`{"type":"attachment","x":"`+strings.Repeat("y", 1000)+`"}`+"\n", 100)
+	user := `{"type":"user","cwd":"/late","message":{"content":"Real prompt"}}` + "\n"
+	title := `{"type":"ai-title","aiTitle":"Named"}` + "\n"
+	for name, tail := range map[string]string{"with title": user + title, "no title": user} {
+		f := filepath.Join(t.TempDir(), "s.jsonl")
+		if err := os.WriteFile(f, []byte(filler+tail), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var x Session
+		if err := readHead(f, &x); err != nil {
+			t.Fatal(err)
+		}
+		want := ""
+		if name == "with title" {
+			want = "Named"
+		}
+		if x.FirstPrompt != "Real prompt" || x.Title != want || x.Cwd != "" {
+			t.Errorf("%s: prompt %q title %q cwd %q", name, x.FirstPrompt, x.Title, x.Cwd)
+		}
+	}
+}

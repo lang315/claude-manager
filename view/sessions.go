@@ -3,6 +3,7 @@ package view
 import (
 	"cmp"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -48,6 +49,7 @@ func (s *sessions) init() {
 	s.ptable.NoSearchBar = true
 	s.ptable.Columns = []ui.DataColumn[store.Project]{
 		{TableColumn: ui.TableColumn{Title: "Project", Width: 130}, Text: func(p *store.Project) string { return p.Path },
+			Cell:    func(c *ui.Context, p *store.Project) { ui.Text(c, shortPath(p.Path)).NoWrap().Tooltip(p.Path) },
 			Compare: func(x, y *store.Project) int { return cmp.Compare(x.Path, y.Path) }},
 		{TableColumn: ui.TableColumn{Title: "Count", Width: 60}, Text: func(p *store.Project) string { return strconv.Itoa(len(p.Sessions)) },
 			Compare: func(x, y *store.Project) int { return cmp.Compare(len(x.Sessions), len(y.Sessions)) }},
@@ -174,4 +176,13 @@ func (s *sessions) confirm(c *ui.Context, a *App) {
 			return paths
 		})
 	}
+}
+
+// shortPath keeps a project path's last two components: the long prefix is
+// the same for every project.
+func shortPath(p string) string {
+	if d := filepath.Dir(p); d != "/" && d != "." {
+		return filepath.Base(d) + "/" + filepath.Base(p)
+	}
+	return p
 }

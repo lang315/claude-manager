@@ -22,7 +22,7 @@ func TestScreenshots(t *testing.T) {
 	small := ui.NewTester(a.View, 1100, 720)
 	shots := []struct{ name, click, then string }{
 		{"overview", "Overview", ""},
-		{"sessions", "Sessions", "/Users/me/proj"},
+		{"sessions", "Sessions", "me/proj"},
 		{"config", "Config", "env"},
 		{"cleanup", "Cleanup", "paste-cache"},
 	}
