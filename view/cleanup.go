@@ -14,6 +14,7 @@ type cleanup struct {
 	asking  bool
 	pending []string
 	size    int64
+	gen     int // which load the groups arriving belong to
 }
 
 func (p *cleanup) set(groups []store.Group) {
@@ -26,9 +27,15 @@ func (p *cleanup) set(groups []store.Group) {
 // load finds the groups again from the sessions already listed.
 func (p *cleanup) load(a *App) {
 	projects, days := a.sessions.projects, int(p.days)
+	p.gen++
+	gen := p.gen
 	a.run(func() func() {
 		groups := a.Store.Cleanup(projects, days)
-		return func() { p.set(groups) }
+		return func() {
+			if gen == p.gen {
+				p.set(groups)
+			}
+		}
 	})
 }
 
@@ -74,6 +81,7 @@ func (p *cleanup) view(c *ui.Context, a *App) {
 	msg := humanSize(p.size) + " moves to the Trash. Live sessions and anything changed in the last 10 minutes are left alone. You can put it back from the Trash."
 	if ui.AlertDialog(c, &p.asking, fmt.Sprintf("Move %d items to the Trash?", len(p.pending)), msg, "Cancel", "Move to Trash") == 1 {
 		pending := p.pending
+		clear(p.on)
 		a.trash(func() []string { return pending })
 	}
 }

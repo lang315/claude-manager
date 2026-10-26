@@ -64,14 +64,49 @@ func TestCleanupDays(t *testing.T) {
 	}
 }
 
-// Groups overlap: the confirmation counts each path once.
+// Groups overlap: the confirmation counts each path once, and the trash gets
+// each path once.
 func TestCleanupCountsOverlappingPathsOnce(t *testing.T) {
-	_, tt, _, _ := newApp(t)
+	a, tt, _, trashed := newApp(t)
 	must(t, tt.Click("Cleanup"))
 	must(t, tt.Click("session-env"))
 	must(t, tt.Click("sessions older than 30 days"))
 	must(t, tt.Click("Move to Trash…"))
 	if !tt.HasText("Move 5 items to the Trash?") {
 		t.Fatalf("overlap double-counted; texts %q", tt.Texts())
+	}
+	must(t, tt.Click("Move to Trash"))
+	tt.Frame()
+	if len(*trashed) != 5 {
+		t.Errorf("trashed %d paths, want 5: %q", len(*trashed), *trashed)
+	}
+	seen := map[string]bool{}
+	for _, p := range *trashed {
+		if seen[p] {
+			t.Errorf("%q trashed twice", p)
+		}
+		seen[p] = true
+	}
+	if slices.Contains(a.cleanup.on, true) {
+		t.Errorf("groups stay checked after the trash: %v", a.cleanup.on)
+	}
+}
+
+// Loads can finish out of order; the last one started wins.
+func TestCleanupStaleLoadIgnored(t *testing.T) {
+	a, tt, _, _ := newApp(t)
+	var queued []func()
+	a.Go = func(f func()) { queued = append(queued, f) }
+	must(t, tt.Click("Cleanup"))
+	a.cleanup.days = 5
+	a.cleanup.load(a)
+	a.cleanup.days = 6
+	a.cleanup.load(a)
+	for _, f := range slices.Backward(queued) {
+		f()
+	}
+	tt.Frame()
+	if !tt.HasText("transcripts older than 6 days") || tt.HasText("transcripts older than 5 days") {
+		t.Errorf("stale load applied; texts %q", tt.Texts())
 	}
 }

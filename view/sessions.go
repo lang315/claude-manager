@@ -79,12 +79,16 @@ func (s *sessions) init() {
 
 func (s *sessions) load(a *App) {
 	days := int(a.cleanup.days)
+	a.cleanup.gen++
+	gen := a.cleanup.gen
 	a.run(func() func() {
 		projects, err := a.Store.Projects()
 		groups := a.Store.Cleanup(projects, days)
 		return func() {
 			s.set(projects, err)
-			a.cleanup.set(groups)
+			if gen == a.cleanup.gen {
+				a.cleanup.set(groups)
+			}
 		}
 	})
 }
