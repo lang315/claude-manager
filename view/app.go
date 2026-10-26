@@ -24,6 +24,7 @@ type App struct {
 	overview overview
 	sessions sessions
 	config   configPage
+	cleanup  cleanup
 }
 
 func New(s *store.Store) *App {
@@ -31,6 +32,7 @@ func New(s *store.Store) *App {
 	a.overview.init()
 	a.sessions.init()
 	a.config.init()
+	a.cleanup.days = 30
 	return a
 }
 
@@ -71,6 +73,8 @@ func (a *App) View(c *ui.Context) {
 				a.sessions.view(c, a)
 			case "config":
 				a.config.view(c, a)
+			case "cleanup":
+				a.cleanup.view(c, a)
 				// Each screen adds its case here.
 			}
 		})
