@@ -27,7 +27,9 @@ Everything deferred is listed in [`docs/roadmap.md`](../../roadmap.md).
 | What | Where | Notes |
 |---|---|---|
 | Sessions | `projects/<encoded-dir>/<uuid>.jsonl` | One JSON record per line. The directory name is a lossy encoding of the path; the real path is the `cwd` field of records |
-| Session side data | `projects/<encoded-dir>/<uuid>/` | `subagents/agent-*.jsonl` + `*.meta.json`, tool results |
+| Session side data | `projects/<encoded-dir>/<uuid>/` | `subagents/agent-*.jsonl` + `*.meta.json`, `tool-results/`. Large: 2.09 GB vs 2.39 GB of `.jsonl` on this machine |
+| Orphan side data | `projects/<encoded-dir>/<uuid>/` with no `<uuid>.jsonl` | 782 such dirs (9.5 MB), almost all only `tool-results/` |
+| Not sessions | `projects/<encoded-dir>/memory/`, `*-memory/`, `*.wakatime`, `sessions-index.json` | Never treated as session data; only UUID-named entries are |
 | Session title | record `{"type":"ai-title","aiTitle":...}` | Fallback: first `user` record's text, then `last-prompt` record |
 | Messages | records `type` = `user` / `assistant` | `message.content` blocks: `text`, `thinking`, `tool_use`, `tool_result` |
 | Ignored records | `attachment`, `file-history-snapshot`, `file-history-delta`, `queue-operation`, `mode`, `permission-mode`, `atis-latch`, `system` | Internal; not shown in the transcript |
@@ -144,6 +146,11 @@ Groups with a checkbox each, and the item count and total size of each:
 - `shell-snapshots/`
 - `debug/`
 - `file-history/` entries whose session no longer exists
+- `session-env/` is listed whole above; most of it (2201 of 2363 entries) has
+  no session left
+- orphan session side data: UUID-named dirs under `projects/<dir>/` with no
+  matching `<uuid>.jsonl` (the name must match the UUID pattern, so memory
+  dirs such as `mygo-memory/` are never candidates)
 - `transcripts/` older than N days
 - sessions older than N days (same gathering rules as deleting a session)
 
@@ -156,6 +163,8 @@ last 10 minutes are excluded. A toast reports what was moved and any failure.
 - `store/` unit tests against `testdata/claude/`: sessions cut from the real
   format (with `ai-title`, subagents, a broken line, a large-line case), a
   live session (fake `sessions/<pid>.json` pointing at the test's own PID),
+  a stale `sessions/<pid>.json` whose PID is dead, an orphan UUID side dir,
+  a `*-memory/` dir and a `.wakatime` file that must never be candidates,
   backups, cleanup groups. They check listing, metadata, transcript parsing,
   the paths gathered for a session, live exclusion and group sizes.
 - Trashing is tested with the fake trash function only. No test touches the
