@@ -18,14 +18,19 @@ type App struct {
 	page   string
 	busy   int    // loads and moves in flight
 	notice string // shown as a toast on the next frame
+
+	overview overview
 }
 
 func New(s *store.Store) *App {
-	return &App{Store: s, Go: func(f func()) { go f() }, page: "overview"}
+	a := &App{Store: s, Go: func(f func()) { go f() }, page: "overview"}
+	a.overview.init()
+	return a
 }
 
 // Rescan reloads every screen from disk.
 func (a *App) Rescan() {
+	a.overview.load(a)
 	// Each screen adds its load here.
 }
 
@@ -52,8 +57,39 @@ func (a *App) View(c *ui.Context) {
 				}
 			})
 			switch a.page {
-			// Each screen adds its case here.
+			case "overview":
+				a.overview.view(c, a)
+				// Each screen adds its case here.
 			}
 		})
 	})
+}
+
+// run does work off the main thread, then applies the change it returns on
+// the main thread.
+func (a *App) run(work func() (apply func())) {
+	a.busy++
+	a.Go(func() {
+		apply := work()
+		a.Update(func() {
+			a.busy--
+			apply()
+		})
+	})
+}
+
+// picked returns the rows a table's actions apply to: the checked rows, or
+// the chosen ones when none is checked.
+func picked[T any, K comparable](s *ui.DataTableState[T, K], rows []T) []*T {
+	set := &s.Checked
+	if set.Len() == 0 {
+		set = &s.Chosen
+	}
+	var out []*T
+	for i := range rows {
+		if set.Has(s.Key(&rows[i])) {
+			out = append(out, &rows[i])
+		}
+	}
+	return out
 }
