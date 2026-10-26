@@ -2,6 +2,8 @@
 package view
 
 import (
+	"fmt"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/claude-manager/store"
 )
@@ -20,17 +22,20 @@ type App struct {
 	notice string // shown as a toast on the next frame
 
 	overview overview
+	sessions sessions
 }
 
 func New(s *store.Store) *App {
 	a := &App{Store: s, Go: func(f func()) { go f() }, page: "overview"}
 	a.overview.init()
+	a.sessions.init()
 	return a
 }
 
 // Rescan reloads every screen from disk.
 func (a *App) Rescan() {
 	a.overview.load(a)
+	a.sessions.load(a)
 	// Each screen adds its load here.
 }
 
@@ -59,6 +64,8 @@ func (a *App) View(c *ui.Context) {
 			switch a.page {
 			case "overview":
 				a.overview.view(c, a)
+			case "sessions":
+				a.sessions.view(c, a)
 				// Each screen adds its case here.
 			}
 		})
@@ -92,4 +99,19 @@ func picked[T any, K comparable](s *ui.DataTableState[T, K], rows []T) []*T {
 		}
 	}
 	return out
+}
+
+// trash moves the paths that paths returns to the Trash, off the main
+// thread, then reports and rescans.
+func (a *App) trash(paths func() []string) {
+	a.run(func() func() {
+		moved, err := a.Store.TrashPaths(paths())
+		return func() {
+			a.notice = fmt.Sprintf("Moved %d items to the Trash", moved)
+			if err != nil {
+				a.notice = fmt.Sprintf("Moved %d items to the Trash, then stopped: %v", moved, err)
+			}
+			a.Rescan()
+		}
+	})
 }
