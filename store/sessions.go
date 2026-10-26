@@ -53,21 +53,39 @@ var aiTitle = []byte(`"ai-title"`)
 // LiveIDs returns the ids of the sessions whose process runs, from
 // sessions/<pid>.json.
 func (s *Store) LiveIDs() map[string]bool {
-	ids := map[string]bool{}
+	ids, _ := s.live()
+	return ids
+}
+
+// live is LiveIDs plus the earliest start of those sessions. since is the
+// zero time when any live session has no startedAt: its start is unknown.
+func (s *Store) live() (ids map[string]bool, since time.Time) {
+	ids = map[string]bool{}
+	unknown := false
 	for _, f := range listFiles(filepath.Join(s.Root, "sessions"), ".json") {
 		var r struct {
 			PID       int    `json:"pid"`
 			SessionID string `json:"sessionId"`
+			StartedAt int64  `json:"startedAt"` // epoch milliseconds
 		}
 		b, err := os.ReadFile(f)
 		if err != nil || json.Unmarshal(b, &r) != nil || r.SessionID == "" {
 			continue
 		}
-		if s.Alive(r.PID) {
-			ids[r.SessionID] = true
+		if !s.Alive(r.PID) {
+			continue
+		}
+		ids[r.SessionID] = true
+		if r.StartedAt <= 0 {
+			unknown = true
+		} else if t := time.UnixMilli(r.StartedAt); since.IsZero() || t.Before(since) {
+			since = t
 		}
 	}
-	return ids
+	if unknown {
+		since = time.Time{}
+	}
+	return ids, since
 }
 
 // Projects lists projects/ with the metadata of every session, largest

@@ -1,7 +1,9 @@
 package store
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,22 +54,35 @@ func (s *Store) SessionPaths(x Session) []string {
 // groups. Live sessions and anything written in the last 10 minutes are
 // left out. With no projects, nothing counts as an orphan.
 func (s *Store) Cleanup(projects []Project, days int) []Group {
-	live := s.LiveIDs()
+	liveIDs, since := s.live()
+	live := map[string]bool{}
+	for id := range liveIDs {
+		live[id] = true
+	}
 	now := s.Now()
 	cutoff := now.AddDate(0, 0, -days)
-	skip := func(it Item) bool { return live[filepath.Base(it.Path)] || now.Sub(it.Modified) < recent }
 	ids := map[string]bool{}
 	for _, p := range projects {
 		for _, x := range p.Sessions {
 			ids[x.ID] = true
+			// A session written to in the last 10 minutes runs, even without a sessions/<pid>.json.
+			if x.Live {
+				live[x.ID] = true
+			}
 		}
+	}
+	skip := func(it Item) bool { return isLive(live, it.Path) || now.Sub(it.Modified) < recent }
+	// A snapshot is written once at session start and not touched again, and its name is no
+	// session id: keep every one made since the earliest live session started (all, if unknown).
+	skipSnapshot := func(it Item) bool {
+		return skip(it) || (len(liveIDs) > 0 && !it.Modified.Before(since))
 	}
 	orphan := func(it Item) bool { return len(ids) > 0 && !ids[filepath.Base(it.Path)] }
 
 	groups := []Group{
 		s.entries("session-env", "session-env", nil, skip),
 		s.entries("paste-cache", "paste-cache", nil, skip),
-		s.entries("shell-snapshots", "shell-snapshots", nil, skip),
+		s.entries("shell-snapshots", "shell-snapshots", nil, skipSnapshot),
 		s.entries("debug", "debug", nil, skip),
 		s.entries("file-history without a session", "file-history", orphan, skip),
 		s.entries(fmt.Sprintf("transcripts older than %d days", days), "transcripts",
@@ -117,12 +132,31 @@ func (g *Group) add(it Item, skip func(Item) bool) {
 	g.Size += it.Size
 }
 
+// isLive reports whether the base name of path, with or without its
+// extension (debug/<id>.txt), is a live session id.
+func isLive(live map[string]bool, path string) bool {
+	base := filepath.Base(path)
+	return live[base] || live[strings.TrimSuffix(base, filepath.Ext(base))]
+}
+
 // TrashPaths moves paths to the Trash in order and stops at the first that
-// fails, naming it. It refuses the root itself and anything outside it.
+// fails, naming it. It refuses the root itself and anything outside it. It
+// skips, without counting, a path already handled in this call (groups
+// overlap), one that is gone, and one of a session that is live now.
 func (s *Store) TrashPaths(paths []string) (moved int, err error) {
+	live := s.LiveIDs()
+	seen := map[string]bool{}
 	for _, p := range paths {
 		if !s.inside(p) {
 			return moved, fmt.Errorf("%s is not inside %s", p, s.Root)
+		}
+		p = filepath.Clean(p)
+		if seen[p] || isLive(live, p) {
+			continue
+		}
+		seen[p] = true
+		if _, err := os.Lstat(p); errors.Is(err, fs.ErrNotExist) {
+			continue
 		}
 		if err := s.Trash(p); err != nil {
 			return moved, fmt.Errorf("%s: %w", p, err)
