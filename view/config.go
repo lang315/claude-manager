@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -75,29 +76,47 @@ func (p *configPage) view(c *ui.Context, a *App) {
 }
 
 func (p *configPage) tree(c *ui.Context, root string, v any) {
-	if v == nil {
+	if empty(v) {
 		ui.Text(c, "Nothing configured").TextColor(c.Theme().TextMuted)
 		return
 	}
 	ui.Scroll(c).Grow(1).Children(func() {
-		ui.Tree(c, func() { p.node(c, root, "", v) })
+		ui.Tree(c, func() { p.node(c, root, "", v, false) })
 	})
 }
 
+// empty reports a nil value or an empty object or array; a nil map inside an
+// any is not == nil.
+func empty(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return true
+	case map[string]any:
+		return len(x) == 0
+	case []any:
+		return len(x) == 0
+	}
+	return false
+}
+
 // node builds a JSON value as tree items; the root ("" key) builds only its
-// children. A click on an item's label opens it, as its arrow does.
-func (p *configPage) node(c *ui.Context, path, key string, v any) {
+// children. A click on an item's label opens it, as its arrow does. Scalars
+// are masked when masked is set (an ancestor is secret), when their key is
+// secret, or, on the MCP tab, when they sit anywhere under env or headers.
+func (p *configPage) node(c *ui.Context, path, key string, v any, masked bool) {
 	item := func(label string, children func()) {
 		open := p.opened(path)
 		if ui.TreeItem(c.Key(path), label, open, children).Clicked() {
 			*open = !*open
 		}
 	}
+	masked = masked || secretKey.MatchString(key) ||
+		(key == "env" || key == "headers") && (path == "mcp" || strings.HasPrefix(path, "mcp/"))
 	switch x := v.(type) {
 	case map[string]any:
 		build := func() {
 			for _, k := range slices.Sorted(maps.Keys(x)) {
-				p.node(c, path+"/"+k, k, x[k])
+				p.node(c, path+"/"+k, k, x[k], masked)
 			}
 		}
 		if key == "" {
@@ -108,7 +127,7 @@ func (p *configPage) node(c *ui.Context, path, key string, v any) {
 	case []any:
 		build := func() {
 			for i, e := range x {
-				p.node(c, fmt.Sprintf("%s/%d", path, i), strconv.Itoa(i), e)
+				p.node(c, fmt.Sprintf("%s/%d", path, i), strconv.Itoa(i), e, masked)
 			}
 		}
 		if key == "" {
@@ -117,7 +136,11 @@ func (p *configPage) node(c *ui.Context, path, key string, v any) {
 		}
 		item(fmt.Sprintf("%s [%d]", key, len(x)), build)
 	default:
-		ui.TreeItem(c.Key(path), key+": "+scalar(key, x), nil, nil)
+		val := scalar(key, x)
+		if masked {
+			val = mask
+		}
+		ui.TreeItem(c.Key(path), key+": "+val, nil, nil)
 	}
 }
 
@@ -130,14 +153,20 @@ func (p *configPage) opened(path string) *bool {
 	return b
 }
 
+const mask = "••••••"
+
 // secretKey matches keys whose values are credentials, which the tree hides.
-// shortcut: by key name only; a token inside a command line or an args list still shows. Match values too if one leaks in a screenshot.
-var secretKey = regexp.MustCompile(`(?i)token|secret|password|passwd|api[-_]?key|auth|credential`)
+var secretKey = regexp.MustCompile(`(?i)token|secret|password|passwd|passphrase|api[-_]?key|access[-_]?key|private[-_]?key|_key$|^key$|auth|credential|cookie|bearer|_pat$|^pat$|dsn|webhook|headers`)
+
+// secretValue matches credentials inside a string value, whatever its key.
+// shortcut: known shapes only; a bare token after a separate flag element
+// ("--api-key", "abc123") and tokens without a known prefix still show. Match more shapes if one leaks.
+var secretValue = regexp.MustCompile(`(?i)bearer\s+\S+|\bsk-[\w-]{8,}|\bghp_\w+|github_pat_\w+|xox[abposr]-\S+|://[^/\s:@]+:[^@\s]+@`)
 
 func scalar(key string, v any) string {
 	if s, ok := v.(string); ok {
-		if secretKey.MatchString(key) {
-			return "••••••"
+		if secretKey.MatchString(key) || secretValue.MatchString(s) {
+			return mask
 		}
 		return strconv.Quote(s)
 	}

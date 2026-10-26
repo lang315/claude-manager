@@ -1,6 +1,7 @@
 package view
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +16,16 @@ func TestScalarMasksSecrets(t *testing.T) {
 		{"API_TOKEN", "secret123", "••••••"},
 		{"Authorization", "Bearer abc", "••••••"},
 		{"OPENAI_API_KEY", "sk-1", "••••••"},
+		{"AWS_ACCESS_KEY_ID", "AKIA1", "••••••"},
+		{"GITHUB_PAT", "x", "••••••"},
+		{"SSH_KEY", "x", "••••••"},
+		{"Cookie", "x", "••••••"},
+		{"PASSPHRASE", "x", "••••••"},
+		{"SENTRY_DSN", "x", "••••••"},
+		{"note", "Bearer abc", "••••••"},
+		{"0", "sk-abcdefgh123", "••••••"},
+		{"url", "postgres://u:p@h/db", "••••••"},
+		{"url", "https://example.com/mcp", `"https://example.com/mcp"`},
 		{"EDITOR", "vim", `"vim"`},
 		{"count", 3.0, "3"},
 		{"on", true, "true"},
@@ -61,5 +72,41 @@ func TestConfigDocsAndBackups(t *testing.T) {
 	tt.Frame()
 	if len(*trashed) != 1 || (*trashed)[0] != filepath.Join(d.Root, "settings.json.bak-1") {
 		t.Errorf("trashed %q, want only settings.json.bak-1", *trashed)
+	}
+}
+
+func TestConfigMasksByStructure(t *testing.T) {
+	a, tt, d, _ := newApp(t)
+	must(t, os.WriteFile(d.ClaudeJSON, []byte(`{"mcpServers":{"x":{"args":["--k","sk-abcdefgh123"],
+		"env":{"FOO":"plain-secret","NEST":{"deep":"nested-secret"}},"auth":{"value":"abc-auth"},"tokens":["tok-arr"]}}}`), 0o600))
+	a.Rescan()
+	tt.Frame()
+	must(t, tt.Click("Config"))
+	must(t, tt.Click("MCP servers"))
+	must(t, tt.Click("x"))
+	for _, k := range []string{"args [2]", "env", "auth", "tokens [1]"} {
+		must(t, tt.Click(k))
+	}
+	must(t, tt.Click("NEST"))
+	if !tt.HasText("FOO: ••••••") || !tt.HasText("deep: ••••••") || !tt.HasText("value: ••••••") || !tt.HasText("0: ••••••") {
+		t.Errorf("expected masked values; texts %q", tt.Texts())
+	}
+	for _, s := range tt.Texts() {
+		for _, bad := range []string{"plain-secret", "nested-secret", "abc-auth", "tok-arr", "sk-abcdefgh123"} {
+			if strings.Contains(s, bad) {
+				t.Errorf("a credential shows: %q", s)
+			}
+		}
+	}
+}
+
+func TestConfigEmptySettings(t *testing.T) {
+	a, tt, d, _ := newApp(t)
+	must(t, os.WriteFile(filepath.Join(d.Root, "settings.json"), []byte(`{}`), 0o600))
+	a.Rescan()
+	tt.Frame()
+	must(t, tt.Click("Config"))
+	if !tt.HasText("Nothing configured") {
+		t.Errorf("texts %q", tt.Texts())
 	}
 }
