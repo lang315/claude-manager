@@ -92,8 +92,10 @@ The app passes `mygo.Shell.TrashItem`; tests pass a fake that records paths.
 
 ## Screens
 
-The window has a sidebar with five entries and a content area. The toolbar has
-**Rescan**.
+The window has a sidebar with four entries (Overview, Sessions, Config,
+Cleanup; the transcript opens inside Sessions) and a content area. The toolbar
+has **Rescan**. Choices made while planning are listed under "Deviations from
+the spec" in `docs/superpowers/plans/2026-10-26-claude-manager.md`.
 
 ### 1. Overview
 
