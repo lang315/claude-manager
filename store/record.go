@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 )
@@ -34,6 +35,15 @@ type block struct {
 	Name     string          `json:"name"`
 	Input    json.RawMessage `json:"input"`
 	Content  json.RawMessage `json:"content"`
+}
+
+// parseRecord decodes one JSONL line. A field of an unexpected JSON type
+// does not fail the line (the other fields are still filled); only a
+// syntax error does.
+func parseRecord(line []byte) (record, bool) {
+	var r record
+	err := json.Unmarshal(line, &r)
+	return r, err == nil || errors.As(err, new(*json.UnmarshalTypeError))
 }
 
 func (r record) time() time.Time {

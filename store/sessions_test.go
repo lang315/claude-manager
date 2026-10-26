@@ -82,3 +82,35 @@ func TestFirstLine(t *testing.T) {
 		}
 	}
 }
+
+func TestReadHeadStopsAtTitleLimit(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "s.jsonl")
+	filler := `{"type":"attachment","x":"` + strings.Repeat("y", 1<<20) + `"}` + "\n"
+	body := `{"type":"user","message":{"content":"hi"}}` + "\n" + strings.Repeat(filler, titleLimit>>20+1) +
+		`{"type":"ai-title","aiTitle":"Too late"}` + "\n"
+	if err := os.WriteFile(f, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var x Session
+	if err := readHead(f, &x); err != nil {
+		t.Fatal(err)
+	}
+	if x.Title != "" || x.FirstPrompt != "hi" {
+		t.Errorf("title %q prompt %q: want the scan stopped before the late title", x.Title, x.FirstPrompt)
+	}
+}
+
+func TestRootWithGlobChars(t *testing.T) {
+	s, d, _ := newStore(t)
+	dir := filepath.Join(filepath.Dir(d.Root), "My [Stuff]")
+	if err := os.Rename(d.Root, dir); err != nil {
+		t.Fatal(err)
+	}
+	s.Root = dir
+	if got := s.LiveIDs(); len(got) != 1 || !got[fixture.Live] {
+		t.Errorf("LiveIDs %v, want only %s", got, fixture.Live)
+	}
+	if p, err := s.Projects(); err != nil || len(p) != 2 {
+		t.Errorf("projects %d err %v, want 2", len(p), err)
+	}
+}

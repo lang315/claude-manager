@@ -41,8 +41,12 @@ type Project struct {
 var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // headLimit is how much of a session is read for its metadata; past it only
-// lines holding an ai-title are parsed.
+// lines holding an ai-title are parsed, and nothing is read past titleLimit.
 const headLimit = 64 << 10
+
+// titleLimit caps the whole read: a session whose ai-title lies past it
+// reads untitled, so that one without a title is not read to its end.
+const titleLimit = 8 << 20
 
 var aiTitle = []byte(`"ai-title"`)
 
@@ -50,8 +54,7 @@ var aiTitle = []byte(`"ai-title"`)
 // sessions/<pid>.json.
 func (s *Store) LiveIDs() map[string]bool {
 	ids := map[string]bool{}
-	files, _ := filepath.Glob(filepath.Join(s.Root, "sessions", "*.json"))
-	for _, f := range files {
+	for _, f := range listFiles(filepath.Join(s.Root, "sessions"), ".json") {
 		var r struct {
 			PID       int    `json:"pid"`
 			SessionID string `json:"sessionId"`
@@ -84,8 +87,7 @@ func (s *Store) Projects() ([]Project, error) {
 			continue
 		}
 		p := Project{Dir: filepath.Join(s.Root, "projects", d.Name()), Path: d.Name()}
-		files, _ := filepath.Glob(filepath.Join(p.Dir, "*.jsonl"))
-		for _, f := range files {
+		for _, f := range listFiles(p.Dir, ".jsonl") {
 			if !uuidRe.MatchString(strings.TrimSuffix(filepath.Base(f), ".jsonl")) {
 				continue
 			}
@@ -118,13 +120,25 @@ func (s *Store) session(file string, live map[string]bool) Session {
 	side := filepath.Join(x.Dir, id)
 	sideSize, _ := dirSize(side)
 	x.Size = info.Size() + sideSize
-	agents, _ := filepath.Glob(filepath.Join(side, "subagents", "*.jsonl"))
-	x.Subagents = len(agents)
+	x.Subagents = len(listFiles(filepath.Join(side, "subagents"), ".jsonl"))
 	if err := readHead(file, &x); err != nil {
 		x.Err = err.Error()
 	}
 	x.Live = live[id] || s.Now().Sub(x.Modified) < recent
 	return x
+}
+
+// listFiles returns the paths of the non-directory entries of dir ending in
+// suffix. Unlike filepath.Glob it is safe for roots holding [, * or ?.
+func listFiles(dir, suffix string) []string {
+	entries, _ := os.ReadDir(dir)
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), suffix) {
+			out = append(out, filepath.Join(dir, e.Name()))
+		}
+	}
+	return out
 }
 
 // readHead fills a session's metadata from its first 64 KB, then reads on
@@ -141,12 +155,11 @@ func readHead(file string, x *Session) error {
 		head := read < headLimit
 		read += len(line)
 		if head || bytes.Contains(line, aiTitle) {
-			var rec record
-			if json.Unmarshal(line, &rec) == nil {
+			if rec, ok := parseRecord(line); ok {
 				x.note(rec, head)
 			}
 		}
-		if err == io.EOF || (!head && x.Title != "") {
+		if err == io.EOF || (!head && (x.Title != "" || read >= titleLimit)) {
 			return nil
 		}
 		if err != nil {
