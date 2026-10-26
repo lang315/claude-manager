@@ -137,3 +137,19 @@ func TestReadHeadFindsPromptPastHead(t *testing.T) {
 		}
 	}
 }
+
+// A startedAt that is no integer makes the start unknown, not the session dead.
+func TestLiveIDsStartedAtNotAnInteger(t *testing.T) {
+	for name, startedAt := range map[string]string{"float": `1761480000000.5`, "string": `"1761480000000"`} {
+		t.Run(name, func(t *testing.T) {
+			s, d, _ := newStore(t)
+			os.WriteFile(filepath.Join(d.Root, "sessions", "4242.json"), []byte(`{"pid":4242,"sessionId":"`+fixture.Live+`","startedAt":`+startedAt+`}`), 0o644)
+			if !s.LiveIDs()[fixture.Live] {
+				t.Errorf("live session dropped when startedAt is %s", startedAt)
+			}
+			if _, since := s.live(); !since.IsZero() {
+				t.Errorf("since %v, want unknown (zero)", since)
+			}
+		})
+	}
+}

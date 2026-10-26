@@ -63,6 +63,12 @@ func (s *Store) Cleanup(projects []Project, days int) []Group {
 	cutoff := now.AddDate(0, 0, -days)
 	ids := map[string]bool{}
 	for _, p := range projects {
+		// The list may be older than the disk: a session whose .jsonl exists is never an orphan.
+		for _, f := range listFiles(p.Dir, ".jsonl") {
+			if id := strings.TrimSuffix(filepath.Base(f), ".jsonl"); uuidRe.MatchString(id) {
+				ids[id] = true
+			}
+		}
 		for _, x := range p.Sessions {
 			ids[x.ID] = true
 			// A session written to in the last 10 minutes runs, even without a sessions/<pid>.json.
@@ -142,9 +148,21 @@ func isLive(live map[string]bool, path string) bool {
 // TrashPaths moves paths to the Trash in order and stops at the first that
 // fails, naming it. It refuses the root itself and anything outside it. It
 // skips, without counting, a path already handled in this call (groups
-// overlap), one that is gone, and one of a session that is live now.
+// overlap), one that is gone, one of a session that is live now, and one changed
+// in the last 10 minutes or belonging to a session whose .jsonl was.
 func (s *Store) TrashPaths(paths []string) (moved int, err error) {
 	live := s.LiveIDs()
+	now := s.Now()
+	touched := map[string]bool{} // ids of sessions written to in the last 10 minutes
+	dirs, _ := os.ReadDir(filepath.Join(s.Root, "projects"))
+	for _, d := range dirs {
+		es, _ := os.ReadDir(filepath.Join(s.Root, "projects", d.Name()))
+		for _, e := range es {
+			if info, err := e.Info(); err == nil && !e.IsDir() && strings.HasSuffix(e.Name(), ".jsonl") && now.Sub(info.ModTime()) < recent {
+				touched[strings.TrimSuffix(e.Name(), ".jsonl")] = true
+			}
+		}
+	}
 	seen := map[string]bool{}
 	for _, p := range paths {
 		if !s.inside(p) {
@@ -155,7 +173,11 @@ func (s *Store) TrashPaths(paths []string) (moved int, err error) {
 			continue
 		}
 		seen[p] = true
-		if _, err := os.Lstat(p); errors.Is(err, fs.ErrNotExist) {
+		info, err := os.Lstat(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if (err == nil && now.Sub(info.ModTime()) < recent) || isLive(touched, p) {
 			continue
 		}
 		if err := s.Trash(p); err != nil {

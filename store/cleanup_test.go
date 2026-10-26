@@ -240,3 +240,62 @@ func TestTrashPathsOverlapMissingAndLive(t *testing.T) {
 		t.Errorf("moved %d, err %v, trashed %q: live session must not be trashed", moved, err, *trashed)
 	}
 }
+
+// The list Cleanup gets can be older than the disk: a session started since
+// is no orphan, whatever the list says.
+func TestCleanupStaleProjectsNoFalseOrphans(t *testing.T) {
+	s, d, _ := newStore(t)
+	stale, _ := s.Projects()
+	// A session that starts and ends after the scan, an hour before Now.
+	id := "77777777-7777-4777-8777-777777777777"
+	hour := fixture.Now.Add(-time.Hour)
+	for rel, c := range map[string]string{
+		fixture.Proj + "/" + id + ".jsonl":                   `{"type":"user","message":{"content":"hi"}}` + "\n",
+		fixture.Proj + "/" + id + "/subagents/agent-x.jsonl": "{}\n",
+		"file-history/" + id + "/v1":                         "edit",
+	} {
+		p := filepath.Join(d.Root, rel)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(c), 0o644)
+	}
+	for _, rel := range []string{fixture.Proj + "/" + id + ".jsonl", fixture.Proj + "/" + id, fixture.Proj + "/" + id + "/subagents", "file-history/" + id} {
+		os.Chtimes(filepath.Join(d.Root, rel), hour, hour)
+	}
+	for _, g := range s.Cleanup(stale, 30) {
+		for _, it := range g.Items {
+			if filepath.Base(it.Path) == id {
+				t.Errorf("existing session's %s offered in %q", it.Path, g.Name)
+			}
+		}
+	}
+}
+
+// A list for an old session can be hours old: if its .jsonl was written to
+// since, none of its paths moves.
+func TestTrashPathsSkipsSessionWrittenSinceTheList(t *testing.T) {
+	s, d, trashed := newStore(t)
+	projects, _ := s.Projects()
+	paths := s.SessionPaths(session(t, projects, fixture.Old))
+	soon := fixture.Now.Add(-time.Minute)
+	if err := os.Chtimes(filepath.Join(d.Root, fixture.Proj, fixture.Old+".jsonl"), soon, soon); err != nil {
+		t.Fatal(err)
+	}
+	if moved, err := s.TrashPaths(paths); moved != 0 || err != nil {
+		t.Errorf("moved %d, err %v; want 0, nil", moved, err)
+	}
+	if len(*trashed) != 0 {
+		t.Errorf("trashed %q", *trashed)
+	}
+}
+
+func TestTrashPathsSkipsRecentPath(t *testing.T) {
+	s, d, trashed := newStore(t)
+	p := filepath.Join(d.Root, "paste-cache", "p1.txt")
+	soon := fixture.Now.Add(-time.Minute)
+	if err := os.Chtimes(p, soon, soon); err != nil {
+		t.Fatal(err)
+	}
+	if moved, err := s.TrashPaths([]string{p}); moved != 0 || err != nil || len(*trashed) != 0 {
+		t.Errorf("moved %d, err %v, trashed %q; want nothing", moved, err, *trashed)
+	}
+}

@@ -70,7 +70,12 @@ func (s *Store) live() (ids map[string]bool, since time.Time) {
 			StartedAt int64  `json:"startedAt"` // epoch milliseconds
 		}
 		b, err := os.ReadFile(f)
-		if err != nil || json.Unmarshal(b, &r) != nil || r.SessionID == "" {
+		if err != nil {
+			continue
+		}
+		// A startedAt that is no integer leaves StartedAt 0 (start unknown); the session still counts as live.
+		var typeErr *json.UnmarshalTypeError
+		if err := json.Unmarshal(b, &r); err != nil && !errors.As(err, &typeErr) || r.SessionID == "" {
 			continue
 		}
 		if !s.Alive(r.PID) {
@@ -160,8 +165,11 @@ func listFiles(dir, suffix string) []string {
 	return out
 }
 
-// readHead fills a session's metadata from its first 64 KB, then reads on
-// only until it finds the ai-title, parsing only the lines that hold one.
+// readHead fills a session's metadata. It parses every line of the first 64 KB
+// (headLimit): cwd, branch, version, start, and the first title or prompt found.
+// Past the head it reads on, parsing only a line that holds an ai-title (while
+// there is no title) or a user record (while there is no first prompt), and stops
+// once both are found, at the end of the file, or after 8 MB (titleLimit).
 func readHead(file string, x *Session) error {
 	f, err := os.Open(file)
 	if err != nil {

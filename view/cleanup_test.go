@@ -1,9 +1,12 @@
 package view
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/lang315/claude-manager/internal/fixture"
 )
 
 func TestCleanupTrashesCheckedGroups(t *testing.T) {
@@ -108,5 +111,60 @@ func TestCleanupStaleLoadIgnored(t *testing.T) {
 	tt.Frame()
 	if !tt.HasText("transcripts older than 6 days") || tt.HasText("transcripts older than 5 days") {
 		t.Errorf("stale load applied; texts %q", tt.Texts())
+	}
+}
+
+// A session that started after the last scan is no orphan when the days
+// change, and is judged by its own age.
+func TestCleanupDaysSeesSessionsStartedSinceTheScan(t *testing.T) {
+	a, tt, d, _ := newApp(t)
+	id := "77777777-7777-4777-8777-777777777777"
+	old := fixture.Now.AddDate(0, 0, -2)
+	for rel, c := range map[string]string{
+		fixture.Proj + "/" + id + ".jsonl": `{"type":"user","message":{"content":"hi"}}` + "\n",
+		"file-history/" + id + "/v1":       "edit",
+	} {
+		p := filepath.Join(d.Root, rel)
+		must(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		must(t, os.WriteFile(p, []byte(c), 0o644))
+	}
+	for _, rel := range []string{fixture.Proj + "/" + id + ".jsonl", "file-history/" + id} {
+		must(t, os.Chtimes(filepath.Join(d.Root, rel), old, old))
+	}
+	must(t, tt.Click("Cleanup"))
+	a.cleanup.days = 1
+	a.cleanup.load(a)
+	tt.Frame()
+	found := false
+	for _, g := range a.cleanup.groups {
+		for _, it := range g.Items {
+			if filepath.Base(it.Path) == id && g.Name != "sessions older than 1 days" {
+				t.Errorf("session started after the scan offered in %q: %s", g.Name, it.Path)
+			}
+			if filepath.Base(it.Path) == id+".jsonl" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("a session 2 days old, started after the scan, is not offered for days = 1")
+	}
+}
+
+func TestMoveToTrashDisabledWhileBusy(t *testing.T) {
+	a, tt, _, trashed := newApp(t)
+	must(t, tt.Click("Cleanup"))
+	must(t, tt.Click("paste-cache"))
+	a.busy = 1
+	tt.Frame()
+	tt.Click("Move to Trash…") // disabled: a click does nothing
+	if tt.HasText("Move 1 items to the Trash?") {
+		t.Errorf("confirmation opens while busy; texts %q", tt.Texts())
+	}
+	a.busy = 0
+	tt.Frame()
+	must(t, tt.Click("Move to Trash…"))
+	if !tt.HasText("Move 1 items to the Trash?") || len(*trashed) != 0 {
+		t.Errorf("no confirmation once idle; texts %q", tt.Texts())
 	}
 }

@@ -110,3 +110,40 @@ func TestConfigEmptySettings(t *testing.T) {
 		t.Errorf("texts %q", tt.Texts())
 	}
 }
+
+func TestScalarMasksCredentialShapes(t *testing.T) {
+	for _, v := range []string{
+		"https://mcp.example.com/sse?api_key=abc123def456",
+		"https://server.smithery.ai/x/mcp?token=abc123def456",
+		"--api-key=abc123def456",
+		"--token=abc123def456",
+		"ghs_abcdefabcdefabcdef",
+		"gho_abcdefabcdefabcdef",
+		"AKIAABCDEFGHIJKLMNOP",
+		"Authorization: Basic dXNlcjpwYXNz",
+	} {
+		if got := scalar("url", v); got != mask {
+			t.Errorf("shown: %s", got)
+		}
+	}
+}
+
+// An args array holds a flag and its value as two elements.
+func TestConfigMasksValueAfterSecretFlag(t *testing.T) {
+	a, tt, d, _ := newApp(t)
+	must(t, os.WriteFile(d.ClaudeJSON, []byte(`{"mcpServers":{"x":{"args":["--api-key","abc123","--verbose","plain"]}}}`), 0o600))
+	a.Rescan()
+	tt.Frame()
+	must(t, tt.Click("Config"))
+	must(t, tt.Click("MCP servers"))
+	must(t, tt.Click("x"))
+	must(t, tt.Click("args [4]"))
+	if !tt.HasText("1: ••••••") || !tt.HasText(`3: "plain"`) {
+		t.Errorf("expected only the value after --api-key masked; texts %q", tt.Texts())
+	}
+	for _, s := range tt.Texts() {
+		if strings.Contains(s, "abc123") {
+			t.Errorf("a credential shows: %q", s)
+		}
+	}
+}

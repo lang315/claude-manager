@@ -110,8 +110,8 @@ func (p *configPage) node(c *ui.Context, path, key string, v any, masked bool) {
 			*open = !*open
 		}
 	}
-	masked = masked || secretKey.MatchString(key) ||
-		(key == "env" || key == "headers") && (path == "mcp" || strings.HasPrefix(path, "mcp/"))
+	mcp := path == "mcp" || strings.HasPrefix(path, "mcp/")
+	masked = masked || secretKey.MatchString(key) || (key == "env" || key == "headers") && mcp
 	switch x := v.(type) {
 	case map[string]any:
 		build := func() {
@@ -127,7 +127,9 @@ func (p *configPage) node(c *ui.Context, path, key string, v any, masked bool) {
 	case []any:
 		build := func() {
 			for i, e := range x {
-				p.node(c, fmt.Sprintf("%s/%d", path, i), strconv.Itoa(i), e, masked)
+				// "--api-key", "abc123": the value is its own element, so the flag before it decides.
+				val := masked || mcp && key == "args" && i > 0 && secretFlag(x[i-1])
+				p.node(c, fmt.Sprintf("%s/%d", path, i), strconv.Itoa(i), e, val)
 			}
 		}
 		if key == "" {
@@ -159,9 +161,17 @@ const mask = "••••••"
 var secretKey = regexp.MustCompile(`(?i)token|secret|password|passwd|passphrase|api[-_]?key|access[-_]?key|private[-_]?key|_key$|^key$|auth|credential|cookie|bearer|_pat$|^pat$|dsn|webhook|headers`)
 
 // secretValue matches credentials inside a string value, whatever its key.
-// shortcut: known shapes only; a bare token after a separate flag element
-// ("--api-key", "abc123") and tokens without a known prefix still show. Match more shapes if one leaks.
-var secretValue = regexp.MustCompile(`(?i)bearer\s+\S+|\bsk-[\w-]{8,}|\bghp_\w+|github_pat_\w+|xox[abposr]-\S+|://[^/\s:@]+:[^@\s]+@`)
+// shortcut: known shapes only (bearer/basic, sk-, gh?_, github_pat_, xox?-, AKIA, user:pass@, a query
+// parameter or --flag=value named like a secret); a token without a known shape still shows, as does a
+// bare value after a separate flag element outside an MCP "args" array (inside one it is masked, see
+// node). Match more shapes if one leaks.
+var secretValue = regexp.MustCompile(`(?i)bearer\s+\S+|basic\s+\S+|\bsk-[\w-]{8,}|\bgh[pousr]_\w+|github_pat_\w+|xox[abposr]-\S+|\bAKIA[0-9A-Z]{16}|://[^/\s:@]+:[^@\s]+@|[?&][^=&\s]*(key|token|secret|auth|sig|pass)[^=&\s]*=[^&\s]+|--?[\w-]*(key|token|secret|password|auth)[\w-]*=\S+`)
+
+// secretFlag reports whether v is a command-line flag named like a secret.
+func secretFlag(v any) bool {
+	s, ok := v.(string)
+	return ok && strings.HasPrefix(s, "-") && secretKey.MatchString(strings.TrimLeft(s, "-"))
+}
 
 func scalar(key string, v any) string {
 	if s, ok := v.(string); ok {
@@ -197,7 +207,7 @@ func (p *configPage) docs(c *ui.Context, ds []store.Doc) {
 
 func (p *configPage) backupTable(c *ui.Context, a *App) {
 	targets := picked(&p.backups, p.cfg.Backups)
-	if ui.Button(c, "Move to Trash…").Disabled(len(targets) == 0).Clicked() {
+	if ui.Button(c, "Move to Trash…").Disabled(len(targets) == 0 || a.busy > 0).Clicked() {
 		p.pending = nil
 		for _, x := range targets {
 			p.pending = append(p.pending, *x)

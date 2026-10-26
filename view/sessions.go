@@ -30,12 +30,16 @@ type sessions struct {
 	bad     int
 	loading bool
 	gen     int // which open the messages arriving belong to
+	loadGen int // which load the projects arriving belong to
 	list    *ui.ListState
 	md      markdown.Options
 }
 
 func sessionLabel(x *store.Session) string {
 	label := cmp.Or(x.Title, x.FirstPrompt, "(untitled)")
+	if x.Err != "" {
+		label = "(unreadable: " + x.Err + ")"
+	}
 	if x.Live {
 		label += " (live)"
 	}
@@ -83,11 +87,15 @@ func (s *sessions) load(a *App) {
 	days := int(a.cleanup.days)
 	a.cleanup.gen++
 	gen := a.cleanup.gen
+	s.loadGen++
+	loadGen := s.loadGen
 	a.run(func() func() {
 		projects, err := a.Store.Projects()
 		groups := a.Store.Cleanup(projects, days)
 		return func() {
-			s.set(projects, err)
+			if loadGen == s.loadGen {
+				s.set(projects, err)
+			}
 			if gen == a.cleanup.gen {
 				a.cleanup.set(groups)
 			}
@@ -136,7 +144,7 @@ func (s *sessions) sessionTable(c *ui.Context, a *App) {
 		if ui.Button(c, "Open Transcript").Disabled(cur == nil).Clicked() {
 			s.openTranscript(a, *cur)
 		}
-		if ui.Button(c, "Move to Trash…").Disabled(len(targets) == 0).Clicked() {
+		if ui.Button(c, "Move to Trash…").Disabled(len(targets) == 0 || a.busy > 0).Clicked() {
 			s.pending, s.skipped, s.asking = targets, live, true
 		}
 	})

@@ -1,11 +1,14 @@
 package view
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/lang315/claude-manager/internal/fixture"
+	"github.com/lang315/claude-manager/store"
 )
 
 func TestTrashSession(t *testing.T) {
@@ -92,5 +95,35 @@ func TestShortPath(t *testing.T) {
 		if got := shortPath(in); got != want {
 			t.Errorf("shortPath(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestSessionLabelUnreadable(t *testing.T) {
+	x := &store.Session{Err: "permission denied", Live: true}
+	if got := sessionLabel(x); !strings.Contains(got, "unreadable") || !strings.Contains(got, "permission denied") || !strings.HasSuffix(got, " (live)") {
+		t.Errorf("label %q", got)
+	}
+}
+
+// Scans can finish out of order; the last one started wins.
+func TestSessionsStaleLoadIgnored(t *testing.T) {
+	a, tt, d, _ := newApp(t)
+	var queued []func()
+	a.Go = func(f func()) { queued = append(queued, f) }
+	a.sessions.load(a)
+	a.sessions.load(a)
+	queued[1]() // the newer scan reads the disk first
+	tt.Frame()
+	must(t, os.Remove(filepath.Join(d.Root, fixture.Other, fixture.Recent+".jsonl")))
+	queued[0]() // the older one reads it after, without that session
+	tt.Frame()
+	found := false
+	for _, p := range a.sessions.projects {
+		for _, x := range p.Sessions {
+			found = found || x.ID == fixture.Recent
+		}
+	}
+	if !found {
+		t.Error("the older scan overwrote the newer one")
 	}
 }

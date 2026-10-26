@@ -24,12 +24,13 @@ func (p *cleanup) set(groups []store.Group) {
 	}
 }
 
-// load finds the groups again from the sessions already listed.
+// load finds the groups again from the sessions on disk now.
 func (p *cleanup) load(a *App) {
-	projects, days := a.sessions.projects, int(p.days)
+	days := int(p.days)
 	p.gen++
 	gen := p.gen
 	a.run(func() func() {
+		projects, _ := a.Store.Projects() // fresh: a session may have started since the last scan
 		groups := a.Store.Cleanup(projects, days)
 		return func() {
 			if gen == p.gen {
@@ -62,7 +63,7 @@ func (p *cleanup) view(c *ui.Context, a *App) {
 		}
 	}
 	ui.Textf(c, "Checked: %d items · %s", count, humanSize(total)).Bold()
-	if ui.PrimaryButton(c, "Move to Trash…").Disabled(count == 0).Clicked() {
+	if ui.PrimaryButton(c, "Move to Trash…").Disabled(count == 0 || a.busy > 0).Clicked() {
 		p.pending, p.size = nil, 0
 		seen := map[string]bool{} // groups overlap: count each path once
 		for i, g := range p.groups {
