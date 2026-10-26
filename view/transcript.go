@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -10,7 +11,22 @@ import (
 
 type msgRow struct {
 	store.Message
-	open bool // a collapsed block (thinking, tool call, tool result) is expanded
+	open  bool   // a collapsed block (thinking, tool call, tool result) is expanded
+	label string // the collapsed block's label, built once
+}
+
+// newRow builds a row, cutting the text it labels at 512 bytes first: a tool
+// result can be megabytes long and the label is drawn every frame.
+func newRow(m store.Message) msgRow {
+	p := m.Text
+	if len(p) > 512 {
+		n := 512
+		for !utf8.RuneStart(p[n]) {
+			n--
+		}
+		p = p[:n]
+	}
+	return msgRow{Message: m, label: m.Kind + " · " + store.FirstLine(p, 120)}
 }
 
 // openTranscript shows a session's transcript, its messages coming in as
@@ -27,7 +43,7 @@ func (s *sessions) openTranscript(a *App, x store.Session) {
 					return
 				}
 				for _, m := range ms {
-					s.msgs = append(s.msgs, msgRow{Message: m})
+					s.msgs = append(s.msgs, newRow(m))
 				}
 			})
 		})
@@ -48,7 +64,7 @@ func (s *sessions) transcript(c *ui.Context) {
 	x := s.open
 	ui.Row(c).Gap(8).Children(func() {
 		if ui.Button(c, "Back").Clicked() {
-			s.open = nil
+			s.open, s.msgs, s.bad, s.loading = nil, nil, 0, false
 			s.gen++ // messages still arriving are dropped
 		}
 		ui.Text(c, sessionLabel(x)).Bold().NoWrap()
@@ -78,7 +94,7 @@ func (s *sessions) message(c *ui.Context, m *msgRow) {
 			markdown.View(c, m.Text, &s.md)
 			return
 		}
-		ui.Collapsible(c, m.Kind+" · "+store.FirstLine(m.Text, 120), &m.open, func() {
+		ui.Collapsible(c, m.label, &m.open, func() {
 			ui.Text(c, clip(m.Text)).Font("monospace").Selectable()
 		})
 	})
