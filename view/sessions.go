@@ -47,7 +47,7 @@ func (s *sessions) init() {
 	s.ptable.Key = func(p *store.Project) string { return p.Dir }
 	s.ptable.NoSearchBar = true
 	s.ptable.Columns = []ui.DataColumn[store.Project]{
-		{TableColumn: ui.TableColumn{Title: "Project", Width: 200}, Text: func(p *store.Project) string { return p.Path },
+		{TableColumn: ui.TableColumn{Title: "Project", Width: 130}, Text: func(p *store.Project) string { return p.Path },
 			Compare: func(x, y *store.Project) int { return cmp.Compare(x.Path, y.Path) }},
 		{TableColumn: ui.TableColumn{Title: "Count", Width: 60}, Text: func(p *store.Project) string { return strconv.Itoa(len(p.Sessions)) },
 			Compare: func(x, y *store.Project) int { return cmp.Compare(len(x.Sessions), len(y.Sessions)) }},
@@ -58,7 +58,7 @@ func (s *sessions) init() {
 	s.table.Footer = true
 	s.table.SearchDelay = 200 * time.Millisecond
 	s.table.Columns = []ui.DataColumn[store.Session]{
-		{TableColumn: ui.TableColumn{Title: "Session", Width: 380}, Text: sessionLabel,
+		{TableColumn: ui.TableColumn{Title: "Session", Width: 200}, Text: sessionLabel,
 			Match: func(x *store.Session, kw string) bool {
 				return containsFold(x.Title, kw) || containsFold(x.FirstPrompt, kw)
 			},
@@ -70,9 +70,9 @@ func (s *sessions) init() {
 			}},
 		{TableColumn: ui.TableColumn{Title: "Modified", Width: 140}, Text: func(x *store.Session) string { return fmtTime(x.Modified) }, NoSearch: true,
 			Compare: func(x, y *store.Session) int { return x.Modified.Compare(y.Modified) }},
-		{TableColumn: ui.TableColumn{Title: "Size", Width: 90}, Text: func(x *store.Session) string { return humanSize(x.Size) }, NoSearch: true,
+		{TableColumn: ui.TableColumn{Title: "Size", Width: 80}, Text: func(x *store.Session) string { return humanSize(x.Size) }, NoSearch: true,
 			Compare: func(x, y *store.Session) int { return cmp.Compare(x.Size, y.Size) }},
-		{TableColumn: ui.TableColumn{Title: "Subagents", Width: 80}, Text: func(x *store.Session) string { return strconv.Itoa(x.Subagents) }, NoSearch: true,
+		{TableColumn: ui.TableColumn{Title: "Subagents", Width: 90}, Text: func(x *store.Session) string { return strconv.Itoa(x.Subagents) }, NoSearch: true,
 			Compare: func(x, y *store.Session) int { return cmp.Compare(x.Subagents, y.Subagents) }},
 	}
 }

@@ -43,7 +43,7 @@ func (p *cleanup) view(c *ui.Context, a *App) {
 	t := c.Theme()
 	ui.Row(c).Gap(8).Children(func() {
 		ui.Text(c, "Older than")
-		if ui.NumberInput(c, &p.days, 1, 3650, 1).Width(90).Label("Days").Changed() {
+		if ui.NumberInput(c, &p.days, 1, 3650, 1).Width(170).Label("Days").Changed() {
 			p.load(a)
 		}
 		ui.Text(c, "days")

@@ -49,7 +49,7 @@ func (a *App) View(c *ui.Context) {
 		c.Toast(a.notice)
 		a.notice = ""
 	}
-	ui.Row(c).Fill().Children(func() {
+	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		ui.Sidebar(c, &a.page, func() {
 			ui.SidebarItem(c, "overview", nil, "Overview")
 			ui.SidebarItem(c, "sessions", nil, "Sessions")
