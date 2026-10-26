@@ -29,8 +29,11 @@ func TestConfig(t *testing.T) {
 	if _, ok := cfg.MCP["remote"]; !ok {
 		t.Error("MCP lacks remote, from .claude.json")
 	}
-	if cfg.Plugins["installed"] == nil || cfg.Plugins["marketplaces"] == nil {
-		t.Errorf("plugins %v", cfg.Plugins)
+	if m, _ := cfg.Plugins["installed"].(map[string]any); m["plugins"] == nil {
+		t.Errorf("installed plugins %v", cfg.Plugins["installed"])
+	}
+	if m, _ := cfg.Plugins["marketplaces"].(map[string]any); m["market"] == nil {
+		t.Errorf("marketplaces %v", cfg.Plugins["marketplaces"])
 	}
 	if got := names(cfg.Skills); len(got) != 1 || got[0] != "demo" {
 		t.Errorf("skills %q", got)
@@ -44,6 +47,15 @@ func TestConfig(t *testing.T) {
 	}
 	if len(cfg.Backups) != 2 {
 		t.Errorf("%d backups, want 2", len(cfg.Backups))
+	}
+
+	for _, f := range []string{"installed_plugins.json", "known_marketplaces.json"} {
+		if err := os.Remove(filepath.Join(d.Root, "plugins", f)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if cfg := s.Config(); len(cfg.Plugins) != 0 || len(cfg.Errs) != 0 {
+		t.Errorf("plugins %v, errors %q without plugin files", cfg.Plugins, cfg.Errs)
 	}
 
 	if err := os.WriteFile(filepath.Join(d.Root, "settings.json"), []byte("{broken"), 0o644); err != nil {

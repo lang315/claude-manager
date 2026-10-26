@@ -50,9 +50,11 @@ func (s *Store) Config() Config {
 			maps.Copy(cfg.MCP, servers)
 		}
 	}
-	cfg.Plugins = map[string]any{
-		"installed":    read(filepath.Join(s.Root, "plugins", "installed_plugins.json")),
-		"marketplaces": read(filepath.Join(s.Root, "plugins", "known_marketplaces.json")),
+	cfg.Plugins = map[string]any{}
+	for k, f := range map[string]string{"installed": "installed_plugins.json", "marketplaces": "known_marketplaces.json"} {
+		if m := read(filepath.Join(s.Root, "plugins", f)); m != nil {
+			cfg.Plugins[k] = m
+		}
 	}
 	cfg.Skills = docs(filepath.Join(s.Root, "skills", "*", "SKILL.md"), func(p string) string { return filepath.Base(filepath.Dir(p)) })
 	cfg.Commands = commands(filepath.Join(s.Root, "commands"))
