@@ -83,7 +83,10 @@ func (s *Store) Cleanup(projects []Project, days int) []Group {
 	skipSnapshot := func(it Item) bool {
 		return skip(it) || (len(liveIDs) > 0 && !it.Modified.Before(since))
 	}
-	orphan := func(it Item) bool { return len(ids) > 0 && !ids[filepath.Base(it.Path)] }
+	orphan := func(it Item) bool { // a session id with no session; .DS_Store and the like are not
+		id := filepath.Base(it.Path)
+		return len(ids) > 0 && uuidRe.MatchString(id) && !ids[id]
+	}
 
 	groups := []Group{
 		s.entries("session-env", "session-env", nil, skip),

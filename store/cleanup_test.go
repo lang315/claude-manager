@@ -66,7 +66,7 @@ func TestCleanupGroups(t *testing.T) {
 		"paste-cache":                    {"paste-cache/p1.txt"},
 		"shell-snapshots":                {}, // 4242.json has no startedAt: every snapshot may belong to the live session
 		"debug":                          {"debug/d.txt"},
-		"file-history without a session": {"file-history/.DS_Store", "file-history/" + fixture.OrphanHistory},
+		"file-history without a session": {"file-history/" + fixture.OrphanHistory}, // not .DS_Store: only a session id is orphaned
 		"transcripts older than 30 days": {"transcripts/old.jsonl"},
 		"session data without a session": {fixture.Proj + "/" + fixture.OrphanDir},
 		"sessions older than 30 days": {

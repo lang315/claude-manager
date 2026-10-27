@@ -253,10 +253,10 @@ var secretKey = regexp.MustCompile(`(?i)token|secret|password|passwd|passphrase|
 
 // secretValue matches credentials inside a string value, whatever its key.
 // shortcut: known shapes only (bearer/basic, sk-, gh?_, github_pat_, xox?-, AKIA, user:pass@, a query
-// parameter or --flag=value named like a secret); a token without a known shape still shows, as does a
+// parameter or --flag=value named like a secret, a "Name: value" header named like one); a token without a known shape still shows, as does a
 // bare value after a separate flag element outside an MCP "args" array (inside one it is masked, see
 // tree.add). Match more shapes if one leaks.
-var secretValue = regexp.MustCompile(`(?i)bearer\s+\S+|basic\s+\S+|\bsk-[\w-]{8,}|\bgh[pousr]_\w+|github_pat_\w+|xox[abposr]-\S+|\bAKIA[0-9A-Z]{16}|://[^/\s:@]+:[^@\s]+@|[?&][^=&\s]*(key|token|secret|auth|sig|pass)[^=&\s]*=[^&\s]+|--?[\w-]*(key|token|secret|password|auth)[\w-]*=\S+`)
+var secretValue = regexp.MustCompile(`(?i)bearer\s+\S+|basic\s+\S+|\bsk-[\w-]{8,}|\bgh[pousr]_\w+|github_pat_\w+|xox[abposr]-\S+|\bAKIA[0-9A-Z]{16}|://[^/\s:@]+:[^@\s]+@|[?&][^=&\s]*(key|token|secret|auth|sig|pass)[^=&\s]*=[^&\s]+|--?[\w-]*(key|token|secret|password|auth)[\w-]*=\S+|^[\w-]*(key|token|secret|password|auth|cookie)[\w-]*\s*:\s*\S`)
 
 // secretFlag reports whether v is a command-line flag named like a secret.
 func secretFlag(v any) bool {
@@ -546,7 +546,7 @@ func (p *configPage) backupTable(c *ui.Context, a *App, pal *palette) {
 		blank(c, pal, "No backups of settings.json.")
 		return
 	}
-	targets := picked(&p.backups, p.cfg.Backups)
+	targets := picked(&p.backups)
 	var size int64
 	for _, x := range targets {
 		size += x.Size

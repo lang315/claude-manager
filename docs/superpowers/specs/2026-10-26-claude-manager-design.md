@@ -64,7 +64,7 @@ internal/fixture/  synthetic ~/.claude written into a temp dir for tests
   and first prompt. Past the head it reads on, parsing only a line that holds an
   `ai-title` (while there is no title) or a user record (while there is no first
   prompt), and stops once both are found, at the end of the file, or after
-  8 MB. A title past 8 MB reads as untitled. The table shows no message count:
+  8 MB. A title past 8 MB is not found; the row shows the first prompt instead. The table shows no message count:
   the transcript header shows the real one.
 - `parseRecord` tolerates a record with a field of an unexpected type (a
   `*json.UnmarshalTypeError` is no parse failure); only a syntax error counts

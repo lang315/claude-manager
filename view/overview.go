@@ -38,7 +38,7 @@ func (o *overview) view(c *ui.Context, a *App, pal *palette) {
 			ui.Row(c).Gap(16).AlignItems(ui.Start).Children(func() {
 				face(c, pal).Grow(1).Basis(0).MinWidth(0).Children(func() { recent(c, a, pal) })
 				face(c, pal).Grow(1).Basis(0).MinWidth(0).Children(func() {
-					head(c, pal, "Can be cleaned", "older than "+plural(int(a.cleanup.days), "day"))
+					head(c, pal, "Can be cleaned", "older than "+plural(a.cleanup.age(), "day"))
 					a.cleanup.list(c, pal, false)
 					a.cleanup.footer(c, a, pal)
 				})

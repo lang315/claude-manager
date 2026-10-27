@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
@@ -36,8 +37,11 @@ func (s *sessions) openTranscript(a *App, x store.Session) {
 	s.list = &ui.ListState{}
 	s.gen++
 	gen := s.gen
+	s.stopReading()
+	stop := new(atomic.Bool)
+	s.stop = stop
 	a.run(func() func() {
-		bad, err := store.ReadTranscript(x.File, func(ms []store.Message) {
+		bad, err := store.ReadTranscript(x.File, stop.Load, func(ms []store.Message) {
 			a.Update(func() {
 				if s.gen != gen {
 					return
@@ -59,6 +63,14 @@ func (s *sessions) openTranscript(a *App, x store.Session) {
 	})
 }
 
+// stopReading stops the read of the transcript open, which frees Move to
+// Trash as soon as the read returns.
+func (s *sessions) stopReading() {
+	if s.stop != nil {
+		s.stop.Store(true)
+	}
+}
+
 func (s *sessions) transcript(c *ui.Context, pal *palette) {
 	t := c.Theme()
 	x := s.open
@@ -66,6 +78,7 @@ func (s *sessions) transcript(c *ui.Context, pal *palette) {
 		if ui.Button(c, "Back").Clicked() {
 			s.open, s.msgs, s.bad, s.loading = nil, nil, 0, false
 			s.gen++ // messages still arriving are dropped
+			s.stopReading()
 		}
 		if x.Live {
 			lamp(c, pal)

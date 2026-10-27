@@ -1,7 +1,9 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lang315/claude-manager/internal/fixture"
@@ -11,7 +13,7 @@ func TestReadTranscript(t *testing.T) {
 	_, d, _ := newStore(t)
 	var got []Message
 	batches := 0
-	bad, err := ReadTranscript(filepath.Join(d.Root, fixture.Proj, fixture.Old+".jsonl"), func(ms []Message) {
+	bad, err := ReadTranscript(filepath.Join(d.Root, fixture.Proj, fixture.Old+".jsonl"), never, func(ms []Message) {
 		batches++
 		got = append(got, ms...)
 	})
@@ -46,7 +48,27 @@ func TestReadTranscript(t *testing.T) {
 }
 
 func TestReadTranscriptMissing(t *testing.T) {
-	if _, err := ReadTranscript(filepath.Join(t.TempDir(), "nope.jsonl"), func([]Message) {}); err == nil {
+	if _, err := ReadTranscript(filepath.Join(t.TempDir(), "nope.jsonl"), never, func([]Message) {}); err == nil {
 		t.Error("no error for a missing file")
+	}
+}
+
+func never() bool { return false }
+
+// Once stop says so, the reader stops between lines: a transcript left with
+// Back is not read to its end.
+func TestReadTranscriptStops(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "long.jsonl")
+	line := `{"type":"user","message":{"role":"user","content":"hi"}}` + "\n"
+	if err := os.WriteFile(f, []byte(strings.Repeat(line, 5*batchSize)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := 0
+	_, err := ReadTranscript(f, func() bool { return got > 0 }, func(ms []Message) { got += len(ms) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != batchSize {
+		t.Errorf("read %d messages after stop, want the first batch of %d", got, batchSize)
 	}
 }

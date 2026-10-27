@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 
@@ -55,9 +56,12 @@ func unique(groups []store.Group, on []bool) []store.Item {
 	return out
 }
 
+// age is the days field as whole days: rounded, as a typed 30.6 reads.
+func (p *cleanup) age() int { return int(math.Round(p.days)) }
+
 // load finds the groups again from the sessions on disk now.
 func (p *cleanup) load(a *App) {
-	days := int(p.days)
+	days := p.age()
 	p.gen++
 	gen := p.gen
 	a.run(func() func() {

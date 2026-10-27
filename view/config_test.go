@@ -235,3 +235,20 @@ func TestSettingsMasksItsMCPServers(t *testing.T) {
 		}
 	}
 }
+
+// A header passed as its own args element, "--header", "X-API-Key: …", is
+// masked by the header's name; an ordinary header still shows.
+func TestScalarMasksSecretHeaders(t *testing.T) {
+	for _, v := range []string{"X-API-Key: abc123", "x-auth-token:abc123", "Cookie: sid=abc123"} {
+		if got := scalar("1", v); got != mask {
+			t.Errorf("scalar(%q) = %q, want the mask", v, got)
+		}
+	}
+	if got := scalar("1", "Content-Type: application/json"); got != "Content-Type: application/json" {
+		t.Errorf("an ordinary header is masked: %q", got)
+	}
+	got := mcpSummary(map[string]any{"command": "npx", "args": []any{"mcp-remote", "--header", "X-API-Key: abc123"}})
+	if strings.Contains(got, "abc123") {
+		t.Errorf("summary shows the key: %q", got)
+	}
+}

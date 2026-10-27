@@ -134,16 +134,17 @@ func (a *App) run(work func() (apply func())) {
 }
 
 // picked returns the rows a table's actions apply to: the checked rows, or
-// the chosen ones when none is checked.
-func picked[T any, K comparable](s *ui.DataTableState[T, K], rows []T) []*T {
+// the chosen ones when none is checked, of those shown. A row the search
+// hides is left out: the user can't see it.
+func picked[T any, K comparable](s *ui.DataTableState[T, K]) []*T {
 	set := &s.Checked
 	if set.Len() == 0 {
 		set = &s.Chosen
 	}
 	var out []*T
-	for i := range rows {
-		if set.Has(s.Key(&rows[i])) {
-			out = append(out, &rows[i])
+	for i := range s.Len() {
+		if x := s.At(i); set.Has(s.Key(x)) {
+			out = append(out, x)
 		}
 	}
 	return out

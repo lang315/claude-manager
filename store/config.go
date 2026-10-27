@@ -71,14 +71,16 @@ func (s *Store) Config() Config {
 		return true
 	}
 	load(filepath.Join(s.Root, "settings.json"), &cfg.Settings)
-	var claudeJSON map[string]any
+	// .claude.json holds much else (projects, caches); only its servers are decoded.
+	var claudeJSON struct {
+		MCPServers map[string]any `json:"mcpServers"`
+	}
 	load(s.ClaudeJSON, &claudeJSON)
 	cfg.MCP = map[string]any{}
-	for _, m := range []map[string]any{cfg.Settings, claudeJSON} {
-		if servers, ok := m["mcpServers"].(map[string]any); ok {
-			maps.Copy(cfg.MCP, servers)
-		}
+	if servers, ok := cfg.Settings["mcpServers"].(map[string]any); ok {
+		maps.Copy(cfg.MCP, servers)
 	}
+	maps.Copy(cfg.MCP, claudeJSON.MCPServers)
 
 	var installed struct {
 		Plugins map[string][]struct{ InstallPath, Version, LastUpdated string }
@@ -115,10 +117,10 @@ func (s *Store) Config() Config {
 		cfg.Marketplaces = append(cfg.Marketplaces, Marketplace{Name: name, Source: source(m.Source), Updated: parseTime(m.LastUpdated)})
 	}
 
-	cfg.Skills = docs(filepath.Join(s.Root, "skills", "*", "SKILL.md"), func(p string) (string, string) { return filepath.Base(filepath.Dir(p)), "" })
-	cfg.Commands = commands(filepath.Join(s.Root, "commands"))
-	cfg.Memory = append(docs(filepath.Join(s.Root, "CLAUDE.md"), func(p string) (string, string) { return filepath.Base(p), "" }),
-		docs(filepath.Join(s.Root, "projects", "*", "*memory", "*.md"), func(p string) (string, string) {
+	cfg.Skills = docs(&cfg.Errs, filepath.Join(s.Root, "skills", "*", "SKILL.md"), func(p string) (string, string) { return filepath.Base(filepath.Dir(p)), "" })
+	cfg.Commands = commands(&cfg.Errs, filepath.Join(s.Root, "commands"))
+	cfg.Memory = append(docs(&cfg.Errs, filepath.Join(s.Root, "CLAUDE.md"), func(p string) (string, string) { return filepath.Base(p), "" }),
+		docs(&cfg.Errs, filepath.Join(s.Root, "projects", "*", "*memory", "*.md"), func(p string) (string, string) {
 			dir := filepath.Dir(p)
 			name := filepath.Base(p)
 			if filepath.Base(dir) != "memory" {
@@ -161,40 +163,48 @@ func source(v any) string {
 	return s
 }
 
-func docs(pattern string, name func(path string) (name, group string)) []Doc {
+// docs reads the files pattern matches, adding to errs those it can't read.
+func docs(errs *[]string, pattern string, name func(path string) (name, group string)) []Doc {
 	files, _ := filepath.Glob(pattern)
 	var out []Doc
 	for _, f := range files {
-		if d, ok := readDoc(f); ok {
-			d.Name, d.Group = name(f)
-			out = append(out, d)
+		d, err := readDoc(f)
+		if err != nil {
+			*errs = append(*errs, err.Error())
+			continue
 		}
+		d.Name, d.Group = name(f)
+		out = append(out, d)
 	}
 	return out
 }
 
 // commands lists the .md files under dir, named by their path in it
-// without .md, as Claude Code names slash commands.
-func commands(dir string) []Doc {
+// without .md, as Claude Code names slash commands, adding to errs those it
+// can't read.
+func commands(errs *[]string, dir string) []Doc {
 	var out []Doc
 	filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || filepath.Ext(p) != ".md" {
 			return nil
 		}
-		if doc, ok := readDoc(p); ok {
-			r, _ := filepath.Rel(dir, p)
-			doc.Name = strings.TrimSuffix(r, ".md")
-			out = append(out, doc)
+		doc, err := readDoc(p)
+		if err != nil {
+			*errs = append(*errs, err.Error())
+			return nil
 		}
+		r, _ := filepath.Rel(dir, p)
+		doc.Name = strings.TrimSuffix(r, ".md")
+		out = append(out, doc)
 		return nil
 	})
 	return out
 }
 
-func readDoc(path string) (Doc, bool) {
+func readDoc(path string) (Doc, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return Doc{}, false
+		return Doc{}, err
 	}
 	d := Doc{Item: item(path)}
 	d.Fields, d.Body = frontMatter(string(b))
@@ -212,7 +222,7 @@ func readDoc(path string) (Doc, bool) {
 		}
 	}
 	d.Desc = FirstLine(mdLink.ReplaceAllString(d.Desc, "$1"), 200)
-	return d, true
+	return d, nil
 }
 
 // frontMatter splits the YAML block a Markdown file may open with, between
