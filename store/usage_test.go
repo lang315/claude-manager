@@ -302,3 +302,79 @@ func TestUsageFileOddFieldType(t *testing.T) {
 		t.Errorf("bad %d, calls %+v, err %v; want the call with input 7", f.bad, f.calls, err)
 	}
 }
+
+// The bytes a transcript grows by between the stat and the read wait for
+// the next scan, so the read offset never passes the size the scan keeps.
+func TestUsageScanStopsAtStatSize(t *testing.T) {
+	s, d, _ := newStore(t)
+	base := costOf(must2(s.Usage(&UsageScan{}, nil)))
+	recent := filepath.Join(d.Root, fixture.Other, fixture.Recent+".jsonl")
+	late := fixture.UsageLine("/Users/me/other", "2026-10-26T10:00:00.000Z", "r9", "claude-haiku-4-5", `{"input_tokens":1000000}`) + "\n" // $1
+	grown := false
+	scan := UsageScan{open: func(p string) (*os.File, error) {
+		if p == recent && !grown {
+			grown = true
+			f, err := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0)
+			if err != nil {
+				return nil, err
+			}
+			f.WriteString(late)
+			f.Close()
+		}
+		return os.Open(p)
+	}}
+	if got := costOf(must2(s.Usage(&scan, nil))); !near(got, base) {
+		t.Errorf("first scan costs %v, want %v: it read past the size it stat'ed", got, base)
+	}
+	if got := costOf(must2(s.Usage(&scan, nil))); !near(got, base+1) {
+		t.Errorf("second scan costs %v, want %v", got, base+1)
+	}
+	// Cut back into the late line: the call is gone.
+	info, _ := os.Stat(recent)
+	if err := os.Truncate(recent, info.Size()-int64(len(late))/2); err != nil {
+		t.Fatal(err)
+	}
+	if got := costOf(must2(s.Usage(&scan, nil))); !near(got, base) {
+		t.Errorf("after the cut, cost %v, want %v", got, base)
+	}
+}
+
+// must2 drops Usage's counts and fails on its error.
+func must2(us []Usage, _, _ int, err error) []Usage {
+	if err != nil {
+		panic(err)
+	}
+	return us
+}
+
+// An advisor iteration without speed or inference_geo takes its call's.
+func TestUsageAdvisorTakesParentModes(t *testing.T) {
+	line := fixture.UsageLine("/p", "2026-10-26T08:00:00.000Z", "a", "claude-sonnet-5-5",
+		`{"input_tokens":1,"speed":"fast","inference_geo":"us","iterations":[{"type":"advisor_message","model":"claude-opus-5-5","input_tokens":1}]}`) + "\n"
+	f := &usageFile{}
+	if _, err := f.read(strings.NewReader(line)); err != nil {
+		t.Fatal(err)
+	}
+	if a := callsByKey(f)["msg-a/req-a:advisor:0"]; !a.Fast || !a.US {
+		t.Errorf("advisor call %+v, want fast and US like its call", a)
+	}
+}
+
+// A folder under projects/ that can't be read counts as unreadable.
+func TestUsageUnreadableFolderCounts(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any folder")
+	}
+	s, d, _ := newStore(t)
+	locked := filepath.Join(d.Root, "projects", "-Users-me-locked")
+	if err := os.Mkdir(locked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+	if _, _, unreadable, err := s.Usage(&UsageScan{}, nil); err != nil || unreadable != 1 {
+		t.Errorf("unreadable %d, err %v; want 1, nil", unreadable, err)
+	}
+}
