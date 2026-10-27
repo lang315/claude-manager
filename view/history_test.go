@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,11 +71,12 @@ func TestDateRangeKeeps(t *testing.T) {
 	}
 }
 
-func TestMatchPrompt(t *testing.T) {
-	p := &store.Prompt{Text: "Review THIS", Pastes: []store.Paste{{ID: 1, Content: "func main() {}"}}}
-	for kw, want := range map[string]bool{"": true, "   ": true, "this": true, "FUNC MAIN": true, "nope": false} {
-		if got := matchPrompt(p, kw); got != want {
-			t.Errorf("matchPrompt(%q) = %v, want %v", kw, got, want)
+func TestFoldPrompt(t *testing.T) {
+	p := &store.Prompt{Text: "Review THIS", Pastes: []store.Paste{{ID: 1, Content: "func MAIN() {}"}, {ID: 2, Content: "next"}}}
+	f := foldPrompt(p)
+	for kw, want := range map[string]bool{"review this": true, "func main": true, "next": true, "}next": false} {
+		if got := strings.Contains(f, kw); got != want {
+			t.Errorf("%q in %q = %v, want %v", kw, f, got, want)
 		}
 	}
 }
@@ -111,6 +113,11 @@ func TestHistorySearchesPastes(t *testing.T) {
 	tt.Frame()
 	if got := shownLines(a); !slices.Equal(got, []int{4}) {
 		t.Errorf("search in a paste shows %v, want [4]", got)
+	}
+	a.history.query = "   "
+	tt.Frame()
+	if got := shownLines(a); len(got) != 5 {
+		t.Errorf("a blank search shows %v, want every prompt", got)
 	}
 	a.history.query = "nothing like it"
 	tt.Frame()

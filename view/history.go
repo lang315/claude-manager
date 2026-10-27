@@ -78,32 +78,28 @@ func (r dateRange) keeps(t time.Time) bool {
 	return !t.IsZero() && (r.lo.IsZero() || !t.Before(r.lo)) && (r.hi.IsZero() || t.Before(r.hi))
 }
 
-// matchPrompt reports whether the search keyword is in the prompt or in one
-// of its pastes, ignoring case. A blank keyword matches every prompt.
-func matchPrompt(p *store.Prompt, kw string) bool {
-	kw = strings.TrimSpace(kw)
-	if kw == "" || containsFold(p.Text, kw) {
-		return true
-	}
+// foldPrompt is what the search reads of a prompt: its text and pastes in
+// lower case, made once at load rather than on every keystroke.
+func foldPrompt(p *store.Prompt) string {
+	var b strings.Builder
+	b.WriteString(strings.ToLower(p.Text))
 	for _, x := range p.Pastes {
-		if containsFold(x.Content, kw) {
-			return true
-		}
+		b.WriteByte(0) // a keyword never spans two pastes
+		b.WriteString(strings.ToLower(x.Content))
 	}
-	return false
+	return b.String()
 }
 
 // history is the History screen: every prompt typed, found by search,
 // project and date.
 type history struct {
 	prompts  []store.Prompt
+	folded   []string // foldPrompt of each prompt
 	bad      int
 	err      string   // why history.jsonl could not be read
 	projects []string // allProjects, then each project as tilde shows it, newest prompt first
 	shown    []int    // indexes in prompts of the rows the filters keep, newest first
 	key      filterKey
-	stale    bool // prompts changed since shown was worked out
-	keep     int  // the line of the prompt chosen before a load, to choose again
 	list     ui.ListState
 	at       int // the row chosen in shown, -1 for none
 	split    float32
@@ -133,12 +129,16 @@ func (h *history) init() {
 func (h *history) load(a *App) {
 	a.run(func() func() {
 		prompts, bad, err := a.Store.History()
+		folded := make([]string, len(prompts))
+		for i := range prompts {
+			folded[i] = foldPrompt(&prompts[i])
+		}
 		return func() {
-			h.keep = 0
+			line := 0
 			if p := h.chosen(); p != nil {
-				h.keep = p.Line // Claude Code only appends: a line keeps its prompt
+				line = p.Line // Claude Code only appends: a line keeps its prompt
 			}
-			h.prompts, h.bad, h.stale, h.at, h.err = prompts, bad, true, -1, errText(err)
+			h.prompts, h.folded, h.bad, h.err = prompts, folded, bad, errText(err)
 			if err != nil {
 				a.notice = err.Error()
 			}
@@ -153,29 +153,35 @@ func (h *history) load(a *App) {
 			if !seen[h.project] {
 				h.project = allProjects
 			}
+			k := h.key
+			k.project = h.project
+			h.apply(k, line)
 		}
 	})
 }
 
-// filter works out the rows shown again when the filters or the prompts
-// changed: one pass over the prompts, not one a frame. The row chosen stays
-// chosen while the filters keep it.
+// filter works out the rows shown again when a filter changed: one pass over
+// the prompts, not one a frame. The row chosen stays chosen while it passes.
 func (h *history) filter(k filterKey) {
-	if k == h.key && !h.stale {
+	if k == h.key {
 		return
 	}
-	line := h.keep
-	h.keep = 0
-	if !h.stale {
-		if p := h.chosen(); p != nil {
-			line = p.Line
-		}
+	line := 0
+	if p := h.chosen(); p != nil {
+		line = p.Line
 	}
-	h.key, h.stale, h.at = k, false, -1
+	h.apply(k, line)
+}
+
+// apply shows the prompts k lets through, and chooses the one on line again
+// when it is among them.
+func (h *history) apply(k filterKey, line int) {
+	h.key, h.at = k, -1
 	h.shown = h.shown[:0]
+	kw := strings.ToLower(strings.TrimSpace(k.query))
 	for i := range h.prompts {
 		p := &h.prompts[i]
-		if (k.project == allProjects || tilde(p.Project) == k.project) && k.dates.keeps(p.Time) && matchPrompt(p, k.query) {
+		if (k.project == allProjects || tilde(p.Project) == k.project) && k.dates.keeps(p.Time) && strings.Contains(h.folded[i], kw) {
 			if p.Line == line {
 				h.at = len(h.shown)
 			}
@@ -252,13 +258,11 @@ func (h *history) table(c *ui.Context, pal *palette) {
 // copy it or open its session.
 func (h *history) detail(c *ui.Context, a *App, pal *palette) {
 	p := h.chosen()
-	face(c, pal).Grow(1).MinHeight(0).Children(func() {
-		note := ""
-		if p != nil {
-			note = fmtTime(p.Time)
-		}
-		head(c, pal, "Prompt", note)
-		ui.Divider(c)
+	note := ""
+	if p != nil {
+		note = fmtTime(p.Time)
+	}
+	sheet(c, pal, "Prompt", note, func() {
 		if p == nil {
 			blank(c, pal, "Choose a prompt to see it whole.")
 			return
@@ -286,7 +290,7 @@ func (h *history) detail(c *ui.Context, a *App, pal *palette) {
 			}
 			x := a.sessions.find(p.SessionID)
 			open := ui.Button(c, "Open session").Disabled(x == nil)
-			if hint := sessionHint(x != nil, a.busy > 0); hint != "" {
+			if hint := sessionHint(x != nil, !a.sessions.loaded); hint != "" {
 				open.Tooltip(hint)
 			}
 			if open.Clicked() {
@@ -312,7 +316,7 @@ func lineCount(s string) int {
 }
 
 // sessionHint is why Open session is off, "" when it is on. A session not
-// found while a scan runs may be one it hasn't reached yet.
+// found before the first scan lands may be one it hasn't reached yet.
 func sessionHint(found, loading bool) string {
 	switch {
 	case found:

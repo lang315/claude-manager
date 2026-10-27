@@ -64,20 +64,9 @@ func (s *Store) History() (prompts []Prompt, bad int, err error) {
 			return nil, 0, rerr
 		}
 	}
-	slices.SortStableFunc(prompts, func(a, b Prompt) int {
-		if a.Time.IsZero() != b.Time.IsZero() {
-			return cmp.Compare(btoi(a.Time.IsZero()), btoi(b.Time.IsZero()))
-		}
-		return b.Time.Compare(a.Time)
-	})
+	// Newest first; the zero time, year 1, sorts last.
+	slices.SortStableFunc(prompts, func(a, b Prompt) int { return b.Time.Compare(a.Time) })
 	return prompts, bad, nil
-}
-
-func btoi(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }
 
 // parsePrompt reads one line of history.jsonl.
