@@ -52,7 +52,7 @@ func TestSessionPaths(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("paths %q, want %q", got, want)
 	}
-	if got := s.SessionPaths(session(t, projects, fixture.Recent)); len(got) != 1 {
+	if got := s.SessionPaths(session(t, projects, fixture.Late)); len(got) != 1 {
 		t.Errorf("paths of a session without side data %q, want only its .jsonl", got)
 	}
 }
