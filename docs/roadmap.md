@@ -11,7 +11,7 @@ Each item gets its own design before it is built.
 
 ## v2 — search and insight
 
-- [ ] Full-text search of `history.jsonl` (every prompt typed), filtered by project and date.
+- [x] Full-text search of `history.jsonl` (every prompt typed), filtered by project and date.
 - [ ] Full-text search across session transcripts.
 - [ ] Token and cost statistics per session, project and day (from `message.usage`).
 - [ ] Watch `~/.claude` for changes and refresh live instead of manual Rescan.

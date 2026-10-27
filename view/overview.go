@@ -264,6 +264,8 @@ func screenOf(e *store.Entry) string {
 	case e.Name == "settings.json", e.Name == "CLAUDE.md", e.Name == "skills", e.Name == "plugins",
 		e.Name == "commands", strings.HasPrefix(e.Name, "settings.json.bak"):
 		return "config"
+	case e.Name == "history.jsonl":
+		return "history"
 	case e.Cleanable:
 		return "cleanup"
 	}

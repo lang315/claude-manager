@@ -21,6 +21,7 @@ type sessions struct {
 	size        int64
 	latest      []store.Session
 	err         string
+	loaded      bool // a scan has landed: a session not in projects is gone
 	split       float32
 	ptable      ui.DataTableState[store.Project, string]
 	table       ui.DataTableState[store.Session, string]
@@ -120,7 +121,7 @@ func (s *sessions) load(a *App) {
 }
 
 func (s *sessions) set(projects []store.Project, err error) {
-	s.projects, s.err = projects, errText(err)
+	s.projects, s.err, s.loaded = projects, errText(err), true
 	s.ptable.Reset()
 	s.shown = "" // the sessions table takes the new rows on the next frame
 	s.count, s.live, s.size, s.latest = 0, 0, 0, nil
@@ -211,6 +212,19 @@ func (s *sessions) targets() (out []store.Session, live int) {
 		}
 	}
 	return out, live
+}
+
+// find returns the session id names among those scanned, nil when it is not
+// on disk any more.
+func (s *sessions) find(id string) *store.Session {
+	for i := range s.projects {
+		for j := range s.projects[i].Sessions {
+			if x := &s.projects[i].Sessions[j]; x.ID == id {
+				return x
+			}
+		}
+	}
+	return nil
 }
 
 func (s *sessions) confirm(c *ui.Context, a *App) {
