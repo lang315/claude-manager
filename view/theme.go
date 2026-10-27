@@ -7,6 +7,8 @@ import "github.com/egoist/mygo/ui"
 // running session.
 type palette struct {
 	ground, panel, face, ink, muted, rule, orange, orangeHover, onOrange, green ui.Color
+	// hues mark the model families in Usage's chart and nowhere else.
+	hues [famOther]ui.Color
 	// sel marks the choice: a mid graphite, quieter than ink, with selText on it.
 	sel, selText ui.Color
 }
@@ -17,6 +19,7 @@ var (
 		ink: ui.Hex("#2E2E2C"), muted: ui.Hex("#62605A"), rule: ui.Hex("#D8D5CE"),
 		orange: ui.Hex("#C9481C"), orangeHover: ui.Hex("#B33E16"), onOrange: ui.Hex("#FFFFFF"),
 		green: ui.Hex("#4E9A49"),
+		hues:  [famOther]ui.Color{ui.Hex("#2A78D6"), ui.Hex("#E87BA4"), ui.Hex("#6250D6"), ui.Hex("#159AA8")},
 		sel:   ui.Hex("#6B6963"), selText: ui.Hex("#FFFFFF"),
 	}
 	darkPalette = palette{
@@ -24,6 +27,7 @@ var (
 		ink: ui.Hex("#ECECEA"), muted: ui.Hex("#A4A29C"), rule: ui.Hex("#3A3936"),
 		orange: ui.Hex("#E2602F"), orangeHover: ui.Hex("#EC7346"), onOrange: ui.Hex("#1A1A19"),
 		green: ui.Hex("#6DBB66"),
+		hues:  [famOther]ui.Color{ui.Hex("#3987E5"), ui.Hex("#D55181"), ui.Hex("#9085E9"), ui.Hex("#169AAB")},
 		sel:   ui.Hex("#5E5D59"), selText: ui.Hex("#ECECEA"),
 	}
 )

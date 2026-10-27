@@ -14,6 +14,10 @@ colors:
   lamp-green: "#4E9A49"
   selection-graphite: "#6B6963"
   on-selection: "#FFFFFF"
+  hue-opus: "#2A78D6"
+  hue-sonnet: "#E87BA4"
+  hue-haiku: "#6250D6"
+  hue-fable: "#159AA8"
   ground-dark: "#191918"
   panel-dark: "#212120"
   face-dark: "#2A2A28"
@@ -26,6 +30,10 @@ colors:
   lamp-green-dark: "#6DBB66"
   selection-graphite-dark: "#5E5D59"
   on-selection-dark: "#ECECEA"
+  hue-opus-dark: "#3987E5"
+  hue-sonnet-dark: "#D55181"
+  hue-haiku-dark: "#9085E9"
+  hue-fable-dark: "#169AAB"
 typography:
   title:
     fontFamily: "system-ui, -apple-system, sans-serif"
@@ -155,8 +163,17 @@ A grey instrument with two signal colours, each bound to one meaning.
 - **Rule** (`rule`): hairline borders, row dividers, the scale's empty track, and the unlit lamp.
 - **Selection Graphite** (`selection-graphite`, with `on-selection` text): the chosen row in a table, checked boxes, and the selected sidebar item. It is quieter than ink. Its hover mixes 20% toward ink, and pressed mixes 35% toward ink.
 
+### Model Hues
+- **Model hues** (`hue-opus`, `hue-sonnet`, `hue-haiku`, `hue-fable`, each with a `-dark` sibling): the model families in the Usage chart's stacked bars and its legend, and nowhere else.
+  - Stack order from the baseline up is Opus, Sonnet, Haiku, Fable, Other. Other is `muted`.
+  - A 2px gap of the face parts each segment from the one under it.
+  - Labels and figures stay in ink and muted: a hue marks a bar segment or a legend swatch, never text.
+  - The four steps pass the data-viz validator in both finishes, on `face` and `face-dark`: lightness band, chroma, adjacent colour-blind separation (ΔE ≥ 8), and the normal-vision floor.
+  - In light, Sonnet's pink sits under 3:1 against the face. The legend names every family, and the Models tab gives the same figures as a table.
+  - The hues keep clear of orange and green, so the One Meaning Rule holds.
+
 ### Named Rules
-**The One Meaning Rule.** Orange means "can be cleaned, or cleans". Green means "running". Neither colour appears for any other reason, including selection, focus, links or decoration.
+**The One Meaning Rule.** Orange means "can be cleaned, or cleans". Green means "running". Neither colour appears for any other reason, including selection, focus, links or decoration. The model hues mean "this model family", only in the Usage chart.
 
 **The Graphite Choice Rule.** Selection and checked state use mid graphite, never orange. Orange stays free to mean the disk.
 

@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -56,7 +57,9 @@ type usageRow struct {
 // usageSum is the screen's figures for one period and project.
 type usageSum struct {
 	total                      store.Usage
-	bars                       []float64 // the chart's cost a day, or a week, from first
+	bars                       []stack // the chart's cost an hour today, else a day or a week, from first
+	hourly                     bool
+	byFamily                   stack     // the cost of each family, for the legend
 	first, last                time.Time // the days the chart spans
 	weekly                     bool
 	projects, sessions, models []usageRow
@@ -113,7 +116,8 @@ func (u *usage) refresh(now time.Time) {
 	}
 	u.key, u.sessAt = k, -1
 	var s usageSum
-	byDay := map[string]float64{} // cost by local day, "2006-01-02"
+	byDay := map[string]stack{} // cost by local day, "2006-01-02"
+	var byHour [24]stack
 	projects, sessions, models := map[string]*usageRow{}, map[string]*usageRow{}, map[string]*usageRow{}
 	inProject := map[string]map[string]bool{} // project: its sessions
 	for _, b := range u.buckets {
@@ -130,8 +134,15 @@ func (u *usage) refresh(now time.Time) {
 			continue
 		}
 		s.total.Add(b)
+		f := modelFamily(b.Model)
+		s.byFamily[f] += b.Cost
 		if !b.Day.IsZero() {
-			byDay[b.Day.Format(time.DateOnly)] += b.Cost
+			d := byDay[b.Day.Format(time.DateOnly)]
+			d[f] += b.Cost
+			byDay[b.Day.Format(time.DateOnly)] = d
+			for h, c := range b.Hours {
+				byHour[h][f] += c
+			}
 			if s.first.IsZero() || b.Day.Before(s.first) {
 				s.first = b.Day
 			}
@@ -154,6 +165,9 @@ func (u *usage) refresh(now time.Time) {
 	}
 	s.weekly = !k.dates.on && !s.first.IsZero() && s.last.Sub(s.first) > 90*24*time.Hour
 	s.bars = bars(byDay, s.first, s.last, s.weekly)
+	if u.preset == presetToday {
+		s.hourly, s.bars = true, byHour[:]
+	}
 	u.sum = s
 }
 
@@ -239,19 +253,66 @@ func (u *usage) view(c *ui.Context, a *App, pal *palette) {
 	})
 }
 
-// chart draws the period's cost, a bar a day, or a week when All spans more
-// than 90 days.
+// Model families, in the chart's stack order from the baseline up.
+const (
+	famOpus = iota
+	famSonnet
+	famHaiku
+	famFable
+	famOther
+	families
+)
+
+var familyNames = [families]string{"Opus", "Sonnet", "Haiku", "Fable", "Other"}
+
+// stack is a bar's cost by model family.
+type stack [families]float64
+
+// modelFamily is the family a model's name says, famOther when it says none.
+func modelFamily(model string) int {
+	for f, name := range familyNames[:famOther] {
+		if strings.Contains(model, strings.ToLower(name)) {
+			return f
+		}
+	}
+	return famOther
+}
+
+// hue is a family's colour in the chart; Other is grey.
+func (p *palette) hue(f int) ui.Color {
+	if f == famOther {
+		return p.muted
+	}
+	return p.hues[f]
+}
+
+// chart draws the period's cost by model family: a bar an hour today, a day,
+// or a week when All spans more than 90 days.
 func (u *usage) chart(c *ui.Context, pal *palette) {
 	s := &u.sum
 	title := "Cost by day"
-	if s.weekly {
+	switch {
+	case s.hourly:
+		title = "Cost by hour"
+	case s.weekly:
 		title = "Cost by week"
 	}
 	face(c, pal).Children(func() {
 		head(c, pal, title, money(s.total.Cost)+" "+periodText[u.preset]+" · prices of "+store.PricesAsOf)
-		ui.Column(c).Padding(2, 16, 12, 16).Children(func() {
-			ui.Box(c).Height(110).Label(title).Draw(func(pt *ui.Painter, r ui.Rect) {
-				drawBars(pt, r, pal, s.bars)
+		ui.Column(c).Padding(0, 16, 12, 16).Gap(8).Children(func() {
+			ui.Row(c).Gap(14).Children(func() {
+				for f, cost := range s.byFamily {
+					if cost <= 0 {
+						continue
+					}
+					ui.Row(c.Key(f)).Gap(6).AlignItems(ui.Center).Children(func() {
+						ui.Box(c).Size(8, 8).Radius(2).Background(pal.hue(f))
+						ui.Text(c, familyNames[f]).FontSize(12).TextColor(pal.muted).SingleLine()
+					})
+				}
+			})
+			ui.Box(c).Height(120).Label(title).Draw(func(pt *ui.Painter, r ui.Rect) {
+				drawBars(pt, r, pal, s.bars, s.hourly)
 			})
 		})
 	})
@@ -259,7 +320,7 @@ func (u *usage) chart(c *ui.Context, pal *palette) {
 
 // bars returns the cost of each day from first to last, both local
 // midnights, or of each week from the Monday on or before first when weekly.
-func bars(byDay map[string]float64, first, last time.Time, weekly bool) []float64 {
+func bars(byDay map[string]stack, first, last time.Time, weekly bool) []stack {
 	if first.IsZero() {
 		return nil
 	}
@@ -268,12 +329,14 @@ func bars(byDay map[string]float64, first, last time.Time, weekly bool) []float6
 			first = first.AddDate(0, 0, -1)
 		}
 	}
-	var out []float64
+	var out []stack
 	for d := first; !d.After(last); d = d.AddDate(0, 0, 1) {
 		if !weekly || len(out) == 0 || d.Weekday() == time.Monday {
-			out = append(out, 0)
+			out = append(out, stack{})
 		}
-		out[len(out)-1] += byDay[d.Format(time.DateOnly)]
+		for f, v := range byDay[d.Format(time.DateOnly)] {
+			out[len(out)-1][f] += v
+		}
 	}
 	return out
 }
@@ -299,15 +362,31 @@ func dollarTick(v float64) string {
 	return fmt.Sprintf("$%.2f", v)
 }
 
-// drawBars draws costs as ink bars over a baseline, with ticks at round
-// dollar amounts at the left.
-func drawBars(pt *ui.Painter, r ui.Rect, pal *palette, vals []float64) {
+// drawBars draws each bar's cost as a stack of family hues over an ink
+// baseline, with ticks at round dollar amounts at the left, and the hours
+// under an hourly chart.
+func drawBars(pt *ui.Painter, r ui.Rect, pal *palette, vals []stack, hourly bool) {
 	const axisW = 52
 	plot := ui.Rect{X: r.X + axisW, Y: r.Y + 6, W: r.W - axisW, H: r.H - 10}
+	if hourly {
+		plot.H -= 16 // the hours' labels
+	}
 	pt.Fill(ui.Rect{X: plot.X, Y: plot.Y + plot.H, W: plot.W, H: 1}, pal.ink, 0)
+	bw := plot.W / float32(max(len(vals), 1))
+	if hourly {
+		for h := 0; h < 24; h += 6 {
+			label := ui.Span{Text: fmt.Sprintf("%02d", h), Size: 11, Color: pal.muted}
+			w, _ := pt.MeasureText(0, label)
+			pt.RichText(plot.X+(float32(h)+0.5)*bw-w/2, plot.Y+plot.H+4, 0, label)
+		}
+	}
 	most := 0.0
-	for _, v := range vals {
-		most = max(most, v)
+	for _, st := range vals {
+		total := 0.0
+		for _, v := range st {
+			total += v
+		}
+		most = max(most, total)
 	}
 	if most <= 0 {
 		return
@@ -323,14 +402,24 @@ func drawBars(pt *ui.Painter, r ui.Rect, pal *palette, vals []float64) {
 		w, h := pt.MeasureText(0, label)
 		pt.RichText(plot.X-9-w, yy-h/2, 0, label)
 	}
-	bw := plot.W / float32(len(vals))
 	gap := min(bw*0.25, 3)
-	for i, v := range vals {
-		if v <= 0 {
-			continue
+	base := plot.Y + plot.H
+	for i, st := range vals {
+		x, w := plot.X+float32(i)*bw+gap/2, max(bw-gap, 1)
+		y0 := base
+		for f, v := range st {
+			if v <= 0 {
+				continue
+			}
+			h := max(plot.H*float32(v/top), 1)
+			// A 2px gap of the face parts a segment from the one under it.
+			g := float32(0)
+			if y0 < base {
+				g = min(2, h/3)
+			}
+			pt.Fill(ui.Rect{X: x, Y: y0 - h, W: w, H: h - g}, pal.hue(f), 0)
+			y0 -= h
 		}
-		h := max(plot.H*float32(v/top), 1)
-		pt.Fill(ui.Rect{X: plot.X + float32(i)*bw + gap/2, Y: plot.Y + plot.H - h, W: max(bw-gap, 1), H: h}, pal.ink, 0)
 	}
 }
 

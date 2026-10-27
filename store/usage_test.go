@@ -150,9 +150,18 @@ func TestUsage(t *testing.T) {
 	for i := range want {
 		g, w := got[i], want[i]
 		gc, wc := g.Cost, w.Cost
-		g.Cost, w.Cost = 0, 0
+		g.Cost, w.Cost, g.Hours = 0, 0, [24]float64{}
 		if g != w || !near(gc, wc) {
 			t.Errorf("bucket %d:\n got %+v cost %v\nwant %+v cost %v", i, g, gc, w, wc)
+		}
+	}
+	// Each bucket's cost, by the local hour of its calls: o1 at 10:00 and o2
+	// at 11:00 on the 20th; r3 just before midnight on the 25th.
+	for i, h := range map[int]map[int]float64{2: {10: 4.6, 11: 2.14}, 5: {23: 0.01}} {
+		for hour := range 24 {
+			if !near(got[i].Hours[hour], h[hour]) {
+				t.Errorf("bucket %d hour %d: %v, want %v", i, hour, got[i].Hours[hour], h[hour])
+			}
 		}
 	}
 }
@@ -166,6 +175,9 @@ func TestUsageLocalDay(t *testing.T) {
 	for _, u := range got {
 		if u.Model == "claude-sonnet-5" && !u.Day.Equal(time.Date(2026, 10, 26, 0, 0, 0, 0, zone)) {
 			t.Errorf("r3's day is %v, want the 26th at +07:00", u.Day)
+		}
+		if u.Model == "claude-sonnet-5" && !near(u.Hours[6], 0.01) {
+			t.Errorf("r3's hours %v, want its cost at 06:00 local", u.Hours)
 		}
 	}
 }

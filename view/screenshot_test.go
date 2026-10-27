@@ -39,6 +39,7 @@ func TestScreenshots(t *testing.T) {
 		{"cleanup", "Cleanup", []string{"paste-cache"}},
 		{"history", "History", []string{"Review this:"}},
 		{"usage", "Usage", nil},
+		{"usage-today", "Usage", []string{"Today"}},
 	}
 	// One tester at a time: they share the app, and the transcript shot
 	// leaves it open until the next shot's Back.

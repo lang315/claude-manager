@@ -195,6 +195,8 @@ type Usage struct {
 	WebSearches int64
 	Cost        float64 // USD at API list prices, estimated; unpriced calls add nothing
 	Unpriced    int     // calls whose model has no price
+
+	Hours [24]float64 // Cost by the local hour of Day its calls started in
 }
 
 // Add sums b's counts into u.
@@ -209,6 +211,9 @@ func (u *Usage) Add(b Usage) {
 	u.WebSearches += b.WebSearches
 	u.Cost += b.Cost
 	u.Unpriced += b.Unpriced
+	for h, c := range b.Hours {
+		u.Hours[h] += c
+	}
 }
 
 // Tokens are all of u's tokens: input, output, cache reads and writes.
@@ -383,9 +388,9 @@ func (sc *UsageScan) buckets(loc *time.Location) []Usage {
 	type bucketKey struct{ session, day, model string }
 	byKey := map[bucketKey]*Usage{}
 	add := func(id, project string, c call) {
-		var day time.Time
+		var day, t time.Time
 		if !c.time.IsZero() {
-			t := c.time.In(loc)
+			t = c.time.In(loc)
 			day = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
 		}
 		k := bucketKey{id, day.Format(time.DateOnly), c.model}
@@ -401,6 +406,9 @@ func (sc *UsageScan) buckets(loc *time.Location) []Usage {
 		}
 		if cost, ok := price(c.model, c.callTokens); ok {
 			x.Cost = cost
+			if !t.IsZero() {
+				x.Hours[t.Hour()] = cost
+			}
 		} else {
 			x.Unpriced = 1
 		}
