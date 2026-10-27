@@ -23,6 +23,7 @@ const (
 	Recent        = "55555555-5555-4555-8555-555555555555" // in Other, modified a minute before Now
 	OrphanEnv     = "66666666-6666-4666-8666-666666666666" // session-env entry without a session
 	OrphanHistory = "99999999-9999-4999-8999-999999999999" // file-history entry without a session
+	NoSession     = "77777777-7777-4777-8777-777777777777" // a prompt's session that is not on disk
 
 	Proj  = "projects/-Users-me-proj"
 	Other = "projects/-Users-me-other"
@@ -48,6 +49,18 @@ var oldSession = strings.Join([]string{
 
 var lateSession = fmt.Sprintf(`{"type":"user","cwd":"/Users/me/proj","timestamp":"2026-10-24T08:00:00.000Z","message":{"role":"user","content":"Paste: %s"}}`, strings.Repeat("x", 70000)) +
 	"\n" + `{"type":"ai-title","aiTitle":"Late title","sessionId":"` + Late + `"}` + "\n"
+
+// history is history.jsonl: prompts in two projects, newest on line 2, a
+// broken line 3, an inline paste and one stored only by hash, an image
+// placeholder and a prompt without a time.
+var history = strings.Join([]string{
+	`{"display":"Old idea","pastedContents":{},"timestamp":1787824800000,"project":"/Users/me/proj","sessionId":"` + Old + `"}`,
+	`{"display":"Fix the login bug","pastedContents":{},"timestamp":1793008800000,"project":"/Users/me/proj","sessionId":"` + Old + `"}`,
+	`{not json`,
+	`{"display":"Review this:\n[Pasted text #1 +2 lines]","pastedContents":{"1":{"id":1,"type":"text","content":"func main() {\n}"},"3":{"id":3,"type":"text","content":"unused paste"}},"timestamp":1792746000000,"project":"/Users/me/other","sessionId":"` + Recent + `"}`,
+	`{"display":"Use this [Pasted text #2 +40 lines] and [Image #1]","pastedContents":{"2":{"id":2,"type":"text","contentHash":"abc123"}},"timestamp":1791277200000,"project":"/Users/me/proj","sessionId":"` + NoSession + `"}`,
+	`{"display":"No time prompt","pastedContents":{},"project":"/Users/me/other","sessionId":"` + Recent + `"}`,
+}, "\n") + "\n"
 
 // New writes the config directory into a temporary home. Every path is 60
 // days old but a few, which are newer on purpose.
@@ -88,6 +101,7 @@ func New(t testing.TB) Dirs {
 		"transcripts/old.jsonl":                        "{}\n",
 		"transcripts/new.jsonl":                        "{}\n",
 		"settings.json":                                `{"env":{"API_TOKEN":"secret123","EDITOR":"vim"},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}]},"mcpServers":{"local":{"command":"local-mcp"}}}`,
+		"history.jsonl":                                history,
 		"settings.json.bak":                            "{}",
 		"settings.json.bak-1":                          "{}",
 		"skills/demo/SKILL.md":                         "---\nname: demo\ndescription: A demo skill\n---\n# Demo\n",
