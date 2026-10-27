@@ -145,8 +145,8 @@ It is masked when one of its segments:
 | `hotkey: ctrl+k` | `apiKey=abc` |
 | `--design=x` | `?privatekey=abc` |
 | `?bypass=1` | `--auth-token=abc` |
-| `monkey: 1` | `Authorization: Bearer x` (already caught by the bearer rule) |
-| `?page=2` | `?sig=abc` |
+| `?page=2` | `Authorization: Bearer x` (already caught by the bearer rule) |
+| | `?sig=abc` |
 | | `?access_token=abc` |
 | | `--password=x` |
 | | `Cookie: a=b` |
