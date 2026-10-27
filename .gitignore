@@ -1,2 +1,6 @@
 /claude-manager
 /build/
+/.impeccable/review/
+/.impeccable/mocks/
+/.impeccable/questions/
+/.impeccable/hook.cache.json

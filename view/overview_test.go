@@ -9,8 +9,8 @@ func TestOverviewOpensScreen(t *testing.T) {
 			t.Errorf("overview lacks %q", name)
 		}
 	}
-	must(t, tt.Click("projects"))
-	must(t, tt.Click("Open in Sessions"))
+	tt.SetSize(1200, 1600)        // the folder list sits below the first screen
+	must(t, tt.Click("projects")) // the folder's row opens its screen
 	if a.page != "sessions" {
 		t.Errorf("page %q after opening projects, want sessions", a.page)
 	}

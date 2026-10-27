@@ -50,11 +50,15 @@ func (p *configPage) load(a *App) {
 	})
 }
 
-func (p *configPage) view(c *ui.Context, a *App) {
+func (p *configPage) view(c *ui.Context, a *App, pal *palette) {
 	for _, e := range p.cfg.Errs {
 		ui.Text(c, e).TextColor(c.Theme().Danger)
 	}
 	ui.Tabs(c, &p.tab, configTabs...)
+	face(c, pal).Grow(1).Padding(12).Children(func() { p.body(c, a, pal) })
+}
+
+func (p *configPage) body(c *ui.Context, a *App, pal *palette) {
 	switch p.tab {
 	case 0:
 		p.tree(c, "settings", p.cfg.Settings)
@@ -71,7 +75,7 @@ func (p *configPage) view(c *ui.Context, a *App) {
 	case 6:
 		p.docs(c, p.cfg.Memory, "No CLAUDE.md or memory files")
 	case 7:
-		p.backupTable(c, a)
+		p.backupTable(c, a, pal)
 	}
 }
 
@@ -210,10 +214,10 @@ func (p *configPage) docs(c *ui.Context, ds []store.Doc, none string) {
 	})
 }
 
-func (p *configPage) backupTable(c *ui.Context, a *App) {
+func (p *configPage) backupTable(c *ui.Context, a *App, pal *palette) {
 	targets := picked(&p.backups, p.cfg.Backups)
 	ui.Row(c).Gap(8).Children(func() {
-		if ui.Button(c, "Move to Trash…").Disabled(len(targets) == 0 || a.busy > 0).Clicked() {
+		if orangeKey(c, pal, "Move to Trash…", len(targets) == 0 || a.busy > 0).Clicked() {
 			p.pending = nil
 			for _, x := range targets {
 				p.pending = append(p.pending, *x)

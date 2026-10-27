@@ -12,7 +12,7 @@ import (
 
 // TestScreenshots writes a PNG of each screen, drawn from the fixture, into
 // $SCREENSHOT_DIR, at the test canvas size and at main.go's window size
-// (<name>-1100.png). It shows no real data, so the PNGs can go in a PR.
+// (<name>-1100.png), and dark at that size (<name>-dark.png). It shows no real data, so the PNGs can go in a PR.
 func TestScreenshots(t *testing.T) {
 	dir := os.Getenv("SCREENSHOT_DIR")
 	if dir == "" {
@@ -20,6 +20,8 @@ func TestScreenshots(t *testing.T) {
 	}
 	a, tt, _, _ := newApp(t)
 	small := ui.NewTester(a.View, 1100, 720)
+	dark := ui.NewTester(a.View, 1100, 720)
+	dark.SetDark(true)
 	shots := []struct {
 		name, click string
 		then        []string
@@ -35,7 +37,7 @@ func TestScreenshots(t *testing.T) {
 	for _, w := range []struct {
 		suffix string
 		t      *ui.Tester
-	}{{"", tt}, {"-1100", small}} {
+	}{{"", tt}, {"-1100", small}, {"-dark", dark}} {
 		for _, s := range shots {
 			a.Update = w.t.Update
 			must(t, w.t.Click(s.click))

@@ -29,7 +29,6 @@ type App struct {
 
 func New(s *store.Store) *App {
 	a := &App{Store: s, Go: func(f func()) { go f() }, page: "overview"}
-	a.overview.init()
 	a.sessions.init()
 	a.config.init()
 	a.cleanup.days = 30
@@ -45,46 +44,66 @@ func (a *App) Rescan() {
 }
 
 func (a *App) View(c *ui.Context) {
+	pal := applyTheme(c)
 	if a.notice != "" {
 		c.Toast(a.notice)
 		a.notice = ""
 	}
+	live := a.live()
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		ui.Sidebar(c, &a.page, func() {
 			ui.SidebarItem(c, "overview", iconOverview, "Overview")
-			ui.SidebarItem(c, "sessions", iconSessions, "Sessions")
+			ui.SidebarItem(c, "sessions", iconSessions, "Sessions").Children(func() {
+				if live > 0 {
+					lamp(c, pal).Tooltip(plural(live, "session") + " running")
+				}
+			})
 			ui.SidebarItem(c, "config", iconConfig, "Config")
 			ui.SidebarItem(c, "cleanup", iconCleanup, "Cleanup")
-		}).Width(180)
-		ui.Column(c).Grow(1).PaddingX(20).PaddingY(16).Gap(12).Children(func() {
-			a.header(c)
+		}).Width(200).Background(pal.ground)
+		ui.Box(c).Width(1).Background(pal.rule)
+		ui.Column(c).Grow(1).MinWidth(0).PaddingX(24).PaddingY(18).Gap(16).Children(func() {
+			a.header(c, pal, live)
 			switch a.page {
 			case "overview":
-				a.overview.view(c, a)
+				a.overview.view(c, a, pal)
 			case "sessions":
-				a.sessions.view(c, a)
+				a.sessions.view(c, a, pal)
 			case "config":
-				a.config.view(c, a)
+				a.config.view(c, a, pal)
 			case "cleanup":
-				a.cleanup.view(c, a)
+				a.cleanup.view(c, a, pal)
 				// Each screen adds its case here.
 			}
 		})
 	})
+	a.cleanup.confirm(c, a)
 }
 
-// header names the screen, sums up what it shows, and holds Rescan.
-func (a *App) header(c *ui.Context) {
-	t := c.Theme()
+// live counts the sessions running now.
+func (a *App) live() (n int) {
+	for _, p := range a.sessions.projects {
+		for _, x := range p.Sessions {
+			if x.Live {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// header names the screen, sums up what it shows, and holds Rescan; the
+// Overview's adds the key to clean up.
+func (a *App) header(c *ui.Context, pal *palette, live int) {
 	var title, sub string
 	switch a.page {
 	case "overview":
-		var size int64
-		for _, e := range a.overview.rows {
-			size += e.Size
+		running := "no session running"
+		if live > 0 {
+			running = plural(live, "session") + " running"
 		}
-		title = "Overview"
-		sub = fmt.Sprintf("%s in %s", humanSize(size), tilde(a.Store.Root))
+		title = tilde(a.Store.Root)
+		sub = humanSize(a.overview.total()) + " · " + running
 	case "sessions":
 		n, size := 0, int64(0)
 		for _, p := range a.sessions.projects {
@@ -99,16 +118,19 @@ func (a *App) header(c *ui.Context) {
 		title, sub = "Cleanup", "Everything moves to the Trash, so you can put it back."
 	}
 	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-		ui.Column(c).Grow(1).Gap(2).Children(func() {
-			ui.Text(c, title).FontSize(20).Bold()
-			ui.Text(c, sub).TextColor(t.TextMuted).SingleLine()
+		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+			ui.Text(c, title).FontSize(24).Bold().SingleLine()
+			ui.Text(c, sub).TextColor(pal.muted).SingleLine()
 		})
 		if a.busy > 0 {
 			ui.Spinner(c).Label("Scanning")
-			ui.Text(c, "Scanning…").TextColor(t.TextMuted)
+			ui.Text(c, "Scanning…").TextColor(pal.muted)
 		}
 		if ui.Button(c, "Rescan").Disabled(a.busy > 0).Clicked() {
 			a.Rescan()
+		}
+		if a.page == "overview" && orangeKey(c, pal, "Clean up…", a.cleanup.reclaim == 0).Clicked() {
+			a.page = "cleanup"
 		}
 	})
 }

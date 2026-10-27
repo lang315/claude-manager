@@ -30,7 +30,6 @@ Each item gets its own design before it is built.
 
 Found in review and left for later.
 
-- First prompts show raw `<command-name>` wrappers.
 - Two encoded project dirs that share a `cwd` get the same project label.
 - Transcript reading continues after Back.
 - `.claude.json` is decoded whole (only `mcpServers` is needed).

@@ -1,6 +1,8 @@
 package view
 
 import (
+	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
@@ -58,7 +60,7 @@ func (s *sessions) openTranscript(a *App, x store.Session) {
 	})
 }
 
-func (s *sessions) transcript(c *ui.Context) {
+func (s *sessions) transcript(c *ui.Context, pal *palette) {
 	t := c.Theme()
 	x := s.open
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
@@ -66,23 +68,26 @@ func (s *sessions) transcript(c *ui.Context) {
 			s.open, s.msgs, s.bad, s.loading = nil, nil, 0, false
 			s.gen++ // messages still arriving are dropped
 		}
-		ui.Text(c, sessionLabel(x)).Bold().SingleLine().Grow(1).MinWidth(0)
-		if s.bad > 0 {
-			ui.Badge(c, plural(s.bad, "unreadable line")).TextColor(t.Danger)
+		if x.Live {
+			lamp(c, pal).Tooltip("Running now; it can't be moved to the Trash")
 		}
+		ui.Text(c, strings.TrimSuffix(sessionLabel(x), liveSuffix)).FontSize(15).Bold().SingleLine().Grow(1).MinWidth(0)
 	})
 	ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-		ui.Textf(c, "%s · %s · Claude Code %s · %s – %s · %s",
-			x.Cwd, x.Branch, x.Version, fmtTime(x.Started), fmtTime(x.Modified), plural(len(s.msgs), "message")).
-			TextColor(t.TextMuted).FontSize(12).SingleLine().MinWidth(0)
+		meta := fmt.Sprintf("%s · %s · Claude Code %s · %s – %s · %s",
+			x.Cwd, x.Branch, x.Version, fmtTime(x.Started), fmtTime(x.Modified), plural(len(s.msgs), "message"))
+		if s.bad > 0 {
+			meta += " · " + plural(s.bad, "unreadable line")
+		}
+		ui.Text(c, meta).TextColor(t.TextMuted).FontSize(12).SingleLine().MinWidth(0)
 		if s.loading {
 			ui.Spinner(c).Label("Loading messages")
 		}
 	})
-	ui.List(c, s.list, len(s.msgs), func(i int) { s.message(c, &s.msgs[i]) }).Grow(1).Gap(6)
+	ui.List(c, s.list, len(s.msgs), func(i int) { s.message(c, pal, &s.msgs[i]) }).Grow(1).Gap(6)
 }
 
-func (s *sessions) message(c *ui.Context, m *msgRow) {
+func (s *sessions) message(c *ui.Context, pal *palette, m *msgRow) {
 	t := c.Theme()
 	who := "You"
 	switch {
@@ -91,9 +96,9 @@ func (s *sessions) message(c *ui.Context, m *msgRow) {
 	case m.Role == "assistant":
 		who = "Claude"
 	}
-	col := ui.Column(c).Gap(4).PaddingX(12).PaddingY(8).Radius(t.Radius)
+	col := ui.Column(c).Gap(4).PaddingX(14).PaddingY(10).Radius(12)
 	if who == "You" {
-		col.Background(t.Surface) // your turns stand apart from Claude's
+		col.Background(pal.face).Border(1, pal.rule) // your turns stand apart from Claude's
 	}
 	col.Children(func() {
 		ui.Row(c).Gap(6).Children(func() {

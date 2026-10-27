@@ -4,9 +4,9 @@ import (
 	"cmp"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -30,16 +30,29 @@ type sessions struct {
 	msgs    []msgRow
 	bad     int
 	loading bool
-	gen     int // which open the messages arriving belong to
-	loadGen int // which load the projects arriving belong to
+	gen     int    // which open the messages arriving belong to
+	loadGen int    // which load the projects arriving belong to
+	query   string // the search field's text
 	list    *ui.ListState
 	md      markdown.Options
 }
 
 const liveSuffix = " (live)"
 
+// commandTag finds the slash command Claude Code wraps a typed command in:
+// <command-name>/model</command-name> … <command-args>opus</command-args>.
+var commandTag = regexp.MustCompile(`(?s)<command-name>(.*?)</command-name>(?:.*?<command-args>(.*?)</command-args>)?`)
+
+// prompt shows a first prompt that is a slash command as the command typed.
+func prompt(s string) string {
+	if m := commandTag.FindStringSubmatch(s); m != nil {
+		return strings.TrimSpace(m[1] + " " + m[2])
+	}
+	return s
+}
+
 func sessionLabel(x *store.Session) string {
-	label := cmp.Or(x.Title, x.FirstPrompt, "(untitled)")
+	label := cmp.Or(x.Title, prompt(x.FirstPrompt), "(untitled)")
 	if x.Err != "" {
 		label = "(unreadable: " + x.Err + ")"
 	}
@@ -65,21 +78,19 @@ func (s *sessions) init() {
 
 	s.table.Key = func(x *store.Session) string { return x.ID }
 	s.table.Footer = true
-	s.table.SearchDelay = 200 * time.Millisecond
+	s.table.NoSearchBar = true // a Mac search field filters as you type: see sessionTable
 	s.table.Columns = []ui.DataColumn[store.Session]{
 		{TableColumn: ui.TableColumn{Title: "Session", MinWidth: 120}, Text: sessionLabel,
 			Match: func(x *store.Session, kw string) bool {
 				return containsFold(x.Title, kw) || containsFold(x.FirstPrompt, kw)
 			},
 			Cell: func(c *ui.Context, x *store.Session) {
-				if !x.Live {
-					ui.Text(c, sessionLabel(x)).SingleLine()
-					return
-				}
-				// A live session can't be trashed: dim it and say why.
-				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, strings.TrimSuffix(sessionLabel(x), liveSuffix)).SingleLine().TextColor(c.Theme().TextMuted).Grow(1).MinWidth(0)
-					ui.Badge(c, "Live").Tooltip("Running now; it can't be moved to the Trash")
+				// A running session can't be trashed: its lamp says so.
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					if x.Live {
+						lamp(c, paletteOf(c)).Tooltip("Running now; it can't be moved to the Trash")
+					}
+					ui.Text(c, strings.TrimSuffix(sessionLabel(x), liveSuffix)).SingleLine().Grow(1).MinWidth(0)
 				})
 			}},
 		{TableColumn: ui.TableColumn{Title: "Modified", Width: 140}, Text: func(x *store.Session) string { return fmtTime(x.Modified) }, NoSearch: true,
@@ -105,7 +116,7 @@ func (s *sessions) load(a *App) {
 				s.set(projects, err)
 			}
 			if gen == a.cleanup.gen {
-				a.cleanup.set(groups)
+				a.cleanup.set(a.Store.Root, groups)
 			}
 		}
 	})
@@ -117,9 +128,9 @@ func (s *sessions) set(projects []store.Project, err error) {
 	s.shown = "" // the sessions table takes the new rows on the next frame
 }
 
-func (s *sessions) view(c *ui.Context, a *App) {
+func (s *sessions) view(c *ui.Context, a *App, pal *palette) {
 	if s.open != nil {
-		s.transcript(c)
+		s.transcript(c, pal)
 		return
 	}
 	if s.err != "" {
@@ -130,14 +141,17 @@ func (s *sessions) view(c *ui.Context, a *App) {
 			ui.DataTable(c, &s.ptable, s.projects).Grow(1)
 		})
 	}, func() {
-		ui.Column(c).Fill().Gap(8).Children(func() { s.sessionTable(c, a) })
+		ui.Column(c).Fill().Gap(10).Padding(0, 0, 0, 12).Children(func() { s.sessionTable(c, a, pal) })
 	}).Grow(1)
 }
 
-func (s *sessions) sessionTable(c *ui.Context, a *App) {
+func (s *sessions) sessionTable(c *ui.Context, a *App, pal *palette) {
 	p := s.ptable.Current()
 	if p == nil {
-		ui.Text(c, "Choose a project to see its sessions.").TextColor(c.Theme().TextMuted)
+		ui.Column(c).Grow(1).AlignItems(ui.Center).Justify(ui.Center).Gap(4).Children(func() {
+			ui.Text(c, "Choose a project to see its sessions.").TextColor(pal.muted)
+			ui.Text(c, "A green lamp marks a session running now; it is never moved to the Trash.").FontSize(12).TextColor(pal.muted)
+		})
 		return
 	}
 	if p.Dir != s.shown {
@@ -147,12 +161,17 @@ func (s *sessions) sessionTable(c *ui.Context, a *App) {
 		s.table.Reset()
 	}
 	targets, live := s.targets()
-	ui.Row(c).Gap(8).Children(func() {
+	ui.Text(c, p.Path).TextColor(pal.muted).SingleLine().Tooltip(p.Path)
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+		if ui.SearchField(c, &s.query).Label("Search sessions").Width(160).MinWidth(100).Changed() {
+			s.table.SetSearch("Session", s.query)
+		}
+		ui.Spacer(c)
 		cur := s.table.Current()
 		if ui.Button(c, "Open Transcript").Disabled(cur == nil).Clicked() {
 			s.openTranscript(a, *cur)
 		}
-		if ui.Button(c, "Move to Trash…").Disabled(len(targets) == 0 || a.busy > 0).Clicked() {
+		if orangeKey(c, pal, "Move to Trash…", len(targets) == 0 || a.busy > 0).Clicked() {
 			s.pending, s.skipped, s.asking = targets, live, true
 		}
 	})
