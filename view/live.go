@@ -34,7 +34,7 @@ func screensFor(path string) screens {
 		return allScreens
 	case "projects":
 		s := sessionsScreen | usageScreen | overviewScreen
-		if len(parts) >= 3 && parts[2] == "memory" { // a project's memory files: Config shows them
+		if len(parts) >= 3 && strings.HasSuffix(parts[2], "memory") { // a project's memory files, as Config reads them
 			s |= configScreen
 		}
 		return s
@@ -88,6 +88,9 @@ func (l *live) run() {
 	l.start(s)
 }
 
+// refreshEvery is the most often the watch reloads the screens.
+const refreshEvery = 5 * time.Second
+
 // hints is what follow reads: a mygo watch, or a test's fake.
 type hints interface {
 	Next(context.Context) ([]mygo.FileEvent, error)
@@ -95,11 +98,22 @@ type hints interface {
 }
 
 // follow hands the screens each batch of changes affects to live, on the
-// main thread, until the watch ends. A watch that ends with an error says
-// so once; Rescan still works.
-func (a *App) follow(ctx context.Context, w hints, affects func(string) screens) {
+// main thread, until the watch ends. It takes a batch at most once every
+// interval: the watch's debounce lets a session that writes every second
+// through each time, and the watch keeps gathering changes meanwhile. A
+// watch that ends with an error says so once; Rescan still works.
+func (a *App) follow(ctx context.Context, w hints, affects func(string) screens, every time.Duration) {
+	var last time.Time // when the last batch was taken
 	for {
+		if wait := every - time.Since(last); !last.IsZero() && wait > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+		}
 		events, err := w.Next(ctx)
+		last = time.Now()
 		if err != nil {
 			if werr := w.Err(); werr != nil {
 				a.Update(func() { a.notice = "Live refresh is off: " + werr.Error() })
@@ -125,7 +139,7 @@ func (a *App) Watch(ctx context.Context, root, claudeJSON string) {
 	if w, err := mygo.WatchFiles(ctx, root, opts); err != nil {
 		a.Update(func() { a.notice = "Live refresh is off: " + err.Error() })
 	} else {
-		go a.follow(ctx, w, screensFor)
+		go a.follow(ctx, w, screensFor, refreshEvery)
 	}
 	// ~/.claude.json lies beside the root, unless CLAUDE_CONFIG_DIR puts it in.
 	if rel, err := filepath.Rel(root, claudeJSON); err == nil && !strings.HasPrefix(rel, "..") {
@@ -139,5 +153,5 @@ func (a *App) Watch(ctx context.Context, root, claudeJSON string) {
 		a.Update(func() { a.notice = "Live refresh is off: " + err.Error() })
 		return
 	}
-	go a.follow(ctx, w, func(string) screens { return configScreen })
+	go a.follow(ctx, w, func(string) screens { return configScreen }, refreshEvery)
 }

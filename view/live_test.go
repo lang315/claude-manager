@@ -20,6 +20,7 @@ func TestScreensFor(t *testing.T) {
 		"projects/-Users-me-proj": sessionsScreen | usageScreen | overviewScreen,
 		"projects/-Users-me-proj/55555555-5555-4555-8555-555555555555/subagents": sessionsScreen | usageScreen | overviewScreen,
 		"projects/-Users-me-proj/memory":                                         sessionsScreen | usageScreen | overviewScreen | configScreen,
+		"projects/-Users-me-proj/auto-memory":                                    sessionsScreen | usageScreen | overviewScreen | configScreen,
 		"sessions":                                                               sessionsScreen,
 		"plugins/marketplaces/x":                                                 configScreen | overviewScreen,
 		"skills/demo":                                                            configScreen | overviewScreen,
@@ -166,7 +167,7 @@ func TestFollowHintsScreens(t *testing.T) {
 	a, tt, q := heldApp(t)
 	a.follow(context.Background(), &fakeHints{batches: [][]mygo.FileEvent{
 		{{Op: mygo.FileHint, Path: "projects/-Users-me-proj"}},
-	}}, screensFor)
+	}}, screensFor, 0)
 	tt.Frame()
 	if a.live.inflight != sessionsScreen|usageScreen|overviewScreen || len(*q) == 0 {
 		t.Errorf("inflight %05b, %d queued", a.live.inflight, len(*q))
@@ -176,12 +177,12 @@ func TestFollowHintsScreens(t *testing.T) {
 func TestFollowEndsWithToast(t *testing.T) {
 	a, _, _ := heldApp(t)
 	a.Update = func(f func()) { f() }
-	a.follow(context.Background(), &fakeHints{err: errors.New("mygo: file watch entry limit exceeded")}, screensFor)
+	a.follow(context.Background(), &fakeHints{err: errors.New("mygo: file watch entry limit exceeded")}, screensFor, 0)
 	if a.notice != "Live refresh is off: mygo: file watch entry limit exceeded" {
 		t.Errorf("notice %q", a.notice)
 	}
 	a.notice = ""
-	a.follow(context.Background(), &fakeHints{}, screensFor) // closed, no error
+	a.follow(context.Background(), &fakeHints{}, screensFor, 0) // closed, no error
 	if a.notice != "" {
 		t.Errorf("a clean end toasts %q", a.notice)
 	}
@@ -203,4 +204,42 @@ func TestWatchFindsNewSession(t *testing.T) {
 		}
 	}
 	t.Errorf("sessions %d, want %d within 3 s", a.sessions.count, before+1)
+}
+
+// follow takes a batch at most once every interval: a session that writes
+// all the time reloads its screens at that pace, not after every debounce.
+func TestFollowSpacesBatches(t *testing.T) {
+	a, _, _ := heldApp(t)
+	a.Update = func(func()) {}
+	f := &fakeHints{batches: [][]mygo.FileEvent{{{Path: "."}}, {{Path: "."}}, {{Path: "."}}}}
+	start := time.Now()
+	a.follow(context.Background(), f, screensFor, 100*time.Millisecond)
+	if d := time.Since(start); d < 200*time.Millisecond {
+		t.Errorf("3 batches took %v, want at least 200ms at one per 100ms", d)
+	}
+}
+
+// A quiet reload keeps the place on the screens not pinned elsewhere:
+// Cleanup's ticked groups, Config's tab and open file, an open transcript.
+func TestQuietReloadKeepsPlace(t *testing.T) {
+	a, tt, _, _ := newApp(t)
+	must(t, tt.Click("Cleanup"))
+	a.cleanup.on[1] = true
+	must(t, tt.Click("Config"))
+	must(t, tt.Click("Memory"))
+	must(t, tt.Click("MEMORY.md"))
+	tab, path := a.config.tab, a.config.memory.path
+	must(t, tt.Click("Sessions"))
+	must(t, tt.Click("me/proj"))
+	must(t, tt.Click("Login bug fix"))
+	must(t, tt.Click("Open Transcript"))
+	tt.Frame()
+	a.live.hint(allScreens)
+	tt.Frame()
+	tt.Frame()
+	if !a.cleanup.on[1] || a.config.tab != tab || a.config.memory.path != path ||
+		a.sessions.open == nil || a.sessions.open.ID != fixture.Old {
+		t.Errorf("after a quiet reload: cleanup %v, config tab %d→%d, memory %q→%q, open %v",
+			a.cleanup.on[1], tab, a.config.tab, path, a.config.memory.path, a.sessions.open)
+	}
 }

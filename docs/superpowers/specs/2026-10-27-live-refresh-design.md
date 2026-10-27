@@ -90,9 +90,23 @@ It works like this:
 - **A quiet reload lands:** its screen leaves `inflight`. If the screen is
   still in `pending` and the app is active, it starts again, once.
 
-The watch's `Debounce` and `MaxDelay` already limit how often hints come. A
-burst of writes, such as a transcript in a running session, gives at most
-one hint every 5 s.
+The watch's `Debounce` lets through a change after 1 s of quiet, so a
+session that writes every second or two hints about every 1.5 s (as
+measured in review). `MaxDelay` only caps a burst that never pauses. So
+`follow` takes a batch from the watch at most once every 5 s
+(`refreshEvery`). The watch keeps gathering changes in between. A single
+change still shows after about 1 s.
+
+`live.active` starts from `mygo.App.IsActive()`, so an app launched in the
+background, such as a login item, holds its reloads until it comes to the
+front.
+
+**Known gap: memory files.** mygo leaves a hinted folder out when its
+parent is hinted in the same batch. Claude Code writes a memory file while
+it appends that project's transcript, so the batch usually names only
+`projects/<dir>`, not `projects/<dir>/memory`. Mapping every project hint
+to Config would cost about 286 ms more per reload. So a memory edit made
+during a session shows on the next `.` hint, or on Rescan.
 
 ## Quiet reloads
 

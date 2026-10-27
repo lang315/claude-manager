@@ -44,6 +44,7 @@ func main() {
 		go a.Watch(context.Background(), root, claudeJSON)
 		mygo.App.OnDidBecomeActive(func() { a.SetActive(true) })
 		mygo.App.OnDidResignActive(func() { a.SetActive(false) })
+		a.SetActive(mygo.App.IsActive()) // launched in the background: hold reloads until it is in front
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
