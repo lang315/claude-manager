@@ -260,3 +260,53 @@ func TestHistoryFilterDropsChoice(t *testing.T) {
 		t.Errorf("a row the filter keeps lost its choice: %+v", p)
 	}
 }
+
+// Open session says why it is off: a session not found while the scan is
+// still running may yet turn up.
+func TestSessionHint(t *testing.T) {
+	for _, c := range []struct {
+		found, loading bool
+		want           string
+	}{
+		{true, false, ""}, {true, true, ""},
+		{false, true, "Sessions are still loading"},
+		{false, false, "Session no longer on disk"},
+	} {
+		if got := sessionHint(c.found, c.loading); got != c.want {
+			t.Errorf("sessionHint(%v, %v) = %q, want %q", c.found, c.loading, got, c.want)
+		}
+	}
+}
+
+// A Rescan keeps the prompt open: Claude Code only appends, so its line
+// stays its key.
+func TestHistoryRescanKeepsChoice(t *testing.T) {
+	a, tt, d, _ := newApp(t)
+	must(t, tt.Click("History"))
+	must(t, tt.Click("Review this:"))
+	f, err := os.OpenFile(filepath.Join(d.Root, "history.jsonl"), os.O_APPEND|os.O_WRONLY, 0)
+	must(t, err)
+	_, err = f.WriteString(`{"display":"newer","timestamp":1793010000000,"project":"/Users/me/proj","sessionId":"` + fixture.Old + `"}` + "\n")
+	must(t, err)
+	must(t, f.Close())
+	a.Rescan()
+	tt.Frame()
+	if p := a.history.chosen(); p == nil || p.Line != 4 {
+		t.Errorf("after a Rescan the choice is %+v, want line 4", p)
+	}
+}
+
+// A history.jsonl that can't be read is not "no history".
+func TestHistoryUnreadable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any file")
+	}
+	a, tt, d, _ := newApp(t)
+	must(t, os.Chmod(filepath.Join(d.Root, "history.jsonl"), 0))
+	a.Rescan()
+	tt.Frame()
+	must(t, tt.Click("History"))
+	if tt.HasText("No prompt history yet.") || !tt.HasText("history.jsonl could not be read.") {
+		t.Errorf("an unreadable file reads as empty; texts %q", tt.Texts())
+	}
+}

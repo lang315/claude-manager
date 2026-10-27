@@ -98,10 +98,12 @@ func matchPrompt(p *store.Prompt, kw string) bool {
 type history struct {
 	prompts  []store.Prompt
 	bad      int
+	err      string   // why history.jsonl could not be read
 	projects []string // allProjects, then each project as tilde shows it, newest prompt first
 	shown    []int    // indexes in prompts of the rows the filters keep, newest first
 	key      filterKey
 	stale    bool // prompts changed since shown was worked out
+	keep     int  // the line of the prompt chosen before a load, to choose again
 	list     ui.ListState
 	at       int // the row chosen in shown, -1 for none
 	split    float32
@@ -132,7 +134,11 @@ func (h *history) load(a *App) {
 	a.run(func() func() {
 		prompts, bad, err := a.Store.History()
 		return func() {
-			h.prompts, h.bad, h.stale, h.at = prompts, bad, true, -1
+			h.keep = 0
+			if p := h.chosen(); p != nil {
+				h.keep = p.Line // Claude Code only appends: a line keeps its prompt
+			}
+			h.prompts, h.bad, h.stale, h.at, h.err = prompts, bad, true, -1, errText(err)
 			if err != nil {
 				a.notice = err.Error()
 			}
@@ -158,7 +164,8 @@ func (h *history) filter(k filterKey) {
 	if k == h.key && !h.stale {
 		return
 	}
-	line := 0
+	line := h.keep
+	h.keep = 0
 	if !h.stale {
 		if p := h.chosen(); p != nil {
 			line = p.Line
@@ -216,6 +223,9 @@ func dayError(s string, loc *time.Location) string {
 
 func (h *history) table(c *ui.Context, pal *palette) {
 	switch {
+	case h.err != "":
+		blank(c, pal, "history.jsonl could not be read.")
+		return
 	case len(h.prompts) == 0:
 		blank(c, pal, "No prompt history yet.")
 		return
@@ -276,8 +286,8 @@ func (h *history) detail(c *ui.Context, a *App, pal *palette) {
 			}
 			x := a.sessions.find(p.SessionID)
 			open := ui.Button(c, "Open session").Disabled(x == nil)
-			if x == nil {
-				open.Tooltip("Session no longer on disk")
+			if hint := sessionHint(x != nil, a.busy > 0); hint != "" {
+				open.Tooltip(hint)
 			}
 			if open.Clicked() {
 				a.page = "sessions"
@@ -299,4 +309,16 @@ func (h *history) pasteOpenFor(line, id int) *bool {
 // lineCount counts a text's lines, a last line without "\n" included.
 func lineCount(s string) int {
 	return strings.Count(strings.TrimRight(s, "\n"), "\n") + 1
+}
+
+// sessionHint is why Open session is off, "" when it is on. A session not
+// found while a scan runs may be one it hasn't reached yet.
+func sessionHint(found, loading bool) string {
+	switch {
+	case found:
+		return ""
+	case loading:
+		return "Sessions are still loading"
+	}
+	return "Session no longer on disk"
 }
