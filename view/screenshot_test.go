@@ -12,7 +12,7 @@ import (
 
 // TestScreenshots writes a PNG of each screen, drawn from the fixture, into
 // $SCREENSHOT_DIR, at the test canvas size and at main.go's window size
-// (<name>-1100.png). It shows no real data, so the PNGs can go in a PR.
+// (<name>-1100.png), and dark at that size (<name>-dark.png). It shows no real data, so the PNGs can go in a PR.
 func TestScreenshots(t *testing.T) {
 	dir := os.Getenv("SCREENSHOT_DIR")
 	if dir == "" {
@@ -20,21 +20,35 @@ func TestScreenshots(t *testing.T) {
 	}
 	a, tt, _, _ := newApp(t)
 	small := ui.NewTester(a.View, 1100, 720)
-	shots := []struct{ name, click, then string }{
-		{"overview", "Overview", ""},
-		{"sessions", "Sessions", "me/proj"},
-		{"config", "Config", "env"},
-		{"cleanup", "Cleanup", "paste-cache"},
+	dark := ui.NewTester(a.View, 1100, 720)
+	dark.SetDark(true)
+	shots := []struct {
+		name, click string
+		then        []string
+	}{
+		{"overview", "Overview", nil},
+		{"sessions", "Sessions", []string{"me/proj"}},
+		{"transcript", "Sessions", []string{"me/proj", "Login bug fix", "Open Transcript"}},
+		{"config", "Back", []string{"Config", "Settings", "env"}},
+		{"config-hooks", "Hooks", nil},
+		{"config-mcp", "MCP servers", []string{"remote"}},
+		{"config-plugins", "Plugins", nil},
+		{"config-skills", "Skills", nil},
+		{"config-memory", "Memory", []string{"MEMORY.md"}},
+		{"config-backups", "Backups", []string{"settings.json.bak-1"}},
+		{"cleanup", "Cleanup", []string{"paste-cache"}},
 	}
-	for _, s := range shots {
-		for _, w := range []struct {
-			suffix string
-			t      *ui.Tester
-		}{{"", tt}, {"-1100", small}} {
+	// One tester at a time: they share the app, and the transcript shot
+	// leaves it open until the next shot's Back.
+	for _, w := range []struct {
+		suffix string
+		t      *ui.Tester
+	}{{"", tt}, {"-1100", small}, {"-dark", dark}} {
+		for _, s := range shots {
 			a.Update = w.t.Update
 			must(t, w.t.Click(s.click))
-			if s.then != "" {
-				must(t, w.t.Click(s.then))
+			for _, then := range s.then {
+				must(t, w.t.Click(then))
 			}
 			f, err := os.Create(filepath.Join(dir, fmt.Sprintf("%s%s.png", s.name, w.suffix)))
 			if err != nil {

@@ -6,7 +6,7 @@ Each item gets its own design before it is built.
 
 ## v1.x — polish
 
-- [ ] UI/UX polish of every screen with the `impeccable` skill.
+- [x] UI/UX polish of every screen with the `impeccable` skill.
 - [ ] Build and sign a `.app` / `.dmg` with `mygo build`.
 
 ## v2 — search and insight
@@ -30,14 +30,11 @@ Each item gets its own design before it is built.
 
 Found in review and left for later.
 
-- First prompts show raw `<command-name>` wrappers.
 - Two encoded project dirs that share a `cwd` get the same project label.
 - Transcript reading continues after Back.
 - `.claude.json` is decoded whole (only `mcpServers` is needed).
 - Read errors on skills, commands and memory are not surfaced.
-- The config tree is not virtualized.
 - Checked rows hidden by the search are still trashed.
-- Singular wording: "1 items", "1 sessions".
 - `int(days)` truncates a fractional number of days.
 - Untitled sessions are rescanned up to 8 MB on each rescan.
 - The file-history orphan group offers non-UUID entries such as `.DS_Store`.

@@ -30,7 +30,7 @@ func TestTranscript(t *testing.T) {
 		t.Fatalf("%d messages, want 6", n)
 	}
 	for _, s := range []string{
-		"1 unreadable lines",
+		"1 unreadable line",
 		`tool_use · Read {"file_path":"auth.go"}`,
 		"thinking · Look at auth.go",
 		"6 messages",

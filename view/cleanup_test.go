@@ -158,13 +158,21 @@ func TestMoveToTrashDisabledWhileBusy(t *testing.T) {
 	a.busy = 1
 	tt.Frame()
 	tt.Click("Move to Trash…") // disabled: a click does nothing
-	if tt.HasText("Move 1 items to the Trash?") {
+	if tt.HasText("Move 1 item to the Trash?") {
 		t.Errorf("confirmation opens while busy; texts %q", tt.Texts())
 	}
 	a.busy = 0
 	tt.Frame()
 	must(t, tt.Click("Move to Trash…"))
-	if !tt.HasText("Move 1 items to the Trash?") || len(*trashed) != 0 {
+	if !tt.HasText("Move 1 item to the Trash?") || len(*trashed) != 0 {
 		t.Errorf("no confirmation once idle; texts %q", tt.Texts())
+	}
+}
+
+// groupNotes are matched to groups by position.
+func TestGroupNotesMatchGroups(t *testing.T) {
+	a, _, _, _ := newApp(t)
+	if len(groupNotes) != len(a.cleanup.groups) {
+		t.Errorf("%d group notes for %d groups", len(groupNotes), len(a.cleanup.groups))
 	}
 }

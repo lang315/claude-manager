@@ -212,7 +212,7 @@ func (x *Session) note(r record, head bool) {
 	}
 	for _, m := range r.messages() {
 		if m.Role == "user" && m.Kind == "text" && strings.TrimSpace(m.Text) != "" {
-			x.FirstPrompt = FirstLine(m.Text, 200)
+			x.FirstPrompt = FirstLine(slashCommand(m.Text), 200)
 			return
 		}
 	}
@@ -226,6 +226,18 @@ func FirstLine(s string, n int) string {
 	}
 	if r := []rune(s); len(r) > n {
 		s = string(r[:n])
+	}
+	return s
+}
+
+// commandTag finds the slash command Claude Code wraps a typed command in:
+// <command-name>/model</command-name> … <command-args>opus</command-args>.
+var commandTag = regexp.MustCompile(`(?s)<command-name>(.*?)</command-name>(?:.*?<command-args>(.*?)</command-args>)?`)
+
+// slashCommand turns a prompt that is a slash command into the command typed.
+func slashCommand(s string) string {
+	if m := commandTag.FindStringSubmatch(s); m != nil {
+		return strings.TrimSpace(m[1] + " " + m[2])
 	}
 	return s
 }

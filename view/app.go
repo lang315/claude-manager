@@ -17,6 +17,7 @@ type App struct {
 	// the app, Tester.Update in tests.
 	Update func(func())
 
+	root   string // Store.Root as shown, with ~ for the home directory
 	page   string
 	busy   int    // loads and moves in flight
 	notice string // shown as a toast on the next frame
@@ -28,8 +29,7 @@ type App struct {
 }
 
 func New(s *store.Store) *App {
-	a := &App{Store: s, Go: func(f func()) { go f() }, page: "overview"}
-	a.overview.init()
+	a := &App{Store: s, Go: func(f func()) { go f() }, page: "overview", root: tilde(s.Root)}
 	a.sessions.init()
 	a.config.init()
 	a.cleanup.days = 30
@@ -45,39 +45,78 @@ func (a *App) Rescan() {
 }
 
 func (a *App) View(c *ui.Context) {
+	pal := applyTheme(c)
 	if a.notice != "" {
 		c.Toast(a.notice)
 		a.notice = ""
 	}
+	live := a.sessions.live
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		ui.Sidebar(c, &a.page, func() {
-			ui.SidebarItem(c, "overview", nil, "Overview")
-			ui.SidebarItem(c, "sessions", nil, "Sessions")
-			ui.SidebarItem(c, "config", nil, "Config")
-			ui.SidebarItem(c, "cleanup", nil, "Cleanup")
-		}).Width(180)
-		ui.Column(c).Grow(1).Padding(12).Gap(8).Children(func() {
-			ui.Row(c).Gap(8).Children(func() {
-				if a.busy > 0 {
-					ui.Text(c, "Scanning…").TextColor(c.Theme().TextMuted)
-				}
-				ui.Spacer(c)
-				if ui.Button(c, "Rescan").Disabled(a.busy > 0).Clicked() {
-					a.Rescan()
+			ui.SidebarItem(c, "overview", iconOverview, "Overview")
+			ui.SidebarItem(c, "sessions", iconSessions, "Sessions").Children(func() {
+				if live > 0 {
+					lamp(c, pal).Tooltip(plural(live, "session") + " running")
 				}
 			})
+			ui.SidebarItem(c, "config", iconConfig, "Config")
+			ui.SidebarItem(c, "cleanup", iconCleanup, "Cleanup")
+		}).Width(200).Background(pal.ground)
+		ui.Divider(c)
+		ui.Column(c).Grow(1).MinWidth(0).PaddingX(24).PaddingY(18).Gap(16).Children(func() {
+			a.header(c, pal, live)
 			switch a.page {
 			case "overview":
-				a.overview.view(c, a)
+				a.overview.view(c, a, pal)
 			case "sessions":
-				a.sessions.view(c, a)
+				a.sessions.view(c, a, pal)
 			case "config":
-				a.config.view(c, a)
+				a.config.view(c, a, pal)
 			case "cleanup":
-				a.cleanup.view(c, a)
+				a.cleanup.view(c, a, pal)
 				// Each screen adds its case here.
 			}
 		})
+	})
+	a.cleanup.confirm(c, a)
+}
+
+// header names the screen, sums up what it shows, and holds Rescan; the
+// Overview's adds the key to clean up.
+func (a *App) header(c *ui.Context, pal *palette, live int) {
+	var title, sub string
+	switch a.page {
+	case "overview":
+		running := "no session running"
+		if live > 0 {
+			running = plural(live, "session") + " running"
+		}
+		title = a.root
+		sub = humanSize(a.overview.total) + " · " + running
+	case "sessions":
+		s := &a.sessions
+		title = "Sessions"
+		sub = fmt.Sprintf("%s in %s · %s", plural(s.count, "session"), plural(len(s.projects), "project"), humanSize(s.size))
+	case "config":
+		title, sub = "Config", "Read-only. Credentials are masked."
+	case "cleanup":
+		title, sub = "Cleanup", "Everything moves to the Trash, so you can put it back."
+	}
+	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+			ui.Text(c, title).FontSize(24).Bold().SingleLine()
+			ui.Text(c, sub).TextColor(pal.muted).SingleLine()
+		})
+		if a.busy > 0 {
+			ui.Spinner(c).Label("Scanning")
+			ui.Text(c, "Scanning…").TextColor(pal.muted)
+		}
+		if ui.Button(c, "Rescan").Disabled(a.busy > 0).Clicked() {
+			a.Rescan()
+		}
+		if a.page == "overview" && orangeKey(c, pal, "Clean up…", a.cleanup.reclaim == 0).Clicked() {
+			a.page = "cleanup"
+		}
 	})
 }
 
@@ -116,9 +155,9 @@ func (a *App) trash(paths func() []string) {
 	a.run(func() func() {
 		moved, err := a.Store.TrashPaths(paths())
 		return func() {
-			a.notice = fmt.Sprintf("Moved %d items to the Trash", moved)
+			a.notice = fmt.Sprintf("Moved %s to the Trash", plural(moved, "item"))
 			if err != nil {
-				a.notice = fmt.Sprintf("Moved %d items to the Trash, then stopped: %v", moved, err)
+				a.notice = fmt.Sprintf("Moved %s to the Trash, then stopped: %v", plural(moved, "item"), err)
 			}
 			a.Rescan()
 		}

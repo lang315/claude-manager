@@ -54,3 +54,15 @@ func TestParseRecord(t *testing.T) {
 		t.Error("syntax error reads as ok")
 	}
 }
+
+func TestSlashCommand(t *testing.T) {
+	for in, want := range map[string]string{
+		"<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>":     "/clear",
+		"<command-message>model</command-message>\n<command-name>/model</command-name>\n<command-args>opus</command-args>": "/model opus",
+		"Fix the login bug": "Fix the login bug",
+	} {
+		if got := slashCommand(in); got != want {
+			t.Errorf("slashCommand(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
