@@ -3,6 +3,7 @@ package view
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/claude-manager/store"
@@ -19,8 +20,11 @@ type App struct {
 
 	root   string // Store.Root as shown, with ~ for the home directory
 	page   string
-	busy   int    // loads and moves in flight, but Usage's scan, which feeds no Trash target
-	notice string // shown as a toast on the next frame
+	busy   int     // loads the user started and moves in flight; not Usage's scan nor quiet reloads, which feed no Trash target
+	notice string  // shown as a toast on the next frame
+	quiet  screens // the screen a quiet reload is starting for; 0 for a load the user started
+	live   live    // paces the reloads the watch asks for
+	shown  string  // the page live last heard of
 
 	overview overview
 	sessions sessions
@@ -38,6 +42,8 @@ func New(s *store.Store) *App {
 	a.usage.init()
 	a.config.init()
 	a.cleanup.days = 30
+	a.live = live{active: true, visible: pageScreens(a.page), start: a.reload}
+	a.shown = a.page
 	return a
 }
 
@@ -53,6 +59,10 @@ func (a *App) Rescan() {
 
 func (a *App) View(c *ui.Context) {
 	pal := applyTheme(c)
+	if a.page != a.shown { // a page opened: what it missed while hidden loads now
+		a.shown = a.page
+		a.live.show(pageScreens(a.page))
+	}
 	if a.notice != "" {
 		c.Toast(a.notice)
 		a.notice = ""
@@ -143,15 +153,54 @@ func (a *App) header(c *ui.Context, pal *palette, live int) {
 }
 
 // run does work off the main thread, then applies the change it returns on
-// the main thread.
+// the main thread. A load the user started counts in busy; a quiet reload
+// doesn't, and tells live when it lands.
 func (a *App) run(work func() (apply func())) {
-	a.busy++
+	q := a.quiet
+	if q == 0 {
+		a.busy++
+	}
 	a.Go(func() {
 		apply := work()
 		a.Update(func() {
-			a.busy--
+			if q == 0 {
+				a.busy--
+			}
 			apply()
+			if q != 0 {
+				a.live.landed(q)
+			}
 		})
+	})
+}
+
+// reload starts the quiet loads of s: they leave busy alone, so Rescan and
+// Trash stay enabled. TrashPaths checks each path again as it moves it.
+func (a *App) reload(s screens) {
+	for _, x := range []struct {
+		s    screens
+		load func(*App)
+	}{
+		{overviewScreen, a.overview.load}, {sessionsScreen, a.sessions.load}, {historyScreen, a.history.load},
+		{usageScreen, a.usage.load}, {configScreen, a.config.load},
+	} {
+		if s&x.s != 0 {
+			a.quiet = x.s
+			x.load(a)
+			a.quiet = 0
+		}
+	}
+}
+
+// SetActive tells the app whether it is in front. In the background, the
+// reloads the watch asks for wait until it is back.
+func (a *App) SetActive(on bool) {
+	a.Update(func() {
+		if on {
+			a.live.activate()
+		} else {
+			a.live.resign()
+		}
 	})
 }
 
@@ -170,6 +219,16 @@ func picked[T any, K comparable](s *ui.DataTableState[T, K]) []*T {
 		}
 	}
 	return out
+}
+
+// keepOnly drops the keys of s that keep doesn't hold: rows gone since the
+// last load. A reload keeps the user's other choices.
+func keepOnly[K comparable](s *ui.Selection[K], keep map[K]bool) {
+	for _, k := range slices.Collect(s.All()) {
+		if !keep[k] {
+			s.Remove(k)
+		}
+	}
 }
 
 // trash moves the paths that paths returns to the Trash, off the main

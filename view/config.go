@@ -61,7 +61,11 @@ func (p *configPage) load(a *App) {
 			for _, x := range cfg.Plugins {
 				p.most = max(p.most, x.Size)
 			}
-			p.backups.Checked.Clear() // the files checked may be gone
+			listed := map[string]bool{}
+			for _, x := range cfg.Backups {
+				listed[x.Path] = true
+			}
+			keepOnly(&p.backups.Checked, listed) // a trashed file's tick goes
 			p.backups.Reset()
 		}
 	})

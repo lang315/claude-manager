@@ -1,6 +1,6 @@
 package store
 
-import "regexp"
+import "strings"
 
 // PricesAsOf is the day the price table was read from
 // https://platform.claude.com/docs/en/about-claude/pricing.
@@ -38,7 +38,15 @@ var noGeo = map[string]bool{"claude-opus-4-5": true, "claude-sonnet-4-5": true, 
 
 const webSearch = 10.0 / 1000 // USD a search
 
-var dateSuffix = regexp.MustCompile(`-\d{8}$`)
+// baseModel drops a model's date suffix, a dash and eight digits:
+// claude-haiku-4-5-20251001 is claude-haiku-4-5. It is no regexp: Usage
+// prices every call on each reload.
+func baseModel(m string) string {
+	if i := len(m) - 9; i > 0 && m[i] == '-' && strings.IndexFunc(m[i+1:], func(r rune) bool { return r < '0' || r > '9' }) < 0 {
+		return m[:i]
+	}
+	return m
+}
 
 // callTokens are the counts a call is priced on.
 type callTokens struct {
@@ -51,7 +59,7 @@ type callTokens struct {
 // price is a call's cost at API list prices, in USD, and false for a model
 // the table doesn't have.
 func price(model string, c callTokens) (float64, bool) {
-	m := dateSuffix.ReplaceAllString(model, "")
+	m := baseModel(model)
 	r, ok := prices[m]
 	if !ok {
 		return 0, false

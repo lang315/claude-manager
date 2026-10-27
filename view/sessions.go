@@ -25,7 +25,8 @@ type sessions struct {
 	split       float32
 	ptable      ui.DataTableState[store.Project, string]
 	table       ui.DataTableState[store.Session, string]
-	shown       string // Dir of the project whose sessions the table shows
+	shown       string // Path of the project whose sessions the table shows
+	fresh       bool   // set has new rows for the project shown
 	rows        []store.Session
 	asking      bool
 	pending     []store.Session
@@ -63,7 +64,7 @@ func sessionLabel(x *store.Session) string {
 func (s *sessions) init() {
 	s.split = 360
 	bySize := func(x, y *store.Project) int { return cmp.Compare(x.Size, y.Size) }
-	s.ptable.Key = func(p *store.Project) string { return p.Dir }
+	s.ptable.Key = func(p *store.Project) string { return p.Path }
 	s.ptable.NoSearchBar = true
 	s.ptable.Columns = []ui.DataColumn[store.Project]{
 		{TableColumn: ui.TableColumn{Title: "Project", Width: 150}, Text: func(p *store.Project) string { return p.Path },
@@ -123,7 +124,7 @@ func (s *sessions) load(a *App) {
 func (s *sessions) set(projects []store.Project, err error) {
 	s.projects, s.err, s.loaded = projects, errText(err), true
 	s.ptable.Reset()
-	s.shown = "" // the sessions table takes the new rows on the next frame
+	s.fresh = true // the sessions table takes the new rows on the next frame
 	s.count, s.live, s.size, s.latest = 0, 0, 0, nil
 	for _, p := range projects {
 		s.size += p.Size
@@ -177,10 +178,19 @@ func (s *sessions) sessionTable(c *ui.Context, a *App, pal *palette) {
 		})
 		return
 	}
-	if p.Dir != s.shown {
-		s.shown, s.rows = p.Dir, p.Sessions
+	if p.Path != s.shown { // another project: its own ticks
+		s.shown, s.fresh = p.Path, true
 		s.table.Checked.Clear()
 		s.table.Chosen.Clear()
+	}
+	if s.fresh { // new rows: a reload keeps the ticks of sessions still there
+		s.fresh, s.rows = false, p.Sessions
+		ids := map[string]bool{}
+		for _, x := range p.Sessions {
+			ids[x.ID] = true
+		}
+		keepOnly(&s.table.Checked, ids)
+		keepOnly(&s.table.Chosen, ids)
 		s.table.Reset()
 	}
 	targets, live := s.targets()

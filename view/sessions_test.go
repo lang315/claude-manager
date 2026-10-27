@@ -149,3 +149,46 @@ func TestTrashSkipsRowsHiddenBySearch(t *testing.T) {
 		}
 	}
 }
+
+// A reload keeps the ticked sessions that are still there, and drops the
+// ticks of sessions gone.
+func TestSessionsReloadKeepsTicks(t *testing.T) {
+	a, tt, d, _ := newApp(t)
+	must(t, tt.Click("Sessions"))
+	must(t, tt.Click("me/proj"))
+	tt.Frame()
+	a.sessions.table.Checked.Add(fixture.Old)
+	a.sessions.table.Checked.Add(fixture.Late)
+	tt.Frame()
+	must(t, os.Remove(filepath.Join(d.Root, fixture.Proj, fixture.Late+".jsonl")))
+	a.Rescan()
+	tt.Frame()
+	tt.Frame()
+	if !a.sessions.table.Checked.Has(fixture.Old) || a.sessions.table.Checked.Has(fixture.Late) {
+		t.Errorf("after a reload: Old ticked %v (want true), Late ticked %v (want false)",
+			a.sessions.table.Checked.Has(fixture.Old), a.sessions.table.Checked.Has(fixture.Late))
+	}
+}
+
+// A merged project stays chosen, with its ticks, when its newest session
+// lands in its other folder: the project table is keyed by path.
+func TestSessionsReloadKeepsMergedProject(t *testing.T) {
+	a, tt, d, _ := newApp(t)
+	must(t, tt.Click("Sessions"))
+	must(t, tt.Click("me/proj"))
+	tt.Frame()
+	a.sessions.table.Checked.Add(fixture.Old)
+	tt.Frame()
+	dir := filepath.Join(d.Root, "projects", "-Users-me-proj-v2")
+	must(t, os.MkdirAll(dir, 0o755))
+	file := filepath.Join(dir, "99999999-9999-4999-8999-999999999999.jsonl")
+	must(t, os.WriteFile(file, []byte(`{"type":"user","cwd":"/Users/me/proj","timestamp":"2026-10-26T11:00:00.000Z","message":{"role":"user","content":"Moved folder"}}`+"\n"), 0o644))
+	must(t, os.Chtimes(file, fixture.Now, fixture.Now))
+	a.Rescan()
+	tt.Frame()
+	tt.Frame()
+	p := a.sessions.ptable.Current()
+	if p == nil || p.Path != "/Users/me/proj" || !a.sessions.table.Checked.Has(fixture.Old) {
+		t.Errorf("after the merge: project %v, Old ticked %v", p, a.sessions.table.Checked.Has(fixture.Old))
+	}
+}
