@@ -18,8 +18,9 @@ filtered by project and date".
 | Decision | Choice | Why |
 |---|---|---|
 | Loading | Read the whole file into memory on each Rescan, off the main thread | 3.7 MB and 15,086 lines on this machine; no index needed |
-| Search | Case-insensitive substring through `DataTable`'s own search, with `DataColumn.Match` | Reuses the Sessions pattern; finding a prompt you typed needs no ranking |
-| Filters | `DataTableState.Filter` + `FilterKey` for project and date, alongside the search | One table, both filters and the search combine |
+| Table | `ui.Table` over the indexes the filters keep, worked out again only when a filter changes | `DataTable` always draws a checkbox column, and History has nothing to check |
+| Search | Case-insensitive substring over the prompt and its pastes | Finding a prompt you typed needs no ranking |
+| Filters | Search, project and date in one filter key; the rows are filtered again when it changes | One pass over 15k prompts per change, none per frame |
 | Date filter | `Segmented` presets plus Custom with From / To fields | MyGo has no date picker; presets are one click, Custom covers any range |
 | Writes | None. `history.jsonl` is only read | Claude Code appends to it on every prompt and uses it for ↑ recall; a rewrite could lose lines |
 
@@ -94,24 +95,27 @@ when some are.
 
 ### Table
 
-- `DataTable` with three columns:
-  - Time: `fmtTime`, sortable;
+- `ui.Table` with three columns:
+  - Time: `fmtTime`, in tabular figures;
   - Project: `shortPath`, with the full path as tooltip;
   - Prompt: the first line, via `FirstLine`.
-- No checkbox column; the footer shows the count of rows shown.
-- Newest first by default.
+- No checkbox column, no sort: always newest first.
+- A line under the table counts the rows shown.
+- The row chosen stays chosen while a filter keeps it, and is let go when
+  one hides it.
 
 ### Search
 
-- Search applies to the Prompt column.
-- Its `Match` covers the prompt text and every inline paste.
-- Matching is case-insensitive.
-- Search runs through `SearchField` + `SetSearch`, as Sessions does.
+- A `SearchField`, as Sessions has.
+- It matches the prompt text and every inline paste, case-insensitive.
+- A keyword of only spaces matches everything.
 
 ### Project filter
 
-- A `Select` with "All projects", then each project by `shortPath`.
+- A `Select` with "All projects", then each project's full path as `tilde`
+  shows it (`shortPath` can be the same for two projects).
 - Projects are ordered by their newest prompt.
+- A Rescan that loses the project chosen goes back to All projects.
 
 ### Date filter
 
