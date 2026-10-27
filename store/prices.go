@@ -43,6 +43,7 @@ var dateSuffix = regexp.MustCompile(`-\d{8}$`)
 // callTokens are the counts a call is priced on.
 type callTokens struct {
 	Input, Output, CacheRead, CacheWrite5m, CacheWrite1h, WebSearches int64
+
 	Fast bool // speed "fast"
 	US   bool // inference_geo "us"
 }
