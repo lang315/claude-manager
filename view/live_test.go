@@ -1,6 +1,17 @@
 package view
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/egoist/mygo"
+	"github.com/lang315/claude-manager/internal/fixture"
+)
 
 func TestScreensFor(t *testing.T) {
 	for path, want := range map[string]screens{
@@ -132,4 +143,64 @@ func TestSetActive(t *testing.T) {
 	if len(*q) == 0 {
 		t.Error("activation didn't start the held reload")
 	}
+}
+
+// fakeHints hands out batches, then ends with err (io.EOF when nil).
+type fakeHints struct {
+	batches [][]mygo.FileEvent
+	err     error
+}
+
+func (f *fakeHints) Next(context.Context) ([]mygo.FileEvent, error) {
+	if len(f.batches) == 0 {
+		return nil, io.EOF
+	}
+	b := f.batches[0]
+	f.batches = f.batches[1:]
+	return b, nil
+}
+
+func (f *fakeHints) Err() error { return f.err }
+
+func TestFollowHintsScreens(t *testing.T) {
+	a, tt, q := heldApp(t)
+	a.follow(context.Background(), &fakeHints{batches: [][]mygo.FileEvent{
+		{{Op: mygo.FileHint, Path: "projects/-Users-me-proj"}},
+	}}, screensFor)
+	tt.Frame()
+	if a.live.inflight != sessionsScreen|usageScreen|overviewScreen || len(*q) == 0 {
+		t.Errorf("inflight %05b, %d queued", a.live.inflight, len(*q))
+	}
+}
+
+func TestFollowEndsWithToast(t *testing.T) {
+	a, _, _ := heldApp(t)
+	a.Update = func(f func()) { f() }
+	a.follow(context.Background(), &fakeHints{err: errors.New("mygo: file watch entry limit exceeded")}, screensFor)
+	if a.notice != "Live refresh is off: mygo: file watch entry limit exceeded" {
+		t.Errorf("notice %q", a.notice)
+	}
+	a.notice = ""
+	a.follow(context.Background(), &fakeHints{}, screensFor) // closed, no error
+	if a.notice != "" {
+		t.Errorf("a clean end toasts %q", a.notice)
+	}
+}
+
+// The real watch: a new session written under projects/ shows in Sessions.
+func TestWatchFindsNewSession(t *testing.T) {
+	a, tt, d, _ := newApp(t)
+	before := a.sessions.count
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a.Watch(ctx, d.Root, d.ClaudeJSON)
+	file := filepath.Join(d.Root, fixture.Other, "77777777-7777-4777-8777-777777777777.jsonl")
+	must(t, os.WriteFile(file, []byte(`{"type":"user","cwd":"/Users/me/other","message":{"role":"user","content":"New"}}`+"\n"), 0o644))
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		tt.Frame()
+		if a.sessions.count == before+1 {
+			return
+		}
+	}
+	t.Errorf("sessions %d, want %d within 3 s", a.sessions.count, before+1)
 }

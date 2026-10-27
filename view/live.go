@@ -1,6 +1,14 @@
 package view
 
-import "strings"
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/egoist/mygo"
+)
 
 // screens is a set of the pages whose loads read ~/.claude. Cleanup is not
 // one: the Sessions load reloads it.
@@ -78,4 +86,58 @@ func (l *live) run() {
 	l.pending &^= s
 	l.inflight |= s
 	l.start(s)
+}
+
+// hints is what follow reads: a mygo watch, or a test's fake.
+type hints interface {
+	Next(context.Context) ([]mygo.FileEvent, error)
+	Err() error
+}
+
+// follow hands the screens each batch of changes affects to live, on the
+// main thread, until the watch ends. A watch that ends with an error says
+// so once; Rescan still works.
+func (a *App) follow(ctx context.Context, w hints, affects func(string) screens) {
+	for {
+		events, err := w.Next(ctx)
+		if err != nil {
+			if werr := w.Err(); werr != nil {
+				a.Update(func() { a.notice = "Live refresh is off: " + werr.Error() })
+			}
+			return
+		}
+		var s screens
+		for _, e := range events {
+			s |= affects(e.Path)
+		}
+		if s != 0 {
+			a.Update(func() { a.live.hint(s) })
+		}
+	}
+}
+
+// Watch follows root, and claudeJSON when it lies outside root, until ctx
+// ends. A watch that can't start says so in a toast; Rescan stays. Call it
+// once the app is ready, off the main thread: it waits for the watch to
+// start.
+func (a *App) Watch(ctx context.Context, root, claudeJSON string) {
+	opts := mygo.FileWatchOptions{Recursive: true, HintsOnly: true, Debounce: time.Second, MaxDelay: 5 * time.Second}
+	if w, err := mygo.WatchFiles(ctx, root, opts); err != nil {
+		a.Update(func() { a.notice = "Live refresh is off: " + err.Error() })
+	} else {
+		go a.follow(ctx, w, screensFor)
+	}
+	// ~/.claude.json lies beside the root, unless CLAUDE_CONFIG_DIR puts it in.
+	if rel, err := filepath.Rel(root, claudeJSON); err == nil && !strings.HasPrefix(rel, "..") {
+		return
+	}
+	if _, err := os.Stat(claudeJSON); err != nil {
+		return // not there: a Rescan reads it once it is
+	}
+	w, err := mygo.WatchFiles(ctx, claudeJSON, mygo.FileWatchOptions{Debounce: time.Second, MaxDelay: 5 * time.Second})
+	if err != nil {
+		a.Update(func() { a.notice = "Live refresh is off: " + err.Error() })
+		return
+	}
+	go a.follow(ctx, w, func(string) screens { return configScreen })
 }
