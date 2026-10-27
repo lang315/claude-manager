@@ -3,6 +3,7 @@ package view
 import (
 	"cmp"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"time"
@@ -229,8 +230,103 @@ func (u *usage) view(c *ui.Context, a *App, pal *palette) {
 	})
 }
 
-// chart draws the cost by day. Task 5 fills it in.
-func (u *usage) chart(c *ui.Context, pal *palette) {}
+var periodText = []string{"today", "over 7 days", "over 30 days", "in all"}
+
+// chart draws the period's cost, a bar a day, or a week when All spans more
+// than 90 days.
+func (u *usage) chart(c *ui.Context, pal *palette) {
+	s := &u.sum
+	vals := bars(s.byDay, s.first, s.last, s.weekly)
+	title := "Cost by day"
+	if s.weekly {
+		title = "Cost by week"
+	}
+	face(c, pal).Children(func() {
+		head(c, pal, title, money(s.total.Cost)+" "+periodText[u.preset]+" · prices of "+store.PricesAsOf)
+		ui.Column(c).Padding(2, 16, 12, 16).Children(func() {
+			ui.Box(c).Height(110).Label(title).Draw(func(pt *ui.Painter, r ui.Rect) {
+				drawBars(pt, r, pal, vals)
+			})
+		})
+	})
+}
+
+// bars returns the cost of each day from first to last, both local
+// midnights, or of each week from the Monday on or before first when weekly.
+func bars(byDay map[string]float64, first, last time.Time, weekly bool) []float64 {
+	if first.IsZero() {
+		return nil
+	}
+	if weekly {
+		for first.Weekday() != time.Monday {
+			first = first.AddDate(0, 0, -1)
+		}
+	}
+	var out []float64
+	for d := first; !d.After(last); d = d.AddDate(0, 0, 1) {
+		if !weekly || len(out) == 0 || d.Weekday() == time.Monday {
+			out = append(out, 0)
+		}
+		out[len(out)-1] += byDay[d.Format(time.DateOnly)]
+	}
+	return out
+}
+
+// dollarStep is a round amount, 1, 2 or 5 times a power of ten, that puts at
+// most four steps under most.
+func dollarStep(most float64) float64 {
+	for unit := 0.01; ; unit *= 10 {
+		for _, m := range []float64{1, 2, 5} {
+			if s := math.Round(m*unit*100) / 100; most/s <= 4 {
+				return s
+			}
+		}
+	}
+}
+
+// dollarTick is a tick's label: whole dollars bare, cents when the step has
+// them.
+func dollarTick(v float64) string {
+	if v == math.Trunc(v) {
+		return "$" + commas(int64(v))
+	}
+	return fmt.Sprintf("$%.2f", v)
+}
+
+// drawBars draws costs as ink bars over a baseline, with ticks at round
+// dollar amounts at the left.
+func drawBars(pt *ui.Painter, r ui.Rect, pal *palette, vals []float64) {
+	const axisW = 52
+	plot := ui.Rect{X: r.X + axisW, Y: r.Y + 6, W: r.W - axisW, H: r.H - 10}
+	pt.Fill(ui.Rect{X: plot.X, Y: plot.Y + plot.H, W: plot.W, H: 1}, pal.ink, 0)
+	most := 0.0
+	for _, v := range vals {
+		most = max(most, v)
+	}
+	if most <= 0 {
+		return
+	}
+	step := dollarStep(most)
+	top := math.Ceil(most/step) * step
+	y := func(v float64) float32 { return plot.Y + plot.H - plot.H*float32(v/top) }
+	for i := 0; float64(i)*step <= top+step/2; i++ {
+		v := float64(i) * step
+		yy := y(v)
+		pt.Line(plot.X-5, yy, plot.X, yy, 1, pal.ink)
+		label := ui.Span{Text: dollarTick(v), Size: 11, Color: pal.muted}
+		w, h := pt.MeasureText(0, label)
+		pt.RichText(plot.X-9-w, yy-h/2, 0, label)
+	}
+	bw := plot.W / float32(len(vals))
+	gap := min(bw*0.25, 3)
+	for i, v := range vals {
+		if v <= 0 {
+			continue
+		}
+		h := max(plot.H*float32(v/top), 1)
+		pt.Fill(ui.Rect{X: plot.X + float32(i)*bw + gap/2, Y: plot.Y + plot.H - h, W: max(bw-gap, 1), H: h}, pal.ink, 0)
+	}
+}
 
 // num is a figure in a table cell.
 func num(c *ui.Context, s string) ui.Element {

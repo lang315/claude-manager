@@ -3,6 +3,7 @@ package view
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -129,5 +130,44 @@ func TestUsageRescanDuringScan(t *testing.T) {
 	tt.Frame()
 	if a.usage.gen != 2 || a.usage.scanning {
 		t.Errorf("gen %d, scanning %v; want 2 scans, done", a.usage.gen, a.usage.scanning)
+	}
+}
+
+func TestBars(t *testing.T) {
+	day := func(d int) time.Time { return time.Date(2026, 10, d, 0, 0, 0, 0, time.UTC) }
+	byDay := map[string]float64{"2026-10-20": 6.74, "2026-10-21": 3.4, "2026-10-26": 0.058}
+	got := bars(byDay, day(20), day(26), false)
+	if want := []float64{6.74, 3.4, 0, 0, 0, 0, 0.058}; !slices.Equal(got, want) {
+		t.Errorf("daily %v, want %v", got, want)
+	}
+	// 2026-10-19 and 10-26 are Mondays: from the 18th, the weeks start on
+	// the 12th, the 19th and the 26th.
+	got = bars(byDay, day(18), day(26), true)
+	if len(got) != 3 || got[0] != 0 || got[1] != 6.74+3.4 || got[2] != 0.058 {
+		t.Errorf("weekly %v, want [0 10.14 0.058]", got)
+	}
+}
+
+func TestDollarStep(t *testing.T) {
+	for most, want := range map[float64]float64{0.05: 0.02, 3.4: 1, 6.74: 2, 15.5: 5, 140: 50} {
+		if got := dollarStep(most); got != want {
+			t.Errorf("dollarStep(%v) = %v, want %v", most, got, want)
+		}
+	}
+}
+
+func TestUsageChartCaption(t *testing.T) {
+	a, tt, _, _ := newApp(t)
+	must(t, tt.Click("Usage"))
+	if !tt.HasText("COST BY DAY") || !tt.HasText("$15.49 over 30 days · prices of "+store.PricesAsOf) {
+		t.Errorf("chart caption; texts %q", tt.Texts())
+	}
+	a.usage.buckets = append(a.usage.buckets, store.Usage{SessionID: fixture.Old, Project: "/Users/me/proj",
+		Day: time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC), Model: "claude-opus-5-5", Calls: 1, Cost: 1})
+	a.usage.gen++
+	a.usage.preset = presetAll
+	tt.Frame()
+	if !tt.HasText("COST BY WEEK") {
+		t.Errorf("over 90 days, no weekly bars; texts %q", tt.Texts())
 	}
 }
