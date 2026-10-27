@@ -3,7 +3,9 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,7 +22,7 @@ func TestLiveIDs(t *testing.T) {
 
 func TestProjects(t *testing.T) {
 	s, d, _ := newStore(t)
-	projects, err := s.Projects()
+	projects, err := s.Projects(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +112,7 @@ func TestRootWithGlobChars(t *testing.T) {
 	if got := s.LiveIDs(); len(got) != 1 || !got[fixture.Live] {
 		t.Errorf("LiveIDs %v, want only %s", got, fixture.Live)
 	}
-	if p, err := s.Projects(); err != nil || len(p) != 2 {
+	if p, err := s.Projects(nil); err != nil || len(p) != 2 {
 		t.Errorf("projects %d err %v, want 2", len(p), err)
 	}
 }
@@ -151,5 +153,124 @@ func TestLiveIDsStartedAtNotAnInteger(t *testing.T) {
 				t.Errorf("since %v, want unknown (zero)", since)
 			}
 		})
+	}
+}
+
+// Claude Code can encode one cwd into two folders: they are one project,
+// keyed by the folder of its newest session.
+func TestProjectsMergeSameCwd(t *testing.T) {
+	s, d, _ := newStore(t)
+	before, _ := s.Projects(nil)
+	var count int
+	for _, p := range before {
+		if p.Path == "/Users/me/proj" {
+			count = len(p.Sessions)
+		}
+	}
+	dir, id := movedSession(t, d)
+	ps, _ := s.Projects(nil)
+	var hits []Project
+	for _, p := range ps {
+		if p.Path == "/Users/me/proj" {
+			hits = append(hits, p)
+		}
+	}
+	if len(hits) != 1 {
+		t.Fatalf("%d projects for /Users/me/proj, want 1", len(hits))
+	}
+	if p := hits[0]; p.Dir != dir || len(p.Sessions) != count+1 || p.Sessions[0].ID != id {
+		t.Errorf("merged: dir %q, %d sessions, newest %q; want %q, %d, %q", p.Dir, len(p.Sessions), p.Sessions[0].ID, dir, count+1, id)
+	}
+}
+
+// A Rescan rereads the head of only the sessions whose .jsonl changed, and
+// forgets the ones gone.
+func TestProjectsReadsOnlyChangedHeads(t *testing.T) {
+	s, d, _ := newStore(t)
+	var scan SessionScan
+	first, err := s.Projects(&scan)
+	n := scan.reads
+	if err != nil || n == 0 {
+		t.Fatalf("first scan: %d reads, err %v", n, err)
+	}
+	again, _ := s.Projects(&scan)
+	if scan.reads != n || !reflect.DeepEqual(first, again) {
+		t.Errorf("an unchanged tree: %d reads (want %d), same projects %v", scan.reads, n, reflect.DeepEqual(first, again))
+	}
+	recent := filepath.Join(d.Root, fixture.Other, fixture.Recent+".jsonl")
+	f, err := os.OpenFile(recent, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(`{"type":"user","message":{"role":"user","content":"more"}}` + "\n")
+	f.Close()
+	s.Projects(&scan)
+	if scan.reads != n+1 {
+		t.Errorf("one grown session: %d reads, want %d", scan.reads, n+1)
+	}
+	late := filepath.Join(d.Root, fixture.Proj, fixture.Late+".jsonl")
+	if err := os.Remove(late); err != nil {
+		t.Fatal(err)
+	}
+	s.Projects(&scan)
+	if _, ok := scan.heads[late]; ok {
+		t.Error("a deleted session stays in the cache")
+	}
+}
+
+// The Sessions and Cleanup loads can scan at once.
+func TestProjectsScanFromTwoLoads(t *testing.T) {
+	s, _, _ := newStore(t)
+	var scan SessionScan
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Go(func() { s.Projects(&scan) })
+	}
+	wg.Wait()
+}
+
+// movedSession writes the newest session of all, on the fixture's clock, in
+// a second folder for /Users/me/proj, and returns that folder and its id.
+func movedSession(t *testing.T, d fixture.Dirs) (dir, id string) {
+	t.Helper()
+	dir = filepath.Join(d.Root, "projects", "-Users-me-proj-v2")
+	id = "99999999-9999-4999-8999-999999999999"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"type":"user","cwd":"/Users/me/proj","timestamp":"2026-10-26T11:00:00.000Z","message":{"role":"user","content":"Moved folder"}}` + "\n"
+	file := filepath.Join(dir, id+".jsonl")
+	if err := os.WriteFile(file, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(file, fixture.Now, fixture.Now); err != nil {
+		t.Fatal(err)
+	}
+	return dir, id
+}
+
+// A head that couldn't be read is read again on the next scan, once the
+// file can be: the error isn't kept.
+func TestProjectsRetriesFailedHead(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any file")
+	}
+	s, d, _ := newStore(t)
+	recent := filepath.Join(d.Root, fixture.Other, fixture.Recent+".jsonl")
+	if err := os.Chmod(recent, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(recent, 0o644) })
+	var scan SessionScan
+	ps, _ := s.Projects(&scan)
+	if x := session(t, ps, fixture.Recent); x.Err == "" {
+		t.Fatal("an unreadable session has no error")
+	}
+	if err := os.Chmod(recent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ps, _ = s.Projects(&scan)
+	if x := session(t, ps, fixture.Recent); x.Err != "" || x.FirstPrompt != "Recent thing" {
+		t.Errorf("after the file can be read: err %q, first prompt %q", x.Err, x.FirstPrompt)
 	}
 }

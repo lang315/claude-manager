@@ -61,7 +61,7 @@ func (p *cleanup) load(a *App) {
 	p.gen++
 	gen := p.gen
 	a.run(func() func() {
-		projects, _ := a.Store.Projects() // fresh: a session may have started since the last scan
+		projects, _ := a.Store.Projects(&a.heads) // fresh: a session may have started since the last scan
 		groups := a.Store.Cleanup(projects, days)
 		return func() {
 			if gen == p.gen {

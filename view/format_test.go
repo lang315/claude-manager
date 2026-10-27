@@ -44,7 +44,7 @@ func TestUsageFormats(t *testing.T) {
 			t.Errorf("money(%v) = %q, want %q", in, got, want)
 		}
 	}
-	for in, want := range map[int64]string{950: "950", 12345: "12.3K", 3124400: "3.1M", 820_400_000: "820.4M", 2_100_000_000: "2.1B"} {
+	for in, want := range map[int64]string{950: "950", 999_949: "999.9K", 999_950: "1.0M", 999_950_000: "1.0B", 12345: "12.3K", 3124400: "3.1M", 820_400_000: "820.4M", 2_100_000_000: "2.1B"} {
 		if got := tokenCount(in); got != want {
 			t.Errorf("tokenCount(%d) = %q, want %q", in, got, want)
 		}

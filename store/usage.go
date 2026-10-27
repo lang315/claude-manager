@@ -144,6 +144,7 @@ func (f *usageFile) line(b []byte) {
 		}
 		tk := it.tokens()
 		tk.Fast = tk.Fast || it.Speed == "" && m.Usage.Speed == "fast"
+		tk.US = tk.US || it.Geo == "" && m.Usage.Geo == "us"
 		f.add(call{k, t, cmp.Or(it.Model, m.Model), tk})
 	}
 }
@@ -251,7 +252,10 @@ func (s *Store) Usage(scan *UsageScan, progress func(done, total int)) (buckets 
 			if p == root {
 				return err
 			}
-			return nil // an unreadable folder: its transcripts aren't counted
+			if !errors.Is(err, fs.ErrNotExist) { // gone since the listing: not an error
+				unreadable++ // an unreadable folder: its transcripts can't be counted
+			}
+			return nil
 		}
 		if !d.IsDir() && strings.HasSuffix(p, ".jsonl") {
 			if _, _, ok := sessionOf(root, p); ok {
@@ -343,7 +347,9 @@ func (sc *UsageScan) refresh(root, path string, open func(string) (*os.File, err
 	if _, err := fh.Seek(f.off, io.SeekStart); err != nil {
 		return err
 	}
-	n, err := f.read(fh)
+	// Read no further than the size stat'ed, so off never passes the size
+	// kept: what grew since waits for the next scan.
+	n, err := f.read(io.LimitReader(fh, info.Size()-f.off))
 	if err != nil {
 		return err
 	}

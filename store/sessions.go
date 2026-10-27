@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -29,7 +30,8 @@ type Session struct {
 	Err                  string
 }
 
-// Project is a directory of projects/, its sessions newest first.
+// Project is a directory of projects/, its sessions newest first. Folders
+// whose sessions share a cwd are one project: Dir is its newest session's.
 type Project struct {
 	Dir      string // absolute projects/<encoded> dir
 	Path     string // the real path, from a session's cwd; the encoded name without one
@@ -47,6 +49,59 @@ const headLimit = 64 << 10
 // titleLimit caps the whole read: a session whose ai-title lies past it
 // reads untitled, so that one without a title is not read to its end.
 const titleLimit = 8 << 20
+
+// SessionScan keeps what earlier scans read from the head of each session,
+// so a Rescan rereads only the sessions whose .jsonl changed. Its zero value
+// is ready, and the Sessions and Cleanup loads may use it at once.
+type SessionScan struct {
+	mu    sync.Mutex
+	heads map[string]sessionHead // by .jsonl path
+	reads int                    // heads read from disk: tests count them
+}
+
+// sessionHead is what readHead found in a .jsonl of this size and mtime.
+type sessionHead struct {
+	size  int64
+	mtime time.Time
+	Session
+}
+
+// head fills x's head metadata from the cache, or from the file when it
+// changed since it was read.
+func (sc *SessionScan) head(file string, info fs.FileInfo, x *Session) {
+	sc.mu.Lock()
+	h, ok := sc.heads[file]
+	sc.mu.Unlock()
+	if !ok || h.size != info.Size() || !h.mtime.Equal(info.ModTime()) {
+		h = sessionHead{size: info.Size(), mtime: info.ModTime()}
+		err := readHead(file, &h.Session)
+		sc.mu.Lock()
+		sc.reads++
+		if err == nil { // an error is not kept: the next scan tries again
+			if sc.heads == nil {
+				sc.heads = map[string]sessionHead{}
+			}
+			sc.heads[file] = h
+		}
+		sc.mu.Unlock()
+		if err != nil {
+			h.Err = err.Error()
+		}
+	}
+	x.Cwd, x.Branch, x.Version = h.Cwd, h.Branch, h.Version
+	x.Title, x.FirstPrompt, x.Started, x.Err = h.Title, h.FirstPrompt, h.Started, h.Err
+}
+
+// keep drops the heads of the files not in seen: sessions gone.
+func (sc *SessionScan) keep(seen map[string]bool) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	for f := range sc.heads {
+		if !seen[f] {
+			delete(sc.heads, f)
+		}
+	}
+}
 
 var aiTitle = []byte(`"ai-title"`)
 var userType = []byte(`"type":"user"`)
@@ -95,8 +150,13 @@ func (s *Store) live() (ids map[string]bool, since time.Time) {
 }
 
 // Projects lists projects/ with the metadata of every session, largest
-// project first.
-func (s *Store) Projects() ([]Project, error) {
+// project first. Folders that share a cwd are one project, keyed by the
+// folder of its newest session. scan, when set, keeps the sessions' heads
+// across calls.
+func (s *Store) Projects(scan *SessionScan) ([]Project, error) {
+	if scan == nil {
+		scan = &SessionScan{}
+	}
 	live := s.LiveIDs()
 	dirs, err := os.ReadDir(filepath.Join(s.Root, "projects"))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -106,6 +166,8 @@ func (s *Store) Projects() ([]Project, error) {
 		return nil, err
 	}
 	var out []Project
+	byPath := map[string]int{} // a path's index in out
+	seen := map[string]bool{}
 	for _, d := range dirs {
 		if !d.IsDir() {
 			continue
@@ -115,7 +177,8 @@ func (s *Store) Projects() ([]Project, error) {
 			if !uuidRe.MatchString(strings.TrimSuffix(filepath.Base(f), ".jsonl")) {
 				continue
 			}
-			x := s.session(f, live)
+			seen[f] = true
+			x := s.session(f, live, scan)
 			if p.Path == d.Name() && x.Cwd != "" {
 				p.Path = x.Cwd
 			}
@@ -125,14 +188,38 @@ func (s *Store) Projects() ([]Project, error) {
 		if len(p.Sessions) == 0 {
 			continue
 		}
-		slices.SortFunc(p.Sessions, func(a, b Session) int { return b.Modified.Compare(a.Modified) })
+		// Claude Code can encode one cwd into two folder names.
+		if i, ok := byPath[p.Path]; ok {
+			out[i].Size += p.Size
+			out[i].Sessions = append(out[i].Sessions, p.Sessions...)
+			continue
+		}
+		byPath[p.Path] = len(out)
 		out = append(out, p)
+	}
+	scan.keep(seen)
+	for i := range out {
+		p := &out[i]
+		slices.SortFunc(p.Sessions, func(a, b Session) int { return b.Modified.Compare(a.Modified) })
+		p.Dir = p.Sessions[0].Dir
 	}
 	slices.SortFunc(out, func(a, b Project) int { return cmp.Compare(b.Size, a.Size) })
 	return out, nil
 }
 
-func (s *Store) session(file string, live map[string]bool) Session {
+// dirs are the folders a project's sessions are in: one, or more when
+// folders that share a cwd were merged.
+func (p Project) dirs() []string {
+	out := []string{p.Dir}
+	for _, x := range p.Sessions {
+		if !slices.Contains(out, x.Dir) {
+			out = append(out, x.Dir)
+		}
+	}
+	return out
+}
+
+func (s *Store) session(file string, live map[string]bool, scan *SessionScan) Session {
 	id := strings.TrimSuffix(filepath.Base(file), ".jsonl")
 	x := Session{ID: id, File: file, Dir: filepath.Dir(file)}
 	info, err := os.Stat(file)
@@ -145,9 +232,7 @@ func (s *Store) session(file string, live map[string]bool) Session {
 	sideSize, _ := dirSize(side)
 	x.Size = info.Size() + sideSize
 	x.Subagents = len(listFiles(filepath.Join(side, "subagents"), ".jsonl"))
-	if err := readHead(file, &x); err != nil {
-		x.Err = err.Error()
-	}
+	scan.head(file, info, &x)
 	x.Live = live[id] || s.Now().Sub(x.Modified) < recent
 	return x
 }

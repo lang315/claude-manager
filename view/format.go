@@ -87,15 +87,19 @@ func money(f float64) string {
 	return fmt.Sprintf("$%s.%02d", commas(c/100), c%100)
 }
 
-// tokenCount is a count of tokens, short: 950, 12.3K, 820.4M, 2.1B.
+// tokenCount is a count of tokens, short: 950, 12.3K, 820.4M, 2.1B. The unit
+// is picked after rounding, so 999,950 is 1.0M, not 1000.0K.
 func tokenCount(n int64) string {
-	switch {
-	case n < 1000:
+	if n < 1000 {
 		return strconv.FormatInt(n, 10)
-	case n < 1_000_000:
-		return fmt.Sprintf("%.1fK", float64(n)/1e3)
-	case n < 1_000_000_000:
-		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	}
+	for _, u := range []struct {
+		div float64
+		sym string
+	}{{1e3, "K"}, {1e6, "M"}} {
+		if math.Round(float64(n)/u.div*10) < 10000 {
+			return fmt.Sprintf("%.1f%s", float64(n)/u.div, u.sym)
+		}
 	}
 	return fmt.Sprintf("%.1fB", float64(n)/1e9)
 }
