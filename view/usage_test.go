@@ -1,6 +1,7 @@
 package view
 
 import (
+	"image"
 	"os"
 	"path/filepath"
 	"slices"
@@ -169,5 +170,58 @@ func TestUsageChartCaption(t *testing.T) {
 	tt.Frame()
 	if !tt.HasText("COST BY WEEK") {
 		t.Errorf("over 90 days, no weekly bars; texts %q", tt.Texts())
+	}
+}
+
+// The usage scan is long and feeds no Trash target: it must not hold the
+// app busy, which disables Rescan and every Move to Trash.
+func TestUsageScanLeavesAppFree(t *testing.T) {
+	a, _, q := heldApp(t)
+	a.usage.load(a)
+	if a.busy != 0 || len(*q) != 1 {
+		t.Errorf("busy %d, %d queued; want 0 busy, the scan queued", a.busy, len(*q))
+	}
+}
+
+// inkRun is the widest run of dark pixels on the rows around y, from x0 to x1.
+func inkRun(img *image.RGBA, x0, x1, y int) int {
+	best := 0
+	for yy := y - 4; yy <= y+4; yy++ {
+		run := 0
+		for x := x0; x < x1; x++ {
+			if r, g, b, _ := img.At(x, yy).RGBA(); r>>8 < 90 && g>>8 < 90 && b>>8 < 90 {
+				run++
+				best = max(best, run)
+			} else {
+				run = 0
+			}
+		}
+	}
+	return best
+}
+
+// Share is of the period's cost: two projects at the same cost fill half
+// the column each, not all of it.
+func TestUsageShareOfPeriod(t *testing.T) {
+	a, tt, _, _ := newApp(t)
+	must(t, tt.Click("Usage"))
+	day := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	a.usage.buckets = []store.Usage{
+		{SessionID: fixture.Old, Project: "/p/alpha", Day: day, Model: "claude-opus-5-5", Calls: 1, Cost: 1},
+		{SessionID: fixture.Recent, Project: "/p/beta", Day: day, Model: "claude-opus-5-5", Calls: 1, Cost: 1},
+	}
+	a.usage.gen++
+	tt.Frame()
+	head, ok := tt.Find("Share")
+	row, ok2 := tt.Find("p/alpha")
+	if !ok || !ok2 {
+		t.Fatalf("no Share column or row; texts %q", tt.Texts())
+	}
+	img := tt.Image()
+	k := float32(img.Bounds().Dx()) / 1200
+	x0, x1 := int((head.X-4)*k), int((head.X+150)*k)
+	full := inkRun(img, x0, x1, int((row.Y+row.H/2)*k))
+	if want := 140 * k / 2; float32(full) < want-8*k || float32(full) > want+8*k {
+		t.Errorf("alpha's bar is %d px, want about %.0f (half of 140)", full, want)
 	}
 }

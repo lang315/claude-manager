@@ -60,6 +60,7 @@ type usageSum struct {
 	first, last                time.Time          // the days the chart spans
 	weekly                     bool
 	projects, sessions, models []usageRow
+	allProjects                float64 // the period's cost in every project: the Share bars' whole
 }
 
 func (u *usage) init() {
@@ -69,21 +70,23 @@ func (u *usage) init() {
 }
 
 // load scans the transcripts off the main thread; a load during a scan runs
-// once it lands, so one scan at a time uses u.scan.
+// once it lands, so one scan at a time uses u.scan. It is not a.run: the
+// scan takes seconds and feeds no Trash target, so it doesn't hold the app
+// busy.
 func (u *usage) load(a *App) {
 	if u.scanning {
 		u.again = true
 		return
 	}
 	u.scanning = true
-	a.run(func() func() {
+	a.Go(func() {
 		progress := func(done, total int) {
 			if done%100 == 0 || done == total {
 				a.Update(func() { u.done, u.total = done, total })
 			}
 		}
 		buckets, bad, unreadable, err := a.Store.Usage(&u.scan, progress)
-		return func() {
+		a.Update(func() {
 			u.scanning, u.loaded = false, true
 			u.buckets, u.bad = buckets, bad
 			u.gen++
@@ -97,7 +100,7 @@ func (u *usage) load(a *App) {
 				u.again = false
 				u.load(a)
 			}
-		}
+		})
 	})
 }
 
@@ -117,6 +120,7 @@ func (u *usage) refresh(now time.Time) {
 			continue
 		}
 		rowOf(projects, b.Project).Add(b) // every project, so another can be chosen
+		s.allProjects += b.Cost
 		if inProject[b.Project] == nil {
 			inProject[b.Project] = map[string]bool{}
 		}
@@ -207,7 +211,10 @@ func (u *usage) view(c *ui.Context, a *App, pal *palette) {
 	u.refresh(a.Store.Now())
 	switch {
 	case !u.loaded:
-		blank(c, pal, "Reading transcripts…")
+		ui.Column(c).Grow(1).AlignItems(ui.Center).Justify(ui.Center).Gap(10).Children(func() {
+			ui.Spinner(c).Label("Reading transcripts")
+			ui.Text(c, "Reading transcripts…").TextColor(pal.muted)
+		})
 		return
 	case len(u.buckets) == 0:
 		blank(c, pal, "No usage yet.")
@@ -359,7 +366,7 @@ func (u *usage) projectTable(c *ui.Context, pal *palette) {
 		case 3:
 			num(c, costText(r.Usage))
 		case 4:
-			scale(c, pal, cents(r.Cost), 0, cents(rows[0].Cost)).Grow(1)
+			scale(c, pal, cents(r.Cost), 0, cents(u.sum.allProjects)).Grow(1)
 		}
 	}).Grow(1).MinHeight(0)
 	// A click on a project filters the screen to it.
