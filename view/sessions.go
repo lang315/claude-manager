@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -35,50 +36,57 @@ type sessions struct {
 	md      markdown.Options
 }
 
+const liveSuffix = " (live)"
+
 func sessionLabel(x *store.Session) string {
 	label := cmp.Or(x.Title, x.FirstPrompt, "(untitled)")
 	if x.Err != "" {
 		label = "(unreadable: " + x.Err + ")"
 	}
 	if x.Live {
-		label += " (live)"
+		label += liveSuffix
 	}
 	return label
 }
 
 func (s *sessions) init() {
-	s.split = 320
+	s.split = 360
 	bySize := func(x, y *store.Project) int { return cmp.Compare(x.Size, y.Size) }
 	s.ptable.Key = func(p *store.Project) string { return p.Dir }
 	s.ptable.NoSearchBar = true
 	s.ptable.Columns = []ui.DataColumn[store.Project]{
-		{TableColumn: ui.TableColumn{Title: "Project", Width: 130}, Text: func(p *store.Project) string { return p.Path },
-			Cell:    func(c *ui.Context, p *store.Project) { ui.Text(c, shortPath(p.Path)).NoWrap().Tooltip(p.Path) },
+		{TableColumn: ui.TableColumn{Title: "Project", Width: 150}, Text: func(p *store.Project) string { return p.Path },
+			Cell:    func(c *ui.Context, p *store.Project) { ui.Text(c, shortPath(p.Path)).SingleLine().Tooltip(p.Path) },
 			Compare: func(x, y *store.Project) int { return cmp.Compare(x.Path, y.Path) }},
-		{TableColumn: ui.TableColumn{Title: "Count", Width: 60}, Text: func(p *store.Project) string { return strconv.Itoa(len(p.Sessions)) },
+		{TableColumn: ui.TableColumn{Title: "Sessions", Width: 90, Align: ui.End}, Text: func(p *store.Project) string { return strconv.Itoa(len(p.Sessions)) },
 			Compare: func(x, y *store.Project) int { return cmp.Compare(len(x.Sessions), len(y.Sessions)) }},
-		{TableColumn: ui.TableColumn{Title: "Size", Width: 80}, Text: func(p *store.Project) string { return humanSize(p.Size) }, Compare: bySize},
+		{TableColumn: ui.TableColumn{Title: "Size", Width: 80, Align: ui.End}, Text: func(p *store.Project) string { return humanSize(p.Size) }, Compare: bySize},
 	}
 
 	s.table.Key = func(x *store.Session) string { return x.ID }
 	s.table.Footer = true
 	s.table.SearchDelay = 200 * time.Millisecond
 	s.table.Columns = []ui.DataColumn[store.Session]{
-		{TableColumn: ui.TableColumn{Title: "Session", Width: 200}, Text: sessionLabel,
+		{TableColumn: ui.TableColumn{Title: "Session", MinWidth: 120}, Text: sessionLabel,
 			Match: func(x *store.Session, kw string) bool {
 				return containsFold(x.Title, kw) || containsFold(x.FirstPrompt, kw)
 			},
 			Cell: func(c *ui.Context, x *store.Session) {
-				t := ui.Text(c, sessionLabel(x)).NoWrap()
-				if x.Live {
-					t.Opacity(0.5)
+				if !x.Live {
+					ui.Text(c, sessionLabel(x)).SingleLine()
+					return
 				}
+				// A live session can't be trashed: dim it and say why.
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, strings.TrimSuffix(sessionLabel(x), liveSuffix)).SingleLine().TextColor(c.Theme().TextMuted).Grow(1).MinWidth(0)
+					ui.Badge(c, "Live").Tooltip("Running now; it can't be moved to the Trash")
+				})
 			}},
 		{TableColumn: ui.TableColumn{Title: "Modified", Width: 140}, Text: func(x *store.Session) string { return fmtTime(x.Modified) }, NoSearch: true,
 			Compare: func(x, y *store.Session) int { return x.Modified.Compare(y.Modified) }},
-		{TableColumn: ui.TableColumn{Title: "Size", Width: 80}, Text: func(x *store.Session) string { return humanSize(x.Size) }, NoSearch: true,
+		{TableColumn: ui.TableColumn{Title: "Size", Width: 80, Align: ui.End}, Text: func(x *store.Session) string { return humanSize(x.Size) }, NoSearch: true,
 			Compare: func(x, y *store.Session) int { return cmp.Compare(x.Size, y.Size) }},
-		{TableColumn: ui.TableColumn{Title: "Subagents", Width: 90}, Text: func(x *store.Session) string { return strconv.Itoa(x.Subagents) }, NoSearch: true,
+		{TableColumn: ui.TableColumn{Title: "Subagents", Width: 90, Align: ui.End}, Text: func(x *store.Session) string { return strconv.Itoa(x.Subagents) }, NoSearch: true,
 			Compare: func(x, y *store.Session) int { return cmp.Compare(x.Subagents, y.Subagents) }},
 	}
 }
@@ -129,7 +137,7 @@ func (s *sessions) view(c *ui.Context, a *App) {
 func (s *sessions) sessionTable(c *ui.Context, a *App) {
 	p := s.ptable.Current()
 	if p == nil {
-		ui.Text(c, "Choose a project").TextColor(c.Theme().TextMuted)
+		ui.Text(c, "Choose a project to see its sessions.").TextColor(c.Theme().TextMuted)
 		return
 	}
 	if p.Dir != s.shown {
@@ -171,9 +179,9 @@ func (s *sessions) confirm(c *ui.Context, a *App) {
 	}
 	msg := humanSize(size) + " moves to the Trash, with each session's subagents, file history and environment. You can put it back from the Trash."
 	if s.skipped > 0 {
-		msg += fmt.Sprintf(" %d live sessions are left alone.", s.skipped)
+		msg += fmt.Sprintf(" Running sessions are left alone (%d).", s.skipped)
 	}
-	title := fmt.Sprintf("Move %d sessions to the Trash?", len(s.pending))
+	title := fmt.Sprintf("Move %s to the Trash?", plural(len(s.pending), "session"))
 	if ui.AlertDialog(c, &s.asking, title, msg, "Cancel", "Move to Trash") == 1 {
 		pending := s.pending
 		a.trash(func() []string {

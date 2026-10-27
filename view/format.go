@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
@@ -24,6 +25,22 @@ func fmtTime(t time.Time) string {
 		return "—"
 	}
 	return t.Local().Format("2006-01-02 15:04")
+}
+
+// plural counts n of a noun whose plural adds an s: "1 item", "2 items".
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// tilde writes a path under the home directory with ~.
+func tilde(p string) string {
+	if home, err := os.UserHomeDir(); err == nil && home != "" && strings.HasPrefix(p, home+"/") {
+		return "~" + p[len(home):]
+	}
+	return p
 }
 
 func errText(err error) string {

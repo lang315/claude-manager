@@ -20,21 +20,27 @@ func TestScreenshots(t *testing.T) {
 	}
 	a, tt, _, _ := newApp(t)
 	small := ui.NewTester(a.View, 1100, 720)
-	shots := []struct{ name, click, then string }{
-		{"overview", "Overview", ""},
-		{"sessions", "Sessions", "me/proj"},
-		{"config", "Config", "env"},
-		{"cleanup", "Cleanup", "paste-cache"},
+	shots := []struct {
+		name, click string
+		then        []string
+	}{
+		{"overview", "Overview", nil},
+		{"sessions", "Sessions", []string{"me/proj"}},
+		{"transcript", "Sessions", []string{"me/proj", "Login bug fix", "Open Transcript"}},
+		{"config", "Back", []string{"Config", "env"}},
+		{"cleanup", "Cleanup", []string{"paste-cache"}},
 	}
-	for _, s := range shots {
-		for _, w := range []struct {
-			suffix string
-			t      *ui.Tester
-		}{{"", tt}, {"-1100", small}} {
+	// One tester at a time: they share the app, and the transcript shot
+	// leaves it open until the next shot's Back.
+	for _, w := range []struct {
+		suffix string
+		t      *ui.Tester
+	}{{"", tt}, {"-1100", small}} {
+		for _, s := range shots {
 			a.Update = w.t.Update
 			must(t, w.t.Click(s.click))
-			if s.then != "" {
-				must(t, w.t.Click(s.then))
+			for _, then := range s.then {
+				must(t, w.t.Click(then))
 			}
 			f, err := os.Create(filepath.Join(dir, fmt.Sprintf("%s%s.png", s.name, w.suffix)))
 			if err != nil {

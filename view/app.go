@@ -51,21 +51,13 @@ func (a *App) View(c *ui.Context) {
 	}
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		ui.Sidebar(c, &a.page, func() {
-			ui.SidebarItem(c, "overview", nil, "Overview")
-			ui.SidebarItem(c, "sessions", nil, "Sessions")
-			ui.SidebarItem(c, "config", nil, "Config")
-			ui.SidebarItem(c, "cleanup", nil, "Cleanup")
+			ui.SidebarItem(c, "overview", iconOverview, "Overview")
+			ui.SidebarItem(c, "sessions", iconSessions, "Sessions")
+			ui.SidebarItem(c, "config", iconConfig, "Config")
+			ui.SidebarItem(c, "cleanup", iconCleanup, "Cleanup")
 		}).Width(180)
-		ui.Column(c).Grow(1).Padding(12).Gap(8).Children(func() {
-			ui.Row(c).Gap(8).Children(func() {
-				if a.busy > 0 {
-					ui.Text(c, "Scanning…").TextColor(c.Theme().TextMuted)
-				}
-				ui.Spacer(c)
-				if ui.Button(c, "Rescan").Disabled(a.busy > 0).Clicked() {
-					a.Rescan()
-				}
-			})
+		ui.Column(c).Grow(1).PaddingX(20).PaddingY(16).Gap(12).Children(func() {
+			a.header(c)
 			switch a.page {
 			case "overview":
 				a.overview.view(c, a)
@@ -78,6 +70,46 @@ func (a *App) View(c *ui.Context) {
 				// Each screen adds its case here.
 			}
 		})
+	})
+}
+
+// header names the screen, sums up what it shows, and holds Rescan.
+func (a *App) header(c *ui.Context) {
+	t := c.Theme()
+	var title, sub string
+	switch a.page {
+	case "overview":
+		var size int64
+		for _, e := range a.overview.rows {
+			size += e.Size
+		}
+		title = "Overview"
+		sub = fmt.Sprintf("%s in %s", humanSize(size), tilde(a.Store.Root))
+	case "sessions":
+		n, size := 0, int64(0)
+		for _, p := range a.sessions.projects {
+			n += len(p.Sessions)
+			size += p.Size
+		}
+		title = "Sessions"
+		sub = fmt.Sprintf("%s in %s · %s", plural(n, "session"), plural(len(a.sessions.projects), "project"), humanSize(size))
+	case "config":
+		title, sub = "Config", "Read-only. Credentials are masked."
+	case "cleanup":
+		title, sub = "Cleanup", "Everything moves to the Trash, so you can put it back."
+	}
+	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+		ui.Column(c).Grow(1).Gap(2).Children(func() {
+			ui.Text(c, title).FontSize(20).Bold()
+			ui.Text(c, sub).TextColor(t.TextMuted).SingleLine()
+		})
+		if a.busy > 0 {
+			ui.Spinner(c).Label("Scanning")
+			ui.Text(c, "Scanning…").TextColor(t.TextMuted)
+		}
+		if ui.Button(c, "Rescan").Disabled(a.busy > 0).Clicked() {
+			a.Rescan()
+		}
 	})
 }
 
@@ -116,9 +148,9 @@ func (a *App) trash(paths func() []string) {
 	a.run(func() func() {
 		moved, err := a.Store.TrashPaths(paths())
 		return func() {
-			a.notice = fmt.Sprintf("Moved %d items to the Trash", moved)
+			a.notice = fmt.Sprintf("Moved %s to the Trash", plural(moved, "item"))
 			if err != nil {
-				a.notice = fmt.Sprintf("Moved %d items to the Trash, then stopped: %v", moved, err)
+				a.notice = fmt.Sprintf("Moved %s to the Trash, then stopped: %v", plural(moved, "item"), err)
 			}
 			a.Rescan()
 		}

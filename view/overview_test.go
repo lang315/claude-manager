@@ -10,7 +10,7 @@ func TestOverviewOpensScreen(t *testing.T) {
 		}
 	}
 	must(t, tt.Click("projects"))
-	must(t, tt.Click("Open"))
+	must(t, tt.Click("Open in Sessions"))
 	if a.page != "sessions" {
 		t.Errorf("page %q after opening projects, want sessions", a.page)
 	}

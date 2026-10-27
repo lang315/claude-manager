@@ -23,18 +23,22 @@ func (o *overview) init() {
 	o.table.Columns = []ui.DataColumn[store.Entry]{
 		{TableColumn: ui.TableColumn{Title: "Name", Width: 240}, Text: func(e *store.Entry) string { return e.Name },
 			Compare: func(x, y *store.Entry) int { return cmp.Compare(x.Name, y.Name) }},
-		{TableColumn: ui.TableColumn{Title: "Size", Width: 90}, Text: func(e *store.Entry) string { return humanSize(e.Size) }, Compare: bySize},
+		{TableColumn: ui.TableColumn{Title: "Size", Width: 90, Align: ui.End}, Text: func(e *store.Entry) string { return humanSize(e.Size) }, Compare: bySize},
 		{TableColumn: ui.TableColumn{Title: "Share", Width: 200}, Text: func(e *store.Entry) string { return humanSize(e.Size) }, Compare: bySize,
 			Cell: func(c *ui.Context, e *store.Entry) {
 				ui.Meter(c, float64(e.Size), 0, float64(max(o.max, 1)), nil).Label(e.Name + " share").Grow(1)
 			}},
-		{TableColumn: ui.TableColumn{Title: "Files", Width: 80}, Text: func(e *store.Entry) string { return strconv.Itoa(e.Files) },
+		{TableColumn: ui.TableColumn{Title: "Files", Width: 80, Align: ui.End}, Text: func(e *store.Entry) string { return strconv.Itoa(e.Files) },
 			Compare: func(x, y *store.Entry) int { return cmp.Compare(x.Files, y.Files) }},
-		{TableColumn: ui.TableColumn{Title: "Cleanable", Width: 90}, Text: func(e *store.Entry) string {
+		{TableColumn: ui.TableColumn{Title: "Status", Width: 100}, Text: func(e *store.Entry) string {
 			if e.Cleanable {
 				return "yes"
 			}
 			return ""
+		}, Cell: func(c *ui.Context, e *store.Entry) {
+			if e.Cleanable {
+				ui.Badge(c, "Cleanable")
+			}
 		}},
 	}
 }
@@ -60,11 +64,19 @@ func (o *overview) view(c *ui.Context, a *App) {
 	if e := o.table.Current(); e != nil {
 		target = screenOf(e)
 	}
-	if ui.Button(c, "Open").Disabled(target == "").Clicked() {
-		a.page = target
-	}
+	ui.Row(c).Gap(8).Children(func() {
+		label := "Open"
+		if target != "" {
+			label = "Open in " + titles[target]
+		}
+		if ui.Button(c, label).Disabled(target == "").Clicked() {
+			a.page = target
+		}
+	})
 	ui.DataTable(c, &o.table, o.rows).Grow(1)
 }
+
+var titles = map[string]string{"sessions": "Sessions", "config": "Config", "cleanup": "Cleanup"}
 
 // screenOf returns the screen that shows an entry, "" for none.
 func screenOf(e *store.Entry) string {

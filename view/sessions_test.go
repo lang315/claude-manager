@@ -17,7 +17,7 @@ func TestTrashSession(t *testing.T) {
 	must(t, tt.Click("me/proj"))
 	must(t, tt.Click("Login bug fix"))
 	must(t, tt.Click("Move to Trash…"))
-	if !tt.HasText("Move 1 sessions to the Trash?") {
+	if !tt.HasText("Move 1 session to the Trash?") {
 		t.Fatalf("no confirmation; texts %q", tt.Texts())
 	}
 	must(t, tt.Click("Move to Trash"))
@@ -43,7 +43,7 @@ func TestTrashSkipsLiveSession(t *testing.T) {
 	a, tt, d, trashed := newApp(t)
 	must(t, tt.Click("Sessions"))
 	must(t, tt.Click("me/proj"))
-	must(t, tt.Click("Live work (live)"))
+	must(t, tt.Click("Live work"))
 	tt.Click("Move to Trash…") // disabled: a click does nothing
 	if tt.HasText("to the Trash?") || len(*trashed) > 0 {
 		t.Fatalf("a live session alone can be trashed: %q", *trashed)
@@ -53,7 +53,7 @@ func TestTrashSkipsLiveSession(t *testing.T) {
 	a.sessions.table.Checked.Add(fixture.Live)
 	tt.Frame()
 	must(t, tt.Click("Move to Trash…"))
-	if !tt.HasText("1 live sessions are left alone") {
+	if !tt.HasText("Running sessions are left alone (1)") {
 		t.Errorf("the confirmation does not say a live session is skipped; texts %q", tt.Texts())
 	}
 	must(t, tt.Click("Move to Trash"))

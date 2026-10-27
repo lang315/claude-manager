@@ -1,7 +1,6 @@
 package view
 
 import (
-	"fmt"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
@@ -62,34 +61,45 @@ func (s *sessions) openTranscript(a *App, x store.Session) {
 func (s *sessions) transcript(c *ui.Context) {
 	t := c.Theme()
 	x := s.open
-	ui.Row(c).Gap(8).Children(func() {
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 		if ui.Button(c, "Back").Clicked() {
 			s.open, s.msgs, s.bad, s.loading = nil, nil, 0, false
 			s.gen++ // messages still arriving are dropped
 		}
-		ui.Text(c, sessionLabel(x)).Bold().NoWrap()
+		ui.Text(c, sessionLabel(x)).Bold().SingleLine().Grow(1).MinWidth(0)
 		if s.bad > 0 {
-			ui.Badge(c, fmt.Sprintf("%d unreadable lines", s.bad))
+			ui.Badge(c, plural(s.bad, "unreadable line")).TextColor(t.Danger)
 		}
 	})
-	status := ""
-	if s.loading {
-		status = " · loading…"
-	}
-	ui.Textf(c, "%s · %s · Claude Code %s · %s – %s · %d messages%s",
-		x.Cwd, x.Branch, x.Version, fmtTime(x.Started), fmtTime(x.Modified), len(s.msgs), status).
-		TextColor(t.TextMuted).FontSize(12)
-	ui.List(c, s.list, len(s.msgs), func(i int) { s.message(c, &s.msgs[i]) }).Grow(1).Gap(8)
+	ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+		ui.Textf(c, "%s · %s · Claude Code %s · %s – %s · %s",
+			x.Cwd, x.Branch, x.Version, fmtTime(x.Started), fmtTime(x.Modified), plural(len(s.msgs), "message")).
+			TextColor(t.TextMuted).FontSize(12).SingleLine().MinWidth(0)
+		if s.loading {
+			ui.Spinner(c).Label("Loading messages")
+		}
+	})
+	ui.List(c, s.list, len(s.msgs), func(i int) { s.message(c, &s.msgs[i]) }).Grow(1).Gap(6)
 }
 
 func (s *sessions) message(c *ui.Context, m *msgRow) {
 	t := c.Theme()
 	who := "You"
-	if m.Role == "assistant" {
+	switch {
+	case m.Kind == "tool_result":
+		who = "Tool" // tool results come back in user records
+	case m.Role == "assistant":
 		who = "Claude"
 	}
-	ui.Column(c).Gap(4).Padding(8).Children(func() {
-		ui.Text(c, who+" · "+fmtTime(m.Time)).FontSize(11).TextColor(t.TextMuted)
+	col := ui.Column(c).Gap(4).PaddingX(12).PaddingY(8).Radius(t.Radius)
+	if who == "You" {
+		col.Background(t.Surface) // your turns stand apart from Claude's
+	}
+	col.Children(func() {
+		ui.Row(c).Gap(6).Children(func() {
+			ui.Text(c, who).FontSize(12).Bold()
+			ui.Text(c, fmtTime(m.Time)).FontSize(12).TextColor(t.TextMuted)
+		})
 		if m.Kind == "text" {
 			markdown.View(c, m.Text, &s.md)
 			return
