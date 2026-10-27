@@ -32,6 +32,12 @@ func TestPrice(t *testing.T) {
 			t.Errorf("%s: price = %v, %v; want %v", c.name, got, ok, c.want)
 		}
 	}
+	// Only a dash and eight digits at the end is a date.
+	for _, m := range []string{"claude-opus-5-5-preview", "claude-opus-5-5-2025100", "claude-opus-5-5-2025100x"} {
+		if _, ok := price(m, callTokens{Input: 1}); ok {
+			t.Errorf("%q has a price", m)
+		}
+	}
 	if _, ok := price("claude-future-9", callTokens{Input: 1}); ok {
 		t.Error("an unknown model has a price")
 	}

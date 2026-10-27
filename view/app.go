@@ -24,6 +24,7 @@ type App struct {
 	notice string  // shown as a toast on the next frame
 	quiet  screens // the screen a quiet reload is starting for; 0 for a load the user started
 	live   live    // paces the reloads the watch asks for
+	shown  string  // the page live last heard of
 
 	overview overview
 	sessions sessions
@@ -41,7 +42,8 @@ func New(s *store.Store) *App {
 	a.usage.init()
 	a.config.init()
 	a.cleanup.days = 30
-	a.live = live{active: true, start: a.reload}
+	a.live = live{active: true, visible: pageScreens(a.page), start: a.reload}
+	a.shown = a.page
 	return a
 }
 
@@ -57,6 +59,10 @@ func (a *App) Rescan() {
 
 func (a *App) View(c *ui.Context) {
 	pal := applyTheme(c)
+	if a.page != a.shown { // a page opened: what it missed while hidden loads now
+		a.shown = a.page
+		a.live.show(pageScreens(a.page))
+	}
 	if a.notice != "" {
 		c.Toast(a.notice)
 		a.notice = ""

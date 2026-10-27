@@ -38,7 +38,7 @@ func TestScreensFor(t *testing.T) {
 // newLive is a live whose starts are recorded, not run.
 func newLive() (*live, *[]screens) {
 	var started []screens
-	return &live{active: true, start: func(s screens) { started = append(started, s) }}, &started
+	return &live{active: true, visible: allScreens, start: func(s screens) { started = append(started, s) }}, &started
 }
 
 func TestLiveHintStarts(t *testing.T) {
@@ -119,6 +119,8 @@ func TestQuietAndLoudReloadsCount(t *testing.T) {
 // A quiet Usage reload folded into a scan already running still lands.
 func TestQuietUsageLandsDuringScan(t *testing.T) {
 	a, tt, q := heldApp(t)
+	a.page = "usage"
+	tt.Frame()
 	a.Rescan() // a loud scan runs
 	a.live.hint(usageScreen)
 	for range 3 {
@@ -135,7 +137,7 @@ func TestSetActive(t *testing.T) {
 	a, tt, q := heldApp(t)
 	a.SetActive(false)
 	tt.Frame()
-	a.live.hint(historyScreen)
+	a.live.hint(sessionsScreen)
 	if len(*q) != 0 {
 		t.Fatal("a hint in the background started a load")
 	}
@@ -169,8 +171,8 @@ func TestFollowHintsScreens(t *testing.T) {
 		{{Op: mygo.FileHint, Path: "projects/-Users-me-proj"}},
 	}}, screensFor, 0)
 	tt.Frame()
-	if a.live.inflight != sessionsScreen|usageScreen|overviewScreen || len(*q) == 0 {
-		t.Errorf("inflight %05b, %d queued", a.live.inflight, len(*q))
+	if a.live.inflight != sessionsScreen|overviewScreen || a.live.pending != usageScreen || len(*q) == 0 {
+		t.Errorf("inflight %05b, pending %05b, %d queued; want Overview's screens loading, usage waiting", a.live.inflight, a.live.pending, len(*q))
 	}
 }
 
@@ -237,9 +239,49 @@ func TestQuietReloadKeepsPlace(t *testing.T) {
 	a.live.hint(allScreens)
 	tt.Frame()
 	tt.Frame()
+	must(t, tt.Click("Config")) // its reload waited for it to be opened
+	tt.Frame()
+	tt.Frame()
 	if !a.cleanup.on[1] || a.config.tab != tab || a.config.memory.path != path ||
 		a.sessions.open == nil || a.sessions.open.ID != fixture.Old {
 		t.Errorf("after a quiet reload: cleanup %v, config tab %d→%d, memory %q→%q, open %v",
 			a.cleanup.on[1], tab, a.config.tab, path, a.config.memory.path, a.sessions.open)
+	}
+}
+
+// Only the screens in view start; the others wait for the user to open
+// them, and then load once.
+func TestLiveStartsOnlyVisible(t *testing.T) {
+	l, started := newLive()
+	l.show(sessionsScreen | historyScreen)
+	l.hint(allScreens)
+	if len(*started) != 1 || (*started)[0] != sessionsScreen|historyScreen {
+		t.Fatalf("started %v; want only sessions and history", *started)
+	}
+	l.landed(sessionsScreen | historyScreen)
+	l.show(sessionsScreen | usageScreen)
+	if len(*started) != 2 || (*started)[1] != usageScreen {
+		t.Errorf("opening Usage started %v; want usage once", *started)
+	}
+	l.landed(usageScreen)
+	l.show(sessionsScreen | usageScreen)
+	if len(*started) != 2 {
+		t.Errorf("showing the same page again started %v", *started)
+	}
+}
+
+// The app tells live which page is in view: a change for another page
+// loads when it is opened.
+func TestOtherPagesLoadWhenOpened(t *testing.T) {
+	a, tt, q := heldApp(t)
+	tt.Frame()
+	a.live.hint(usageScreen | configScreen)
+	if len(*q) != 0 {
+		t.Fatalf("%d loads started for pages not in view", len(*q))
+	}
+	must(t, tt.Click("Usage"))
+	tt.Frame()
+	if len(*q) == 0 || a.live.pending&configScreen == 0 {
+		t.Errorf("after opening Usage: %d loads queued, pending %05b; want usage loading, config waiting", len(*q), a.live.pending)
 	}
 }

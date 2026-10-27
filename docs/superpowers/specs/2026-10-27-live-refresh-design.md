@@ -101,6 +101,21 @@ change still shows after about 1 s.
 background, such as a login item, holds its reloads until it comes to the
 front.
 
+**Only the screen in view reloads (decided after measuring the real app).**
+With the app in front and 13 sessions writing, reloading every affected
+screen cost 0.9–1.2 s of CPU every 5 s, about 19.5% of a core. Most of it
+went to Usage rebuilding its buckets and to Overview's `Scan`. So `live`
+also holds a `visible` set, and only screens in it start.
+- `visible` is the page's own screen plus Sessions. Sessions costs about
+  30 ms with the head cache, and it keeps the running lamp in the sidebar
+  true.
+- The Overview page also shows Sessions and Cleanup figures, which the
+  Sessions load covers.
+- The Cleanup page reloads through Sessions.
+- The other screens' changes stay in `pending`, and they load once when
+  the user opens them.
+- `price` also stops calling a regexp for every call.
+
 **Known gap: memory files.** mygo leaves a hinted folder out when its
 parent is hinted in the same batch. Claude Code writes a memory file while
 it appends that project's transcript, so the batch usually names only

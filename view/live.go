@@ -47,13 +47,38 @@ func screensFor(path string) screens {
 }
 
 // live paces the reloads the watch asks for. While the app is active it
-// starts them; in the background it holds them until the app is back. It
-// never starts a screen still loading: that one waits, and runs once when
-// it lands. It runs on the main thread.
+// starts those of the screens in view; the others wait until the app is
+// back, or the user opens them. It never starts a screen still loading:
+// that one waits, and runs once when it lands. It runs on the main thread.
 type live struct {
 	active            bool
+	visible           screens // the screens the page in view reads
 	pending, inflight screens
 	start             func(screens) // starts the quiet loads of a set
+}
+
+// pageScreens are the screens a page reads: its own, and Sessions, which
+// every page keeps fresh: it is cheap, and the sidebar's running lamp and
+// the Overview and Cleanup figures read it.
+func pageScreens(page string) screens {
+	s := sessionsScreen
+	switch page {
+	case "overview":
+		s |= overviewScreen
+	case "history":
+		s |= historyScreen
+	case "usage":
+		s |= usageScreen
+	case "config":
+		s |= configScreen
+	}
+	return s
+}
+
+// show says which screens the page in view reads; what they missed loads.
+func (l *live) show(s screens) {
+	l.visible = s
+	l.run()
 }
 
 // hint asks for the screens of s to reload.
@@ -79,7 +104,7 @@ func (l *live) run() {
 	if !l.active {
 		return
 	}
-	s := l.pending &^ l.inflight
+	s := l.pending &^ l.inflight & l.visible
 	if s == 0 {
 		return
 	}
