@@ -61,6 +61,7 @@ func (p *configPage) load(a *App) {
 			for _, x := range cfg.Plugins {
 				p.most = max(p.most, x.Size)
 			}
+			p.backups.Checked.Clear() // the files checked may be gone
 			p.backups.Reset()
 		}
 	})
@@ -253,10 +254,14 @@ var secretKey = regexp.MustCompile(`(?i)token|secret|password|passwd|passphrase|
 
 // secretValue matches credentials inside a string value, whatever its key.
 // shortcut: known shapes only (bearer/basic, sk-, gh?_, github_pat_, xox?-, AKIA, user:pass@, a query
-// parameter or --flag=value named like a secret); a token without a known shape still shows, as does a
+// parameter or --flag=value named like a secret, a "Name: value" header named like one); a token without a known shape still shows, as does a
 // bare value after a separate flag element outside an MCP "args" array (inside one it is masked, see
 // tree.add). Match more shapes if one leaks.
-var secretValue = regexp.MustCompile(`(?i)bearer\s+\S+|basic\s+\S+|\bsk-[\w-]{8,}|\bgh[pousr]_\w+|github_pat_\w+|xox[abposr]-\S+|\bAKIA[0-9A-Z]{16}|://[^/\s:@]+:[^@\s]+@|[?&][^=&\s]*(key|token|secret|auth|sig|pass)[^=&\s]*=[^&\s]+|--?[\w-]*(key|token|secret|password|auth)[\w-]*=\S+`)
+var secretValue = regexp.MustCompile(`(?i)bearer\s+\S+|basic\s+\S+|\bsk-[\w-]{8,}|\bgh[pousr]_\w+|github_pat_\w+|xox[abposr]-\S+|\bAKIA[0-9A-Z]{16}|://[^/\s:@]+:[^@\s]+@|` +
+	`[?&][^=&\s]*` + secretWords + `[^=&\s]*=[^&\s]+|--?[\w-]*` + secretWords + `[\w-]*=\S+|(^|[=\s])[\w-]*` + secretWords + `[\w-]*\s*:\s*\S`)
+
+// secretWords name a credential in a query parameter, a --flag= or a "Name: value" header.
+const secretWords = `(key|token|secret|pass|auth|cookie|sig|credential)`
 
 // secretFlag reports whether v is a command-line flag named like a secret.
 func secretFlag(v any) bool {
@@ -546,7 +551,7 @@ func (p *configPage) backupTable(c *ui.Context, a *App, pal *palette) {
 		blank(c, pal, "No backups of settings.json.")
 		return
 	}
-	targets := picked(&p.backups, p.cfg.Backups)
+	targets := picked(&p.backups)
 	var size int64
 	for _, x := range targets {
 		size += x.Size

@@ -31,14 +31,6 @@ Each item gets its own design before it is built.
 Found in review and left for later.
 
 - Two encoded project dirs that share a `cwd` get the same project label.
-- Transcript reading continues after Back.
-- `.claude.json` is decoded whole (only `mcpServers` is needed).
-- Read errors on skills, commands and memory are not surfaced.
-- Checked rows hidden by the search are still trashed.
-- `int(days)` truncates a fractional number of days.
 - Untitled sessions are rescanned up to 8 MB on each rescan.
-- The file-history orphan group offers non-UUID entries such as `.DS_Store`.
-- Credential masking is over-broad: `basic …`, `--…key…=` flags and `sig`/`pass` inside query words also hide ordinary config strings (fails safe: hides, never reveals). An MCP `"--header", "X-API-Key: …"` pair still shows the key.
-- Move to Trash stays disabled until a transcript left with Back finishes reading.
+- Credential masking is over-broad: `basic …` and any query parameter, `--flag=` or `Name: value` string whose name holds key, token, secret, pass, auth, cookie, sig or credential (as `author: Jane`, `hotkey: ctrl+k` or `--design=x`) also hide ordinary config strings (fails safe: hides, never reveals).
 - Each days-stepper click rescans all sessions (correct, but costly on rapid clicks).
-- The spec says a title past 8 MB "reads as untitled"; the row actually falls back to the first prompt.

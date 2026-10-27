@@ -122,3 +122,28 @@ func TestProjectPath(t *testing.T) {
 		t.Errorf("a gone path gave %q", got)
 	}
 }
+
+// A doc that exists but can't be read is reported, not dropped in silence.
+func TestConfigReportsUnreadableDocs(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root reads a file of mode 0")
+	}
+	s, d, _ := newStore(t)
+	f := filepath.Join(d.Root, "skills", "demo", "SKILL.md")
+	if err := os.Chmod(f, 0); err != nil {
+		t.Fatal(err)
+	}
+	// A dangling link is gone, not unreadable: no error for it.
+	ghost := filepath.Join(d.Root, "skills", "ghost")
+	if err := os.MkdirAll(ghost, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(d.Root, "nowhere.md"), filepath.Join(ghost, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(f, 0o644) })
+	cfg := s.Config()
+	if len(cfg.Skills) != 0 || len(cfg.Errs) != 1 || !strings.Contains(cfg.Errs[0], "SKILL.md") {
+		t.Errorf("skills %d, errors %q; want the unreadable SKILL.md reported", len(cfg.Skills), cfg.Errs)
+	}
+}

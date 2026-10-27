@@ -2,6 +2,7 @@ package view
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -34,9 +35,9 @@ type sessions struct {
 	msgs    []msgRow
 	bad     int
 	loading bool
-	gen     int    // which open the messages arriving belong to
-	loadGen int    // which load the projects arriving belong to
-	query   string // the search field's text
+	cancel  context.CancelFunc // stops the read of the transcript open; once called, what it sends is dropped
+	loadGen int                // which load the projects arriving belong to
+	query   string             // the search field's text
 	list    *ui.ListState
 	md      markdown.Options
 }
@@ -202,7 +203,7 @@ func (s *sessions) sessionTable(c *ui.Context, a *App, pal *palette) {
 
 // targets are the sessions to trash, less the live ones, which it counts.
 func (s *sessions) targets() (out []store.Session, live int) {
-	for _, x := range picked(&s.table, s.rows) {
+	for _, x := range picked(&s.table) {
 		if x.Live {
 			live++
 		} else {

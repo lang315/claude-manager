@@ -127,3 +127,25 @@ func TestSessionsStaleLoadIgnored(t *testing.T) {
 		t.Error("the older scan overwrote the newer one")
 	}
 }
+
+// A checked row the search hides is not trashed: the user can't see it.
+func TestTrashSkipsRowsHiddenBySearch(t *testing.T) {
+	a, tt, d, trashed := newApp(t)
+	must(t, tt.Click("Sessions"))
+	must(t, tt.Click("me/proj"))
+	a.sessions.table.Checked.Add(fixture.Old)
+	a.sessions.table.Checked.Add(fixture.Late)
+	a.sessions.table.SetSearch("Session", "login")
+	tt.Frame()
+	must(t, tt.Click("Move to Trash…"))
+	if !tt.HasText("Move 1 session to the Trash?") {
+		t.Fatalf("the confirmation counts hidden rows; texts %q", tt.Texts())
+	}
+	must(t, tt.Click("Move to Trash"))
+	tt.Frame()
+	for _, p := range *trashed {
+		if p == filepath.Join(d.Root, fixture.Proj, fixture.Late+".jsonl") {
+			t.Errorf("trashed the session the search hides: %q", *trashed)
+		}
+	}
+}
