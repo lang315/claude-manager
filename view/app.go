@@ -24,6 +24,7 @@ type App struct {
 
 	overview overview
 	sessions sessions
+	history  history
 	config   configPage
 	cleanup  cleanup
 }
@@ -31,6 +32,7 @@ type App struct {
 func New(s *store.Store) *App {
 	a := &App{Store: s, Go: func(f func()) { go f() }, page: "overview", root: tilde(s.Root)}
 	a.sessions.init()
+	a.history.init()
 	a.config.init()
 	a.cleanup.days = 30
 	return a
@@ -40,6 +42,7 @@ func New(s *store.Store) *App {
 func (a *App) Rescan() {
 	a.overview.load(a)
 	a.sessions.load(a)
+	a.history.load(a)
 	a.config.load(a)
 	// Each screen adds its load here.
 }
@@ -59,6 +62,7 @@ func (a *App) View(c *ui.Context) {
 					lamp(c, pal).Tooltip(plural(live, "session") + " running")
 				}
 			})
+			ui.SidebarItem(c, "history", iconHistory, "History")
 			ui.SidebarItem(c, "config", iconConfig, "Config")
 			ui.SidebarItem(c, "cleanup", iconCleanup, "Cleanup")
 		}).Width(200).Background(pal.ground)
@@ -70,6 +74,8 @@ func (a *App) View(c *ui.Context) {
 				a.overview.view(c, a, pal)
 			case "sessions":
 				a.sessions.view(c, a, pal)
+			case "history":
+				a.history.view(c, a, pal)
 			case "config":
 				a.config.view(c, a, pal)
 			case "cleanup":
@@ -97,6 +103,13 @@ func (a *App) header(c *ui.Context, pal *palette, live int) {
 		s := &a.sessions
 		title = "Sessions"
 		sub = fmt.Sprintf("%s in %s · %s", plural(s.count, "session"), plural(len(s.projects), "project"), humanSize(s.size))
+	case "history":
+		h := &a.history
+		title = "History"
+		sub = fmt.Sprintf("%s in %s", plural(len(h.prompts), "prompt"), plural(len(h.projects)-1, "project"))
+		if h.bad > 0 {
+			sub += " · " + plural(h.bad, "unreadable line")
+		}
 	case "config":
 		title, sub = "Config", "Read-only. Credentials are masked."
 	case "cleanup":
