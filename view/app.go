@@ -20,8 +20,10 @@ type App struct {
 
 	root   string // Store.Root as shown, with ~ for the home directory
 	page   string
-	busy   int    // loads and moves in flight, but Usage's scan, which feeds no Trash target
-	notice string // shown as a toast on the next frame
+	busy   int     // loads the user started and moves in flight; not Usage's scan nor quiet reloads, which feed no Trash target
+	notice string  // shown as a toast on the next frame
+	quiet  screens // the screen a quiet reload is starting for; 0 for a load the user started
+	live   live    // paces the reloads the watch asks for
 
 	overview overview
 	sessions sessions
@@ -39,6 +41,7 @@ func New(s *store.Store) *App {
 	a.usage.init()
 	a.config.init()
 	a.cleanup.days = 30
+	a.live = live{active: true, start: a.reload}
 	return a
 }
 
@@ -144,15 +147,54 @@ func (a *App) header(c *ui.Context, pal *palette, live int) {
 }
 
 // run does work off the main thread, then applies the change it returns on
-// the main thread.
+// the main thread. A load the user started counts in busy; a quiet reload
+// doesn't, and tells live when it lands.
 func (a *App) run(work func() (apply func())) {
-	a.busy++
+	q := a.quiet
+	if q == 0 {
+		a.busy++
+	}
 	a.Go(func() {
 		apply := work()
 		a.Update(func() {
-			a.busy--
+			if q == 0 {
+				a.busy--
+			}
 			apply()
+			if q != 0 {
+				a.live.landed(q)
+			}
 		})
+	})
+}
+
+// reload starts the quiet loads of s: they leave busy alone, so Rescan and
+// Trash stay enabled. TrashPaths checks each path again as it moves it.
+func (a *App) reload(s screens) {
+	for _, x := range []struct {
+		s    screens
+		load func(*App)
+	}{
+		{overviewScreen, a.overview.load}, {sessionsScreen, a.sessions.load}, {historyScreen, a.history.load},
+		{usageScreen, a.usage.load}, {configScreen, a.config.load},
+	} {
+		if s&x.s != 0 {
+			a.quiet = x.s
+			x.load(a)
+			a.quiet = 0
+		}
+	}
+}
+
+// SetActive tells the app whether it is in front. In the background, the
+// reloads the watch asks for wait until it is back.
+func (a *App) SetActive(on bool) {
+	a.Update(func() {
+		if on {
+			a.live.activate()
+		} else {
+			a.live.resign()
+		}
 	})
 }
 

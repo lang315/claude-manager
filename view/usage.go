@@ -108,6 +108,9 @@ func (u *usage) load(a *App) {
 			if err == nil && !pending {
 				u.unreadable = unreadable
 			}
+			// Any scan that lands is the latest: a quiet reload folded into
+			// it is done.
+			a.live.landed(usageScreen)
 			if u.again {
 				u.again = false
 				u.load(a)

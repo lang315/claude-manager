@@ -72,3 +72,64 @@ func TestLiveHoldsInBackground(t *testing.T) {
 		t.Errorf("on activation, started %v; want sessions and config once", *started)
 	}
 }
+
+// A quiet reload leaves busy alone and tells live when it lands.
+func TestQuietReloadLeavesBusy(t *testing.T) {
+	a, tt, q := heldApp(t)
+	a.live.hint(sessionsScreen | historyScreen | configScreen | overviewScreen)
+	if a.busy != 0 || a.live.inflight == 0 {
+		t.Fatalf("busy %d, inflight %05b; want 0 and the screens loading", a.busy, a.live.inflight)
+	}
+	runQueued(q)
+	tt.Frame()
+	if a.busy != 0 || a.live.inflight != 0 {
+		t.Errorf("after landing: busy %d, inflight %05b; want 0, 0", a.busy, a.live.inflight)
+	}
+}
+
+// A Rescan during a quiet reload is still loud, and busy ends at 0.
+func TestQuietAndLoudReloadsCount(t *testing.T) {
+	a, tt, q := heldApp(t)
+	a.live.hint(sessionsScreen)
+	a.Rescan()
+	if a.busy == 0 {
+		t.Fatal("a Rescan during a quiet reload isn't counted")
+	}
+	runQueued(q)
+	tt.Frame()
+	runQueued(q)
+	tt.Frame()
+	if a.busy != 0 || a.live.inflight != 0 {
+		t.Errorf("busy %d, inflight %05b; want 0, 0", a.busy, a.live.inflight)
+	}
+}
+
+// A quiet Usage reload folded into a scan already running still lands.
+func TestQuietUsageLandsDuringScan(t *testing.T) {
+	a, tt, q := heldApp(t)
+	a.Rescan() // a loud scan runs
+	a.live.hint(usageScreen)
+	for range 3 {
+		runQueued(q)
+		tt.Frame()
+	}
+	if a.live.inflight&usageScreen != 0 {
+		t.Error("the quiet Usage reload never landed")
+	}
+}
+
+// In the background, SetActive(false) holds hints until SetActive(true).
+func TestSetActive(t *testing.T) {
+	a, tt, q := heldApp(t)
+	a.SetActive(false)
+	tt.Frame()
+	a.live.hint(historyScreen)
+	if len(*q) != 0 {
+		t.Fatal("a hint in the background started a load")
+	}
+	a.SetActive(true)
+	tt.Frame()
+	if len(*q) == 0 {
+		t.Error("activation didn't start the held reload")
+	}
+}
