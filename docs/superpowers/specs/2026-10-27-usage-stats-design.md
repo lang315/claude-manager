@@ -23,9 +23,9 @@ design takes from it, and what it leaves out, is noted inline.
 | Scope | Tokens and an estimated cost | The cost answers "how much"; tokens alone don't |
 | Prices | A price table built into the app | No network calls. The table goes stale, so it carries its date |
 | Cost label | "est. API cost" | A Claude subscription doesn't bill per token; this is what the same use would cost on the API |
-| Cache | In memory, per app run | The app writes nothing to disk. Only the first scan reads everything |
-| Scan | Filter lines by bytes before decoding JSON | The scan reads 4.55 GB on this machine; only lines that hold usage are decoded |
-| Granularity | One bucket per (session, local day, model) | A few thousand buckets instead of about 800k calls. Every view sums buckets |
+| Cache | In memory, per app run | The app writes nothing to disk. A full scan takes about 6 s (measured below) |
+| Scan | Filter lines by bytes before decoding JSON | Only about 15% of the 1.37M lines hold usage |
+| Granularity | Deduped calls kept per file (about 100k); buckets per (session, local day, model) derived after each scan | Dedupe spans a session's files, so buckets can't be kept per file. Rebuilding the buckets from 100k calls takes milliseconds |
 | Cost per call | Each call is priced as it is scanned | Haiku 5.5's price depends on that call's prompt length, and `inference_geo` is per call |
 
 ## Data (checked on the user's machine)
@@ -41,11 +41,17 @@ design takes from it, and what it leaves out, is noted inline.
   `cache_creation.ephemeral_1h_input_tokens`, `service_tier`, `inference_geo`.
 - **Usage fields on most calls:** `speed`,
   `server_tool_use.web_search_requests`, `iterations`.
-- **Duplicates:**
-  - Claude Code writes one message as several lines, one per content block.
-  - Lines with a usage record outnumber distinct `(message.id, requestId)` pairs 2.05 to 1.
-  - In a sample of 120 main transcripts, the copies of a pair always carry identical usage, and no pair spans two files.
-  - 45 calls in that sample lack the pair.
+- **Duplicates** (measured over all 2,327 files):
+  - Claude Code writes one message as several lines, one per content block, so a `(message.id, requestId)` pair repeats.
+  - In main transcripts, the copies of a pair carry identical usage.
+  - In subagent transcripts, 29,310 pairs first carry a **streaming partial**: `output_tokens` of 2–16, no `iterations`, no `server_tool_use`. A later line carries the final usage. The later copy was never smaller.
+  - 45 pairs span two files. All are subagent ↔ subagent files of the same parent session: one subagent's calls were copied into three others, apparently on resume. 11 of these 45 pair a partial with a final copy.
+  - No pair spans two main transcripts, or two sessions.
+  - 45 calls in a sample of 120 main transcripts lack the pair.
+- **Scan time** (Go spike, one goroutine, byte filter then `encoding/json`):
+  - 2,327 files, 4.55 GB, 1.37M lines; 206,860 lines pass the filter; 100,600 calls after dedupe;
+  - 6.6 s on the first run (OS cache partly warm), 5.5 s warm; 822 MB/s.
+  - A fully cold run was not measured: it needs `sudo purge`.
 - **Models seen:** `claude-opus-5-5`, `claude-sonnet-5-5`,
   `claude-opus-4-8`, `claude-opus-5`, `claude-haiku-4-5-20251001`,
   `claude-sonnet-5`, `claude-haiku-5-5`, `claude-fable-5-1`, `<synthetic>`
@@ -93,13 +99,16 @@ func (s *Store) Usage(scan *UsageScan, progress func(done, total int)) (buckets 
      `inference_geo`, `server_tool_use.web_search_requests` and `iterations`.
 4. Count a line that is not JSON in `bad`.
 5. Skip a call whose model is `<synthetic>`. Count negative numbers as 0.
-6. **Duplicates.** Key a call by `message.id + "/" + requestId`. The first line
-   of a key sets the call's timestamp. The last line of a key sets its usage
-   (codeburn found that keeping the first line undercounts output). A call
+6. **Duplicates.** Key a call by `message.id + "/" + requestId`. A call
    without the key is counted on every line.
-   - Keys are kept per file only: no pair spans two files.
-   - shortcut: the dedupe is per file. Switch to a set shared across files if
-     a resumed session ever repeats a call in another file.
+   - **Usage:** of all copies of a key, the one with the largest
+     `output_tokens` wins, and the later one on a tie. "The last line wins"
+     would not do: across files, which copy comes last depends on file
+     order. Codeburn keeps the last line, and notes that keeping the first
+     undercounts output.
+   - **Timestamp:** the first copy seen sets the call's timestamp.
+   - **Scope:** one parent session, across its main transcript and all of
+     its subagent files. Measured: no pair spans two sessions.
 7. **Advisor tokens.** `usage.iterations` entries of type `advisor_message`
    are added as calls of their own, under the advisor's model. This follows
    codeburn: advisor tokens are not in the top-level totals.
@@ -129,17 +138,22 @@ func (s *Store) Usage(scan *UsageScan, progress func(done, total int)) (buckets 
 `UsageScan` keeps, per file path:
 - its size, its mtime and its inode;
 - the byte offset after its last complete line;
-- the keys it has seen (for dedupe);
-- its buckets.
+- its calls, deduped within the file by the rule above. Each call keeps its
+  key, timestamp, model, the token counts, `speed`, `inference_geo`, its web
+  searches and its cost.
+
+After each scan, the calls of each session's files are merged by key with
+the same rule, then summed into buckets. That takes milliseconds for 100k
+calls.
 
 On a Rescan, for each file:
 
 | Case | What happens |
 |---|---|
-| Size and mtime unchanged | Its buckets are reused, unread |
-| Same inode and the file grew | Read on from the saved offset, adding to its buckets |
+| Size and mtime unchanged | Its calls are reused, unread |
+| Same inode and the file grew | Read on from the saved offset, merging into its calls |
 | Anything else (smaller, other inode) | The file is read again whole |
-| A file gone since the last scan | Its buckets are dropped |
+| A file gone since the last scan | Its calls are dropped |
 
 - **A last line still being written:** it has no `\n`, so it is not read yet,
   and the saved offset stops before it.
@@ -274,7 +288,7 @@ first; unpriced rows sort by tokens after the priced ones.
 | File unreadable | Skipped; counted; one toast `N transcripts could not be read` |
 | Last line half-written | Not read yet; the next Rescan reads it |
 | File rewritten or shrunk | Read again whole |
-| File gone (trashed) | Its buckets drop at the next scan |
+| File gone (trashed) | Its calls drop at the next scan |
 | Model not in the price table | Tokens counted; cost `—`; header `N calls unpriced` |
 | `<synthetic>`, negative or missing counts | `<synthetic>` skipped; bad counts are 0 |
 | Call without `message.id`/`requestId` | Counted on each line (no dedupe) |
@@ -295,7 +309,13 @@ The fixture gains assistant lines with usage:
   - a call with `speed: "fast"` and `inference_geo: "us"`;
   - a `<synthetic>` call;
   - a call with advisor iterations.
-- In `Old`'s subagent `agent-a1.jsonl`: one `claude-haiku-4-5-20251001` call.
+- In `Old`'s subagent `agent-a1.jsonl`:
+  - one `claude-haiku-4-5-20251001` call;
+  - one call whose first line is a streaming partial (`output_tokens` 4)
+    and whose later line is final (`output_tokens` 300).
+- In a second subagent of `Old`, `agent-a2.jsonl`: a copy of that partial
+  line only. It is the resumed-subagent case, which must count once at
+  300.
 - In `Recent`'s transcript:
   - one `claude-haiku-5-5` call over 100,000 prompt tokens;
   - one call of an unknown model;
@@ -306,8 +326,11 @@ The view tests check figures computed by hand from these lines.
 
 ### Store tests
 
-- **Dedupe:** 3 lines count once, with the first line's timestamp and the
-  last line's usage.
+- **Dedupe:**
+  - 3 lines count once, with the first line's timestamp and the largest
+    output's usage;
+  - a partial in one subagent file and the final copy in another count once
+    at the final usage, whichever file is read first.
 - **Attribution:**
   - the subagent call folds into `Old`;
   - the project is `Old`'s cwd;
