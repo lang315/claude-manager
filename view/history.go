@@ -223,12 +223,12 @@ func (h *history) table(c *ui.Context, pal *palette) {
 		blank(c, pal, "No prompt matches.")
 		return
 	}
-	cols := []ui.TableColumn{{Title: "Time", Width: 130}, {Title: "Project", Width: 140}, {Title: "Prompt", MinWidth: 160}}
+	cols := []ui.TableColumn{{Title: "Time", Width: 150}, {Title: "Project", Width: 140}, {Title: "Prompt", MinWidth: 160}}
 	ui.Table(c, &h.list, cols, len(h.shown), func(row, col int) {
 		p := &h.prompts[h.shown[row]]
 		switch col {
 		case 0:
-			ui.Text(c, fmtTime(p.Time)).TextColor(pal.muted).FontFeatures("tnum").SingleLine()
+			ui.Text(c, fmtTime(p.Time)).FontFeatures("tnum").SingleLine()
 		case 1:
 			ui.Text(c, shortPath(p.Project)).SingleLine().Tooltip(p.Project)
 		case 2:
