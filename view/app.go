@@ -3,6 +3,7 @@ package view
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/claude-manager/store"
@@ -170,6 +171,16 @@ func picked[T any, K comparable](s *ui.DataTableState[T, K]) []*T {
 		}
 	}
 	return out
+}
+
+// keepOnly drops the keys of s that keep doesn't hold: rows gone since the
+// last load. A reload keeps the user's other choices.
+func keepOnly[K comparable](s *ui.Selection[K], keep map[K]bool) {
+	for _, k := range slices.Collect(s.All()) {
+		if !keep[k] {
+			s.Remove(k)
+		}
+	}
 }
 
 // trash moves the paths that paths returns to the Trash, off the main

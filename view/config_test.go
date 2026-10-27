@@ -294,3 +294,18 @@ func TestSecretNames(t *testing.T) {
 		}
 	}
 }
+
+// A reload keeps the ticks of backups still listed.
+func TestBackupsReloadKeepsTicks(t *testing.T) {
+	a, tt, d, _ := newApp(t)
+	must(t, tt.Click("Config"))
+	must(t, tt.Click("Backups"))
+	p := filepath.Join(d.Root, "settings.json.bak-1")
+	a.config.backups.Checked.Add(p)
+	tt.Frame()
+	a.Rescan()
+	tt.Frame()
+	if !a.config.backups.Checked.Has(p) {
+		t.Error("a reload dropped the tick of a backup still there")
+	}
+}
