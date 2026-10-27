@@ -42,6 +42,39 @@
 - Skills, Commands and Memory show a list beside the file rendered as Markdown (the skill's description is in it).
 - Fixtures are generated into `t.TempDir()` by `internal/fixture` instead of committed under `testdata/claude/`, because tests move files to a fake Trash.
 
+Rulings made while building (from the controller's ledger) and in the final review:
+
+- Ruling: work on branch feat/claude-manager-v1 in the repo itself, not a git worktree — go.mod's `replace github.com/egoist/mygo => ../mygo` is relative and breaks in a worktree at another path — cost if wrong: none, main stays untouched.
+- Ruling: user approved parallel waves after T2: (T3||T7) (T4||T5) (T6||T8) (T9||T10), then T11, T12 — each parallel task in a sibling worktree /Users/lang/GolandProjects/github.com/lang315/cm-tN on branch sdd/tN, merged into feat/claude-manager-v1 after its review, worktree removed — cost if wrong: merge conflict in a shared file, resolved at merge
+- Ruling: commit trailer names the model that actually wrote the commit (Sonnet for subagent commits) instead of the plan's fixed 'Claude Opus 5.5' — attribution should be accurate; T1-T3 commits keep Opus, not rewritten — cost if wrong: inconsistent trailers across history
+- Ruling: (*App).trash and its fmt import move from Task 7 to Task 8 (first caller) — T7 ran parallel to T5, so Store.TrashPaths did not exist on its branch; code is in task-7-report.md — cost if wrong: none, T8 adds it verbatim
+- Ruling: T3 readHead title scan capped at titleLimit=8MB total (real titles seen ≤3.4MB) — cost if wrong: a title past 8MB shows the first prompt instead
+- Ruling: T3 adds parseRecord(line) (record, bool) accepting *json.UnmarshalTypeError; T4 ReadTranscript must use it and count !ok as bad — cost if wrong: none
+- Ruling: Glob→ReadDir in sessions.go promoted Minor→Important (root with [ breaks live-session detection) — cost if wrong: small extra diff
+- Ruling: T4 ReadTranscript uses parseRecord (bad = syntax errors only) — consistent with T3 fix — cost if wrong: none
+- Ruling: T6 config.go keeps filepath.Glob (skills/*/SKILL.md, projects/*/*memory/*.md, settings.json.bak*) — read-only display, a bracketed root only empties those lists, no safety impact — cost if wrong: config tabs empty under a root containing [ * ?
+- Ruling: T5 symlink concern — no change; TrashItem moves the link itself (mygo modules.go:55, internal/darwin/system.go:136); EvalSymlinks would break relocated dirs — cost if wrong: an intermediate symlinked dir's UUID orphan could be trashed (recoverable)
+- Ruling: T5 shell-snapshots offered only when older than the earliest live session's startedAt; if any live session lacks startedAt, no snapshot is offered — cost if wrong: snapshots kept longer than needed
+- Ruling: T5 Cleanup live set = LiveIDs ∪ Session.Live; skip compares base with extension trimmed — cost if wrong: none
+- Ruling: T5 TrashPaths skips duplicates, missing paths and live-id paths (re-checked at trash time) without error — cost if wrong: UI 'moved N' undercounts skipped items silently
+- Ruling: T6 Plugins only holds non-nil maps; test asserts content (plan-mandated finding fixed) — cost if wrong: none
+- Ruling: T9 collapsed label computed once at ingest from a ≤512-byte rune-safe prefix (msgRow.label via newRow) — cost if wrong: none
+- Ruling: T9 Back clears msgs/loading/bad; gen guard tested with queued Go jobs (back mid-load, reopen) — cost if wrong: none
+- Ruling: T10 masking — MCP tab masks all strings under env/headers; secretKey regex extended; masked propagates to children; values matching secretValue (bearer, sk-, ghp_, github_pat_, xox?-, URL user:pass@) masked; shortcut comment states residual gaps — cost if wrong: some harmless values shown as ••••••
+- Ruling: T10 'Nothing configured' for nil/empty map or slice (minor fixed since trivial) — cost if wrong: none
+- Ruling: T11 dedupes pending paths across overlapping groups; dialog count/size from unique items — cost if wrong: none
+- Ruling: T11 cleanup.gen guards group loads (cleanup.load and sessions.load) so the newest load wins — cost if wrong: none
+- Ruling: T11 clears checked groups on confirm (minor fixed since trivial) — cost if wrong: user re-checks groups after each trash
+- Ruling: T12 split — subagent does steps 1-3 + 5 (screenshot test, gate, PNG review); controller does step 4 (real ~/.claude run) and asks the user before trashing any real file — cost if wrong: none
+- Ruling: T12 layout defects (vertical centering, Sessions horizontal overflow, Cleanup stepper overlap) are functional, fixed now; pluralisation + styling deferred to impeccable polish — cost if wrong: small extra diff
+- Ruling: T12 fix round 2 — readHead keeps scanning past the head (to titleLimit) for the first user prompt (lines containing "type":"user") as well as ai-title; Project cell shows the last two path components with the full path as tooltip — cost if wrong: slower listing for sessions without prompt/title (bounded by 8MB)
+- Ruling: final fix wave = Important 1-5 + minors: readHead doc comment, Move to Trash disabled while busy, sessions.set gen guard, spec/plan docs updated with rulings, roadmap gets a known-limitations list of can-wait items — cost if wrong: larger fix diff
+- Ruling (final review): `view/cleanup.go` load reads `Store.Projects()` fresh inside its `run` work, and `Store.Cleanup` adds the `<uuid>.jsonl` names it finds on disk in each project to its known-session ids, so a session started after the last scan is never an orphan.
+- Ruling (final review): `live()` accepts a `startedAt` that is no integer (`*json.UnmarshalTypeError`): the session stays live and its start is unknown, so every shell snapshot is kept.
+- Ruling (final review): `secretValue` also masks query-string parameters, `--flag=value` pairs, `gh[pousr]_`, `AKIA…` and `Basic …` credentials; on the MCP tab an `args` element after a secret-named flag is masked.
+- Ruling (final review): `TrashPaths` also skips, without error, a path modified in the last 10 minutes and a path of a session whose `.jsonl` was modified in the last 10 minutes, checked at trash time.
+- Ruling (final review): a session with `Err` set shows `(unreadable: <err>)` in the table; every Move to Trash button is disabled while a load or move runs; `sessions.load` ignores a scan that is no longer the newest.
+
 ## File Structure
 
 ```

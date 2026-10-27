@@ -30,7 +30,7 @@ Everything deferred is listed in [`docs/roadmap.md`](../../roadmap.md).
 | Session side data | `projects/<encoded-dir>/<uuid>/` | `subagents/agent-*.jsonl` + `*.meta.json`, `tool-results/`. Large: 2.09 GB vs 2.39 GB of `.jsonl` on this machine |
 | Orphan side data | `projects/<encoded-dir>/<uuid>/` with no `<uuid>.jsonl` | 782 such dirs (9.5 MB), almost all only `tool-results/` |
 | Not sessions | `projects/<encoded-dir>/memory/`, `*-memory/`, `*.wakatime`, `sessions-index.json` | Never treated as session data; only UUID-named entries are |
-| Session title | record `{"type":"ai-title","aiTitle":...}` | Fallback: first `user` record's text, then `last-prompt` record |
+| Session title | record `{"type":"ai-title","aiTitle":...}` | Fallback: first `user` record's text (no `last-prompt` record is read) |
 | Messages | records `type` = `user` / `assistant` | `message.content` blocks: `text`, `thinking`, `tool_use`, `tool_result` |
 | Ignored records | `attachment`, `file-history-snapshot`, `file-history-delta`, `queue-operation`, `mode`, `permission-mode`, `atis-latch`, `system` | Internal; not shown in the transcript |
 | Session index | `projects/<dir>/sessions-index.json` | Present in only some projects; used only as a hint, never required |
@@ -47,21 +47,35 @@ Everything deferred is listed in [`docs/roadmap.md`](../../roadmap.md).
 main.go            app, window, sidebar navigation, rescan
 store/             reads ~/.claude; never imports ui; tested on its own
   scan.go          size and file count of each top-level entry
-  sessions.go      projects → sessions with light metadata
+  sessions.go      projects → sessions with light metadata; live session detection
+  record.go        one JSONL record → messages (shared by sessions and transcript)
   transcript.go    one session → messages, streamed
   config.go        settings.json, hooks, MCP servers, skills, plugins, commands, memory, CLAUDE.md, backups
   cleanup.go       cleanup candidates per group + trashing
-  live.go          live session detection
+  store.go         Store (injected Now, Alive, Trash), PIDAlive
 view/              one file per screen: overview, sessions, transcript, config, cleanup
-testdata/claude/   fake ~/.claude for tests
+internal/fixture/  synthetic ~/.claude written into a temp dir for tests
 ```
 
 ### Store rules
 
-- Listing sessions reads only the first 64 KB of each `.jsonl` plus `stat`.
-  Title, first prompt, `cwd`, `gitBranch` and start time come from that head.
-  Message count shown in the table is an estimate from file size until the
-  transcript is opened.
+- Listing sessions parses every line of the first 64 KB of each `.jsonl` plus
+  `stat`: `cwd`, `gitBranch`, version, start time and, if they lie there, title
+  and first prompt. Past the head it reads on, parsing only a line that holds an
+  `ai-title` (while there is no title) or a user record (while there is no first
+  prompt), and stops once both are found, at the end of the file, or after
+  8 MB. A title past 8 MB reads as untitled. The table shows no message count:
+  the transcript header shows the real one.
+- `parseRecord` tolerates a record with a field of an unexpected type (a
+  `*json.UnmarshalTypeError` is no parse failure); only a syntax error counts
+  as a bad line.
+- `live()` reads `sessions/<pid>.json`: a session is live when its PID is alive.
+  A `startedAt` that is no integer makes the start unknown; the session still
+  counts as live. The project's short label is the last two components of its
+  `cwd` (the full path in a tooltip).
+- A shell snapshot is written once at session start and carries no session id:
+  `shell-snapshots/` offers only snapshots older than the earliest live
+  session's `startedAt`, and none while a live session has no `startedAt`.
 - Opening a transcript reads the file line by line (`bufio.Reader`, lines may
   be many MB) and appends messages as they parse, so large sessions show
   progressively.
@@ -69,6 +83,24 @@ testdata/claude/   fake ~/.claude for tests
   with the count. It never stops the read.
 - An unreadable file (permission, removed mid-scan) marks its row as an error;
   the rest of the scan continues.
+- `TrashPaths` skips, without error and without counting, a path already
+  handled in the call, one that is gone, one of a live session, one modified in
+  the last 10 minutes, and one of a session whose `.jsonl` was modified in the
+  last 10 minutes. The lists the user confirmed can be hours old, so it checks
+  again at trash time.
+- `Cleanup` builds its known-session ids from the projects it is given plus the
+  `<uuid>.jsonl` names it reads from each project directory now, so an id with a
+  `.jsonl` on disk is never an orphan whatever list the caller passes; the
+  Cleanup screen also reloads the projects fresh. With no projects, nothing is
+  an orphan.
+- Credentials never show in plain text on the Config screen. A value is masked
+  when its key looks secret (`token`, `secret`, `password`, `api_key`,
+  `auth`, `headers`, …), when it sits under an MCP server's `env` or `headers`,
+  or when the string holds a known shape: `Bearer`/`Basic` credentials,
+  `sk-…`, `gh?_…`, `github_pat_…`, `xox?-…`, `AKIA…`, `user:pass@` in a URL, a
+  query parameter or `--flag=value` named like a secret. On the MCP tab an
+  `args` element after a secret-named flag (`"--api-key", "abc123"`) is masked.
+  A token with no known shape, outside those places, still shows.
 - All scanning and reading runs on goroutines; results are posted to the main
   thread, which redraws. The UI thread never waits on disk.
 
@@ -162,7 +194,7 @@ last 10 minutes are excluded. A toast reports what was moved and any failure.
 
 ## Testing
 
-- `store/` unit tests against `testdata/claude/`: sessions cut from the real
+- `store/` unit tests against `internal/fixture` (a synthetic `~/.claude` written into a temp dir): sessions cut from the real
   format (with `ai-title`, subagents, a broken line, a large-line case), a
   live session (fake `sessions/<pid>.json` pointing at the test's own PID),
   a stale `sessions/<pid>.json` whose PID is dead, an orphan UUID side dir,
