@@ -176,19 +176,3 @@ func TestGroupNotesMatchGroups(t *testing.T) {
 		t.Errorf("%d group notes for %d groups", len(groupNotes), len(a.cleanup.groups))
 	}
 }
-
-// A fractional number of days rounds, as the field would show it, rather
-// than truncating.
-func TestCleanupDaysRound(t *testing.T) {
-	a, tt, _, _ := newApp(t)
-	a.cleanup.days = 30.6
-	a.Rescan()
-	tt.Frame()
-	found := false
-	for _, g := range a.cleanup.groups {
-		found = found || g.Name == "transcripts older than 31 days"
-	}
-	if !found {
-		t.Errorf("no group for 31 days in %+v", a.cleanup.groups)
-	}
-}

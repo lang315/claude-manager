@@ -170,7 +170,7 @@ func docs(errs *[]string, pattern string, name func(path string) (name, group st
 	for _, f := range files {
 		d, err := readDoc(f)
 		if err != nil {
-			*errs = append(*errs, err.Error())
+			report(errs, err)
 			continue
 		}
 		d.Name, d.Group = name(f)
@@ -190,7 +190,7 @@ func commands(errs *[]string, dir string) []Doc {
 		}
 		doc, err := readDoc(p)
 		if err != nil {
-			*errs = append(*errs, err.Error())
+			report(errs, err)
 			return nil
 		}
 		r, _ := filepath.Rel(dir, p)
@@ -199,6 +199,14 @@ func commands(errs *[]string, dir string) []Doc {
 		return nil
 	})
 	return out
+}
+
+// report adds err to errs unless the file is gone (a dangling link, or
+// removed since it was listed): errs are files that exist but can't be read.
+func report(errs *[]string, err error) {
+	if !errors.Is(err, fs.ErrNotExist) {
+		*errs = append(*errs, err.Error())
+	}
 }
 
 func readDoc(path string) (Doc, error) {

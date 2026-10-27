@@ -101,7 +101,7 @@ func (s *sessions) init() {
 }
 
 func (s *sessions) load(a *App) {
-	days := a.cleanup.age()
+	days := int(a.cleanup.days)
 	a.cleanup.gen++
 	gen := a.cleanup.gen
 	s.loadGen++

@@ -239,7 +239,9 @@ func TestSettingsMasksItsMCPServers(t *testing.T) {
 // A header passed as its own args element, "--header", "X-API-Key: …", is
 // masked by the header's name; an ordinary header still shows.
 func TestScalarMasksSecretHeaders(t *testing.T) {
-	for _, v := range []string{"X-API-Key: abc123", "x-auth-token:abc123", "Cookie: sid=abc123"} {
+	for _, v := range []string{"X-API-Key: abc123", "x-auth-token:abc123", "Cookie: sid=abc123",
+		"--header=X-API-Key: abc123", "-H X-API-Key: abc123", "--header X-API-Key: abc123", " X-API-Key: abc123",
+		"X-Signature: abc123", "X-Client-Credential: abc123", "X-Passcode: abc123"} {
 		if got := scalar("1", v); got != mask {
 			t.Errorf("scalar(%q) = %q, want the mask", v, got)
 		}
@@ -250,5 +252,23 @@ func TestScalarMasksSecretHeaders(t *testing.T) {
 	got := mcpSummary(map[string]any{"command": "npx", "args": []any{"mcp-remote", "--header", "X-API-Key: abc123"}})
 	if strings.Contains(got, "abc123") {
 		t.Errorf("summary shows the key: %q", got)
+	}
+}
+
+// After a trash, the checks of the files gone don't linger: a click on a
+// backup left picks it.
+func TestBackupsChecksClearOnReload(t *testing.T) {
+	a, tt, _, _ := newApp(t)
+	must(t, tt.Click("Config"))
+	must(t, tt.Click("Backups"))
+	a.config.backups.Checked.Add(filepath.Join(a.Store.Root, "settings.json.bak-1"))
+	tt.Frame()
+	must(t, tt.Click("Move to Trash…"))
+	must(t, tt.Click("Move to Trash"))
+	tt.Frame()
+	must(t, tt.Click("settings.json.bak"))
+	must(t, tt.Click("Move to Trash…"))
+	if !tt.HasText("Move 1 settings backup to the Trash?") {
+		t.Errorf("a stale check keeps the key off; texts %q", tt.Texts())
 	}
 }
