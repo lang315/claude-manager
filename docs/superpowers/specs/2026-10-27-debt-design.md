@@ -135,8 +135,8 @@ merely contains `key`, `token`, `secret`, `pass`, `auth`, `cookie`, `sig` or
 
 It is masked when one of its segments:
 - equals one of: `key`, `token`, `secret`, `secrets`, `pass`, `passwd`,
-  `password`, `passphrase`, `auth`, `authorization`, `cookie`, `sig`,
-  `signature`, `credential`, `credentials`, `bearer`; or
+  `password`, `passphrase`, `passcode`, `auth`, `authorization`, `cookie`,
+  `sig`, `signature`, `credential`, `credentials`, `bearer`; or
 - ends in `key`, `token`, `secret`, `password` or `cookie`, except `hotkey`.
 
 | Shown | Masked |
@@ -150,6 +150,10 @@ It is masked when one of its segments:
 | | `?access_token=abc` |
 | | `--password=x` |
 | | `Cookie: a=b` |
+
+Each of the three name patterns (query parameter, `--flag=`, `Name: value`)
+is searched on its own, so a header inside a flag, such as
+`--header=X-API-Key: v`, is still found.
 
 Only the name rule inside `secretValue` changes. `secretKey`, which masks
 JSON keys, and the shape rules stay as they are: `bearer`, `sk-`, `gh?_`,
