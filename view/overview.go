@@ -2,7 +2,6 @@ package view
 
 import (
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -11,22 +10,22 @@ import (
 )
 
 type overview struct {
-	rows []store.Entry // largest first
-	err  string
+	rows        []store.Entry // largest first
+	total, most int64         // the rows' sum and the largest, set at load
+	err         string
 }
 
 func (o *overview) load(a *App) {
 	a.run(func() func() {
 		rows, err := a.Store.Scan()
-		return func() { o.rows, o.err = rows, errText(err) }
+		return func() {
+			o.rows, o.err, o.total, o.most = rows, errText(err), 0, 0
+			for _, e := range rows {
+				o.total += e.Size
+				o.most = max(o.most, e.Size)
+			}
+		}
 	})
-}
-
-func (o *overview) total() (n int64) {
-	for _, e := range o.rows {
-		n += e.Size
-	}
-	return n
 }
 
 func (o *overview) view(c *ui.Context, a *App, pal *palette) {
@@ -61,7 +60,6 @@ func head(c *ui.Context, pal *palette, title, note string) {
 // dial draws ~/.claude on one calibrated scale: a segment per top-level
 // entry, its cleanable part orange, ticks at round sizes.
 func (o *overview) dial(c *ui.Context, a *App, pal *palette) {
-	total := o.total()
 	face(c, pal).Padding(18, 20).Gap(10).Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			legend(c, pal, "SPACE USED")
@@ -72,7 +70,7 @@ func (o *overview) dial(c *ui.Context, a *App, pal *palette) {
 			ui.Textf(c, "%s can be cleaned", humanSize(a.cleanup.reclaim)).FontSize(12).TextColor(pal.muted).SingleLine()
 		})
 		ui.Box(c).Height(86).Label("Space used by each folder").Draw(func(pt *ui.Painter, r ui.Rect) {
-			drawDial(pt, r, pal, o.rows, a.cleanup.byTop, total)
+			drawDial(pt, r, pal, o.rows, a.cleanup.byTop, o.total)
 		})
 	})
 }
@@ -116,19 +114,18 @@ func drawDial(pt *ui.Painter, r ui.Rect, pal *palette, rows []store.Entry, clean
 			w := min(max((x1-x0)*float32(o)/float32(e.Size), 1.5), x1-x0)
 			pt.Fill(ui.Rect{X: x1 - w, Y: r.Y + segY, W: max(w-1, 0.5), H: segH}, pal.orange, 0)
 		}
-		mark := x0 // a marker points at the start of its segment
 		label := ui.Span{Text: e.Name + "  " + humanSize(e.Size), Size: 11, Color: pal.ink}
 		lw, _ := pt.MeasureText(0, label)
 		if o == 0 && lw+8 >= x1-x0 {
 			continue // too narrow to name, and nothing to clean in it
 		}
-		lx := min(mark, r.X+r.W-lw-4)
+		lx := min(x0, r.X+r.W-lw-4) // a marker points at the start of its segment
 		row := place(lx, lw+4)
 		if row < 0 {
 			continue
 		}
 		ly := r.Y + float32(row)*rowH
-		pt.Line(mark+0.5, ly+rowH-1, mark+0.5, r.Y+segY, 1, pal.ink)
+		pt.Line(x0+0.5, ly+rowH-1, x0+0.5, r.Y+segY, 1, pal.ink)
 		pt.RichText(lx+4, ly, 0, label)
 	}
 	step := tickStep(total)
@@ -179,35 +176,16 @@ func tickLabel(n, step int64) string {
 // recent lists the sessions running now, then the latest others; a click
 // opens one's transcript.
 func recent(c *ui.Context, a *App, pal *palette) {
-	var all []store.Session
-	live := 0
-	for _, p := range a.sessions.projects {
-		for _, x := range p.Sessions {
-			all = append(all, x)
-			if x.Live {
-				live++
-			}
-		}
-	}
-	slices.SortFunc(all, func(x, y store.Session) int {
-		if x.Live != y.Live {
-			if x.Live {
-				return -1
-			}
-			return 1
-		}
-		return y.Modified.Compare(x.Modified)
-	})
+	s := &a.sessions
 	note := "none running"
-	if live > 0 {
-		note = plural(live, "session") + " running"
+	if s.live > 0 {
+		note = plural(s.live, "session") + " running"
 	}
 	head(c, pal, "Sessions", note)
-	const shown = 6
 	ui.Column(c).Children(func() {
-		for i, x := range all[:min(len(all), shown)] {
+		for i, x := range s.latest {
 			if i > 0 {
-				ui.Box(c).Height(1).Background(pal.rule).MarginX(16)
+				ui.Divider(c).MarginX(16)
 			}
 			row := ui.Row(c.Key(x.ID)).Gap(12).PaddingX(16).PaddingY(8).AlignItems(ui.Center).Cursor(ui.CursorPointer)
 			if row.Hovered() {
@@ -215,12 +193,12 @@ func recent(c *ui.Context, a *App, pal *palette) {
 			}
 			row.Children(func() {
 				if x.Live {
-					lamp(c, pal).Tooltip("Running now; it can't be moved to the Trash")
+					lamp(c, pal)
 				} else {
 					unlit(c, pal)
 				}
 				ui.Column(c).Grow(1).Basis(0).MinWidth(0).Gap(1).Children(func() {
-					ui.Text(c, strings.TrimSuffix(sessionLabel(&x), liveSuffix)).SingleLine()
+					ui.Text(c, sessionName(&x)).SingleLine()
 					when := fmtTime(x.Modified)
 					if x.Live {
 						when = "running"
@@ -235,10 +213,10 @@ func recent(c *ui.Context, a *App, pal *palette) {
 			}
 		}
 	})
-	if len(all) > shown {
-		ui.Box(c).Height(1).Background(pal.rule)
+	if s.count > len(s.latest) {
+		ui.Divider(c)
 		ui.Row(c).PaddingX(16).PaddingY(10).Children(func() {
-			if ui.Button(c, fmt.Sprintf("Show all %d sessions", len(all))).Clicked() {
+			if ui.Button(c, fmt.Sprintf("Show all %d sessions", s.count)).Clicked() {
 				a.page = "sessions"
 			}
 		})
@@ -249,12 +227,8 @@ func recent(c *ui.Context, a *App, pal *palette) {
 // screen of its own opens it.
 func (o *overview) folders(c *ui.Context, a *App, pal *palette) {
 	head(c, pal, "Folders", plural(len(o.rows), "item"))
-	var most int64
-	for _, e := range o.rows {
-		most = max(most, e.Size)
-	}
 	for i, e := range o.rows {
-		ui.Box(c).Height(1).Background(pal.rule).MarginX(16)
+		ui.Divider(c).MarginX(16)
 		target := screenOf(&e)
 		row := ui.Row(c.Key(i)).Gap(14).PaddingX(16).PaddingY(8).AlignItems(ui.Center)
 		if target != "" {
@@ -265,7 +239,7 @@ func (o *overview) folders(c *ui.Context, a *App, pal *palette) {
 		}
 		row.Children(func() {
 			ui.Text(c, e.Name).Width(200).SingleLine()
-			scale(c, pal, e.Size, a.cleanup.byTop[e.Name], most).Grow(1)
+			scale(c, pal, e.Size, a.cleanup.byTop[e.Name], o.most).Grow(1)
 			ui.Text(c, humanSize(e.Size)).Width(80).TextAlign(ui.End).FontFeatures("tnum").SingleLine()
 			ui.Text(c, plural(e.Files, "file")).FontSize(12).TextColor(pal.muted).Width(90).TextAlign(ui.End).SingleLine()
 			open := ""

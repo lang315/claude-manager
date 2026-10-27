@@ -17,6 +17,7 @@ type App struct {
 	// the app, Tester.Update in tests.
 	Update func(func())
 
+	root   string // Store.Root as shown, with ~ for the home directory
 	page   string
 	busy   int    // loads and moves in flight
 	notice string // shown as a toast on the next frame
@@ -28,7 +29,7 @@ type App struct {
 }
 
 func New(s *store.Store) *App {
-	a := &App{Store: s, Go: func(f func()) { go f() }, page: "overview"}
+	a := &App{Store: s, Go: func(f func()) { go f() }, page: "overview", root: tilde(s.Root)}
 	a.sessions.init()
 	a.config.init()
 	a.cleanup.days = 30
@@ -49,7 +50,7 @@ func (a *App) View(c *ui.Context) {
 		c.Toast(a.notice)
 		a.notice = ""
 	}
-	live := a.live()
+	live := a.sessions.live
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 		ui.Sidebar(c, &a.page, func() {
 			ui.SidebarItem(c, "overview", iconOverview, "Overview")
@@ -61,7 +62,7 @@ func (a *App) View(c *ui.Context) {
 			ui.SidebarItem(c, "config", iconConfig, "Config")
 			ui.SidebarItem(c, "cleanup", iconCleanup, "Cleanup")
 		}).Width(200).Background(pal.ground)
-		ui.Box(c).Width(1).Background(pal.rule)
+		ui.Divider(c)
 		ui.Column(c).Grow(1).MinWidth(0).PaddingX(24).PaddingY(18).Gap(16).Children(func() {
 			a.header(c, pal, live)
 			switch a.page {
@@ -80,18 +81,6 @@ func (a *App) View(c *ui.Context) {
 	a.cleanup.confirm(c, a)
 }
 
-// live counts the sessions running now.
-func (a *App) live() (n int) {
-	for _, p := range a.sessions.projects {
-		for _, x := range p.Sessions {
-			if x.Live {
-				n++
-			}
-		}
-	}
-	return n
-}
-
 // header names the screen, sums up what it shows, and holds Rescan; the
 // Overview's adds the key to clean up.
 func (a *App) header(c *ui.Context, pal *palette, live int) {
@@ -102,16 +91,12 @@ func (a *App) header(c *ui.Context, pal *palette, live int) {
 		if live > 0 {
 			running = plural(live, "session") + " running"
 		}
-		title = tilde(a.Store.Root)
-		sub = humanSize(a.overview.total()) + " · " + running
+		title = a.root
+		sub = humanSize(a.overview.total) + " · " + running
 	case "sessions":
-		n, size := 0, int64(0)
-		for _, p := range a.sessions.projects {
-			n += len(p.Sessions)
-			size += p.Size
-		}
+		s := &a.sessions
 		title = "Sessions"
-		sub = fmt.Sprintf("%s in %s · %s", plural(n, "session"), plural(len(a.sessions.projects), "project"), humanSize(size))
+		sub = fmt.Sprintf("%s in %s · %s", plural(s.count, "session"), plural(len(s.projects), "project"), humanSize(s.size))
 	case "config":
 		title, sub = "Config", "Read-only. Credentials are masked."
 	case "cleanup":

@@ -4,9 +4,8 @@ import (
 	"cmp"
 	"fmt"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -15,15 +14,20 @@ import (
 
 type sessions struct {
 	projects []store.Project
-	err      string
-	split    float32
-	ptable   ui.DataTableState[store.Project, string]
-	table    ui.DataTableState[store.Session, string]
-	shown    string // Dir of the project whose sessions the table shows
-	rows     []store.Session
-	asking   bool
-	pending  []store.Session
-	skipped  int
+	// Of all projects, worked out once in set: how many sessions, how many
+	// running, their size, and the first latestShown running-then-latest.
+	count, live int
+	size        int64
+	latest      []store.Session
+	err         string
+	split       float32
+	ptable      ui.DataTableState[store.Project, string]
+	table       ui.DataTableState[store.Session, string]
+	shown       string // Dir of the project whose sessions the table shows
+	rows        []store.Session
+	asking      bool
+	pending     []store.Session
+	skipped     int
 
 	// The transcript shown, nil while the tables show (transcript.go).
 	open    *store.Session
@@ -37,29 +41,21 @@ type sessions struct {
 	md      markdown.Options
 }
 
-const liveSuffix = " (live)"
-
-// commandTag finds the slash command Claude Code wraps a typed command in:
-// <command-name>/model</command-name> … <command-args>opus</command-args>.
-var commandTag = regexp.MustCompile(`(?s)<command-name>(.*?)</command-name>(?:.*?<command-args>(.*?)</command-args>)?`)
-
-// prompt shows a first prompt that is a slash command as the command typed.
-func prompt(s string) string {
-	if m := commandTag.FindStringSubmatch(s); m != nil {
-		return strings.TrimSpace(m[1] + " " + m[2])
+// sessionName is what a session is called: its title, else its first prompt.
+func sessionName(x *store.Session) string {
+	if x.Err != "" {
+		return "(unreadable: " + x.Err + ")"
 	}
-	return s
+	return cmp.Or(x.Title, x.FirstPrompt, "(untitled)")
 }
 
+// sessionLabel is the name with " (live)" for a running session: the table's
+// text, which search and copy read.
 func sessionLabel(x *store.Session) string {
-	label := cmp.Or(x.Title, prompt(x.FirstPrompt), "(untitled)")
-	if x.Err != "" {
-		label = "(unreadable: " + x.Err + ")"
-	}
 	if x.Live {
-		label += liveSuffix
+		return sessionName(x) + " (live)"
 	}
-	return label
+	return sessionName(x)
 }
 
 func (s *sessions) init() {
@@ -88,9 +84,9 @@ func (s *sessions) init() {
 				// A running session can't be trashed: its lamp says so.
 				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 					if x.Live {
-						lamp(c, paletteOf(c)).Tooltip("Running now; it can't be moved to the Trash")
+						lamp(c, paletteOf(c))
 					}
-					ui.Text(c, strings.TrimSuffix(sessionLabel(x), liveSuffix)).SingleLine().Grow(1).MinWidth(0)
+					ui.Text(c, sessionName(x)).SingleLine().Grow(1).MinWidth(0)
 				})
 			}},
 		{TableColumn: ui.TableColumn{Title: "Modified", Width: 140}, Text: func(x *store.Session) string { return fmtTime(x.Modified) }, NoSearch: true,
@@ -126,7 +122,32 @@ func (s *sessions) set(projects []store.Project, err error) {
 	s.projects, s.err = projects, errText(err)
 	s.ptable.Reset()
 	s.shown = "" // the sessions table takes the new rows on the next frame
+	s.count, s.live, s.size, s.latest = 0, 0, 0, nil
+	for _, p := range projects {
+		s.size += p.Size
+		for _, x := range p.Sessions {
+			s.count++
+			if x.Live {
+				s.live++
+			}
+			s.latest = append(s.latest, x)
+		}
+	}
+	// Running first, then the latest: the Overview's list.
+	slices.SortFunc(s.latest, func(x, y store.Session) int {
+		if x.Live != y.Live {
+			if x.Live {
+				return -1
+			}
+			return 1
+		}
+		return y.Modified.Compare(x.Modified)
+	})
+	s.latest = s.latest[:min(len(s.latest), latestShown)]
 }
+
+// latestShown is how many sessions the Overview lists.
+const latestShown = 6
 
 func (s *sessions) view(c *ui.Context, a *App, pal *palette) {
 	if s.open != nil {

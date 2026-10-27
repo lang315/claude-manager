@@ -63,9 +63,10 @@ func legend(c *ui.Context, p *palette, s string) ui.Element {
 	return ui.Text(c, s).FontSize(11).Bold().LetterSpacing(0.6).TextColor(p.muted).SingleLine()
 }
 
-// lamp is the indicator of a running session.
+// lamp is the indicator of a running session, and says what it means.
 func lamp(c *ui.Context, p *palette) ui.Element {
-	return ui.Box(c).Size(9, 9).Radius(4.5).Background(p.green).Border(2, p.green.Alpha(0.25))
+	return ui.Box(c).Size(9, 9).Radius(4.5).Background(p.green).Border(2, p.green.Alpha(0.25)).
+		Tooltip("Running now; it can't be moved to the Trash")
 }
 
 // unlit is the lamp of a session that is not running.

@@ -2,7 +2,6 @@ package view
 
 import (
 	"fmt"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
@@ -69,9 +68,9 @@ func (s *sessions) transcript(c *ui.Context, pal *palette) {
 			s.gen++ // messages still arriving are dropped
 		}
 		if x.Live {
-			lamp(c, pal).Tooltip("Running now; it can't be moved to the Trash")
+			lamp(c, pal)
 		}
-		ui.Text(c, strings.TrimSuffix(sessionLabel(x), liveSuffix)).FontSize(15).Bold().SingleLine().Grow(1).MinWidth(0)
+		ui.Text(c, sessionName(x)).FontSize(15).Bold().SingleLine().Grow(1).MinWidth(0)
 	})
 	ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 		meta := fmt.Sprintf("%s · %s · Claude Code %s · %s – %s · %s",
