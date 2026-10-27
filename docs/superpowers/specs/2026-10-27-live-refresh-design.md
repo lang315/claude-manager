@@ -60,7 +60,7 @@ is a pure function that returns a set of screens. Its rules, in order:
 
 | Hint path | Screens |
 |---|---|
-| `projects` or `projects/…` | Sessions (which reloads Cleanup too), Usage, Overview |
+| `projects` or `projects/…` | Sessions (which reloads Cleanup too), Usage, Overview; and Config for `projects/<dir>/memory`, where the memory files live |
 | `sessions` or `sessions/…` | Sessions |
 | `plugins/…`, `skills/…`, `commands/…`, `agents/…` | Config, Overview |
 | `.` | everything: a file at the root changed (`history.jsonl`, `settings*.json`), or the system lost events and asks to look at everything |
