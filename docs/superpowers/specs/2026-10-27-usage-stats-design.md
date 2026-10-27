@@ -70,6 +70,7 @@ type Usage struct {
 	Day       time.Time // local midnight
 	Model     string    // as recorded, date suffix and all
 	Calls     int
+	Fast      int // calls in fast mode, for the Models tab's " · fast"
 	Input, Output, CacheRead, CacheWrite5m, CacheWrite1h int64
 	WebSearches int64
 	Cost        float64 // USD, estimated; calls of an unpriced model add nothing
@@ -106,7 +107,8 @@ func (s *Store) Usage(scan *UsageScan, progress func(done, total int)) (buckets 
      would not do: across files, which copy comes last depends on file
      order. Codeburn keeps the last line, and notes that keeping the first
      undercounts output.
-   - **Timestamp:** the first copy seen sets the call's timestamp.
+   - **Timestamp:** the earliest of the copies is the call's time: when it
+     started. Within a file that is the first line.
    - **Scope:** one parent session, across its main transcript and all of
      its subagent files. Measured: no pair spans two sessions.
 7. **Advisor tokens.** `usage.iterations` entries of type `advisor_message`
