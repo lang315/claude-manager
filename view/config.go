@@ -257,7 +257,11 @@ var secretKey = regexp.MustCompile(`(?i)token|secret|password|passwd|passphrase|
 // parameter or --flag=value named like a secret, a "Name: value" header named like one); a token without a known shape still shows, as does a
 // bare value after a separate flag element outside an MCP "args" array (inside one it is masked, see
 // tree.add). Match more shapes if one leaks.
-var secretValue = regexp.MustCompile(`(?i)bearer\s+\S+|basic\s+\S+|\bsk-[\w-]{8,}|\bgh[pousr]_\w+|github_pat_\w+|xox[abposr]-\S+|\bAKIA[0-9A-Z]{16}|://[^/\s:@]+:[^@\s]+@|[?&][^=&\s]*(key|token|secret|auth|sig|pass)[^=&\s]*=[^&\s]+|--?[\w-]*(key|token|secret|password|auth)[\w-]*=\S+|(^|[=\s])[\w-]*(key|token|secret|pass|auth|cookie|sig|credential)[\w-]*\s*:\s*\S`)
+var secretValue = regexp.MustCompile(`(?i)bearer\s+\S+|basic\s+\S+|\bsk-[\w-]{8,}|\bgh[pousr]_\w+|github_pat_\w+|xox[abposr]-\S+|\bAKIA[0-9A-Z]{16}|://[^/\s:@]+:[^@\s]+@|` +
+	`[?&][^=&\s]*` + secretWords + `[^=&\s]*=[^&\s]+|--?[\w-]*` + secretWords + `[\w-]*=\S+|(^|[=\s])[\w-]*` + secretWords + `[\w-]*\s*:\s*\S`)
+
+// secretWords name a credential in a query parameter, a --flag= or a "Name: value" header.
+const secretWords = `(key|token|secret|pass|auth|cookie|sig|credential)`
 
 // secretFlag reports whether v is a command-line flag named like a secret.
 func secretFlag(v any) bool {

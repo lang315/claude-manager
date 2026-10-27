@@ -59,9 +59,7 @@ func (s *Store) Config() Config {
 	load := func(path string, v any) bool {
 		b, err := os.ReadFile(path)
 		if err != nil {
-			if !errors.Is(err, fs.ErrNotExist) {
-				cfg.Errs = append(cfg.Errs, err.Error())
-			}
+			report(&cfg.Errs, err)
 			return false
 		}
 		if err := json.Unmarshal(b, v); err != nil {

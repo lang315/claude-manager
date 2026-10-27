@@ -2,11 +2,11 @@ package view
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"path/filepath"
 	"slices"
 	"strconv"
-	"sync/atomic"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -35,10 +35,9 @@ type sessions struct {
 	msgs    []msgRow
 	bad     int
 	loading bool
-	gen     int          // which open the messages arriving belong to
-	stop    *atomic.Bool // stops the read of the transcript open, if one is going
-	loadGen int          // which load the projects arriving belong to
-	query   string       // the search field's text
+	cancel  context.CancelFunc // stops the read of the transcript open; once called, what it sends is dropped
+	loadGen int                // which load the projects arriving belong to
+	query   string             // the search field's text
 	list    *ui.ListState
 	md      markdown.Options
 }

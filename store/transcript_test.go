@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,7 @@ func TestReadTranscript(t *testing.T) {
 	_, d, _ := newStore(t)
 	var got []Message
 	batches := 0
-	bad, err := ReadTranscript(filepath.Join(d.Root, fixture.Proj, fixture.Old+".jsonl"), never, func(ms []Message) {
+	bad, err := ReadTranscript(context.Background(), filepath.Join(d.Root, fixture.Proj, fixture.Old+".jsonl"), func(ms []Message) {
 		batches++
 		got = append(got, ms...)
 	})
@@ -48,23 +49,22 @@ func TestReadTranscript(t *testing.T) {
 }
 
 func TestReadTranscriptMissing(t *testing.T) {
-	if _, err := ReadTranscript(filepath.Join(t.TempDir(), "nope.jsonl"), never, func([]Message) {}); err == nil {
+	if _, err := ReadTranscript(context.Background(), filepath.Join(t.TempDir(), "nope.jsonl"), func([]Message) {}); err == nil {
 		t.Error("no error for a missing file")
 	}
 }
 
-func never() bool { return false }
-
-// Once stop says so, the reader stops between lines: a transcript left with
-// Back is not read to its end.
+// Once ctx is cancelled, the reader stops between lines: a transcript left
+// with Back is not read to its end.
 func TestReadTranscriptStops(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "long.jsonl")
 	line := `{"type":"user","message":{"role":"user","content":"hi"}}` + "\n"
 	if err := os.WriteFile(f, []byte(strings.Repeat(line, 5*batchSize)), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	got := 0
-	_, err := ReadTranscript(f, func() bool { return got > 0 }, func(ms []Message) { got += len(ms) })
+	_, err := ReadTranscript(ctx, f, func(ms []Message) { got += len(ms); cancel() })
 	if err != nil {
 		t.Fatal(err)
 	}
