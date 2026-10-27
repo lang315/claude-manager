@@ -213,6 +213,19 @@ func (s *sessions) targets() (out []store.Session, live int) {
 	return out, live
 }
 
+// find returns the session id names among those scanned, nil when it is not
+// on disk any more.
+func (s *sessions) find(id string) *store.Session {
+	for i := range s.projects {
+		for j := range s.projects[i].Sessions {
+			if x := &s.projects[i].Sessions[j]; x.ID == id {
+				return x
+			}
+		}
+	}
+	return nil
+}
+
 func (s *sessions) confirm(c *ui.Context, a *App) {
 	var size int64
 	for _, x := range s.pending {

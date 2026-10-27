@@ -187,3 +187,76 @@ func TestHistoryEmpty(t *testing.T) {
 		t.Errorf("no empty state; texts %q", tt.Texts())
 	}
 }
+
+func TestHistoryDetailAndCopy(t *testing.T) {
+	_, tt, _, _ := newApp(t)
+	must(t, tt.Click("History"))
+	if !tt.HasText("Choose a prompt to see it whole.") {
+		t.Errorf("no prompt chosen, no hint; texts %q", tt.Texts())
+	}
+	must(t, tt.Click("Review this:"))
+	if !tt.HasText("Pasted text #1 (2 lines)") || !tt.HasText("Pasted text #3 (1 line)") {
+		t.Errorf("pastes not listed; texts %q", tt.Texts())
+	}
+	must(t, tt.Click("Copy"))
+	if got, want := tt.Clipboard(), "Review this:\nfunc main() {\n}"; got != want {
+		t.Errorf("clipboard %q, want %q", got, want)
+	}
+	tt.Frame() // the toast shows on the frame after the click
+	if !tt.HasText("Copied") {
+		t.Errorf("no toast; texts %q", tt.Texts())
+	}
+}
+
+func TestHistoryLostPaste(t *testing.T) {
+	_, tt, _, _ := newApp(t)
+	must(t, tt.Click("History"))
+	must(t, tt.Click("Use this [Pasted text #2 +40 lines] and [Image #1]"))
+	if !tt.HasText("1 paste no longer stored") {
+		t.Errorf("lost paste not said; texts %q", tt.Texts())
+	}
+}
+
+func TestHistoryOpensSession(t *testing.T) {
+	a, tt, _, _ := newApp(t)
+	must(t, tt.Click("History"))
+	must(t, tt.Click("Fix the login bug"))
+	must(t, tt.Click("Open session"))
+	if a.page != "sessions" || a.sessions.open == nil || a.sessions.open.ID != fixture.Old {
+		t.Fatalf("page %q, open %v; want the transcript of %s", a.page, a.sessions.open, fixture.Old)
+	}
+}
+
+func TestHistoryGoneSession(t *testing.T) {
+	a, tt, _, _ := newApp(t)
+	must(t, tt.Click("History"))
+	must(t, tt.Click("Use this [Pasted text #2 +40 lines] and [Image #1]"))
+	tt.Click("Open session") // disabled: a click does nothing
+	if a.page != "history" || a.sessions.open != nil {
+		t.Errorf("a gone session opened: page %q", a.page)
+	}
+}
+
+// A filter that hides the row chosen lets it go: the detail doesn't show a
+// prompt the table no longer has.
+func TestHistoryFilterDropsChoice(t *testing.T) {
+	a, tt, _, _ := newApp(t)
+	must(t, tt.Click("History"))
+	must(t, tt.Click("Old idea"))
+	if a.history.chosen() == nil || a.history.chosen().Line != 1 {
+		t.Fatalf("Old idea not chosen")
+	}
+	a.history.preset = presetToday
+	tt.Frame()
+	if a.history.chosen() != nil || !tt.HasText("Choose a prompt to see it whole.") {
+		t.Errorf("the hidden row stays chosen: %+v", a.history.chosen())
+	}
+	a.history.preset = presetAll
+	tt.Frame()
+	must(t, tt.Click("Fix the login bug"))
+	a.history.query = "login"
+	tt.Frame()
+	if p := a.history.chosen(); p == nil || p.Line != 2 {
+		t.Errorf("a row the filter keeps lost its choice: %+v", p)
+	}
+}

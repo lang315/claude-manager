@@ -1,6 +1,7 @@
 package view
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -237,5 +238,65 @@ func (h *history) table(c *ui.Context, pal *palette) {
 	ui.Text(c, plural(len(h.shown), "prompt")).FontSize(12).TextColor(pal.muted).FontFeatures("tnum")
 }
 
-// detail shows the prompt chosen whole. Task 4 fills it in.
-func (h *history) detail(c *ui.Context, a *App, pal *palette) {}
+// detail shows the prompt chosen whole, with its pastes, and the keys to
+// copy it or open its session.
+func (h *history) detail(c *ui.Context, a *App, pal *palette) {
+	p := h.chosen()
+	face(c, pal).Grow(1).MinHeight(0).Children(func() {
+		note := ""
+		if p != nil {
+			note = fmtTime(p.Time)
+		}
+		head(c, pal, "Prompt", note)
+		ui.Divider(c)
+		if p == nil {
+			blank(c, pal, "Choose a prompt to see it whole.")
+			return
+		}
+		ui.Scroll(c.Key(p.Line)).Grow(1).Basis(0).MinHeight(0).Children(func() {
+			ui.Column(c).Padding(16, 20).Gap(12).Children(func() {
+				ui.Text(c, tilde(p.Project)).FontSize(12).TextColor(pal.muted).SingleLine().Tooltip(p.Project)
+				ui.Text(c, clip(p.Text)).Selectable()
+				for _, x := range p.Pastes {
+					label := fmt.Sprintf("Pasted text #%d (%s)", x.ID, plural(lineCount(x.Content), "line"))
+					ui.Collapsible(c, label, h.pasteOpenFor(p.Line, x.ID), func() {
+						ui.Text(c, clip(x.Content)).Font("monospace").FontSize(12).Selectable()
+					})
+				}
+				if p.Lost > 0 {
+					ui.Text(c, plural(p.Lost, "paste")+" no longer stored").FontSize(12).TextColor(pal.muted)
+				}
+			})
+		})
+		ui.Divider(c)
+		ui.Row(c).PaddingX(16).PaddingY(12).Gap(8).Children(func() {
+			if ui.Button(c, "Copy").Clicked() {
+				c.WriteClipboard(p.Expand())
+				a.notice = "Copied"
+			}
+			x := a.sessions.find(p.SessionID)
+			open := ui.Button(c, "Open session").Disabled(x == nil)
+			if x == nil {
+				open.Tooltip("Session no longer on disk")
+			}
+			if open.Clicked() {
+				a.page = "sessions"
+				a.sessions.openTranscript(a, *x)
+			}
+		})
+	})
+}
+
+// pasteOpenFor is whether a paste of the prompt on line is expanded.
+func (h *history) pasteOpenFor(line, id int) *bool {
+	k := [2]int{line, id}
+	if h.pasteOpen[k] == nil {
+		h.pasteOpen[k] = new(bool)
+	}
+	return h.pasteOpen[k]
+}
+
+// lineCount counts a text's lines, a last line without "\n" included.
+func lineCount(s string) int {
+	return strings.Count(strings.TrimRight(s, "\n"), "\n") + 1
+}
