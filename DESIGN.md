@@ -164,13 +164,13 @@ A grey instrument with two signal colours, each bound to one meaning.
 
 **Display Font:** none. The system sans (San Francisco) carries every role.
 **Body Font:** system sans, MyGo's macOS default (13px).
-**Label/Mono Font:** system monospace, only for tool input and output folded inside a transcript.
+**Label/Mono Font:** system monospace, only for code: tool input and output folded inside a transcript, and hook commands in Config (12px there).
 
 **Character:** One family, set like the printing on a panel. Weight and size do the work, and colour does not.
 
 ### Hierarchy
 - **Title** (700, 24px): the header row's screen name or `~/.claude` path, single line.
-- **Heading** (700, 15px): the session title at the top of a transcript.
+- **Heading** (700, 15px): the session title at the top of a transcript, and the file title in a Config reader.
 - **Body** (400, 13px): row names, table cells, and messages.
 - **Figure** (400, 13px, `tnum`): every size and count, aligned right so columns read down. The Selected total uses it in bold.
 - **Meta** (400, 12px, muted): notes, paths, timestamps, item counts, and the speaker line in a transcript (the speaker in bold).
@@ -188,7 +188,7 @@ A fixed 200px sidebar on the ground, a 1px rule, then the content column. The co
 
 On the Overview, faces stack with a 16px gap: the full-width dial, then two equal faces side by side, then the full-width folder list. Inside faces, caption rows are padded 12px by 16px and list rows 8px by 16px. Row dividers are 1px rules inset 16px from the face edges. Column widths for figures are fixed so values align down a face.
 
-Spacing uses 8, 10, 12, 16 and 24px steps. Sessions and Config use split views, with a list on the left and detail on the right. Text truncates on a single line instead of wrapping.
+Spacing uses 8, 10, 12, 16 and 24px steps. Sessions uses a resizable split view, with a list on the left and detail on the right. Config's Skills, Commands and Memory tabs use a fixed 300px list, a 1px rule, then the reader. Text truncates on a single line instead of wrapping.
 
 ## Elevation & Depth
 
@@ -227,12 +227,32 @@ A 9px circle. **Lit:** lamp green with a 2px ring of green at 25% alpha, and a t
 
 ### Calibrated Scale (signature)
 The instrument's one measure, reused wherever sizes are compared. All scales on a screen share one maximum, so their lengths compare.
-- **Bar scale:** a 6px bar on a 1px rule track. The kept part is ink and the cleanable part is orange, placed at the bar's end. Each bar is at least 2px. In the Cleanup list every bar is wholly orange, because every group there is cleanable.
+- **Bar scale:** a 6px bar on a 1px rule track. The kept part is ink and the cleanable part is orange, placed at the bar's end. Each bar is at least 2px. In the Cleanup list every bar is wholly orange, because every group there is cleanable. In Plugins every bar is wholly ink, because plugins are not cleanable.
 - **Dial:** the Overview's full-width scale (86px tall). It has one segment per top-level folder. Every segment is full ink, with a 1px gap between neighbours and no alternating tone. Each segment's cleanable part is orange at its end. The dial has an ink baseline with a tick per half step: major ticks are 8px and numbered in muted, and minor ticks are 4px. The total is set at the end in weight 600. Markers sit in up to two rows above. **A marker points at the start of its segment.** A segment with an orange part is always named. Other segments are named only when the label fits.
 - **Key:** a legend row with 10px ink and orange swatches, labelled "kept" and "can be cleaned".
 
 ### Selected Row
-Selection graphite with `on-selection` text, in data tables and the sidebar.
+Selection graphite with `on-selection` text, in data tables, lists and the sidebar. On the chosen row, a file's description turns `on-selection` at 75% alpha, and a container's "N items" drops its muted colour.
+
+### Sheet
+Each Config tab except Plugins is one face filling the room under the tabs. It opens with the caption row (legend and muted note), then a full-width rule, then the content. Rows inside keep their inset rules. An empty sheet says, in muted centred text with 24px padding, why it is empty and what would fill it ("No hooks. A hook runs a command at a point in a session, set under "hooks" in settings.json.").
+
+### Property Outline
+Settings and MCP servers use MyGo's native outline table with two columns, Key (260) and Value, like Xcode's property list editor. A container's value is a muted "N items". An MCP server's row sums it up as "transport · command or URL". A click on the arrow, a double click or Enter opens a row. Credentials are masked as `••••••`. This covers keys named like secrets, values shaped like known credentials, anything under an MCP server's `env` or `headers` (including settings.json's own `mcpServers`), and an `args` value that follows a secret-named flag.
+
+### Hooks Table
+MyGo's native table: Event (170), Matcher (160, muted), Command, and Timeout (80, muted, tabular, right, "N s"). Events follow the order a session meets them, and unknown events come last. An event is named only on the first row of its block, so each event reads as one block. Commands are set in system monospace at 12px, on one line, with the full command in a tooltip.
+
+### Plugin Row
+Plugins is a scroll of two faces, 16px apart: Installed plugins, then Marketplaces. A plugin row holds the name with a muted 12px "marketplace · version" below it (260 wide), an all-ink bar scale on the plugins' shared maximum, the size (tabular, 72, right), and a muted 12px "Off" when settings.json turns the plugin off. Rows run largest first. A marketplace row holds the name (260), the muted source, and the muted 12px update date (130, right).
+
+### File List and Reader
+Skills, Commands and Memory use MyGo's native list (300px, padded 6 by 8), a 1px rule, then the reader. A row is the name with a muted 12px description below it. Memory groups files under sticky project headers: 12px bold muted text, with a tabular count at the right, on the face colour. "All projects" heads `~/.claude/CLAUDE.md`. The first file is chosen by default, so the reader is never empty.
+
+The reader is padded 16 by 24. It shows the title (Heading), then the meta line: the path shrinks and truncates first, followed by " · size · date" in tabular figures. Front-matter fields follow as rows aligned to the top: a 12px muted key (110) and its value. A rule then separates the fields from the Markdown body.
+
+### Backups Table
+MyGo's native data table, with the File column filling the width. Its footer matches Cleanup's: a muted "Selected", the bold tabular "N files · size", and the orange "Move to Trash…" at the right.
 
 ## Do's and Don'ts
 

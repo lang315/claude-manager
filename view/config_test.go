@@ -1,11 +1,22 @@
 package view
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/egoist/mygo/ui"
 )
+
+// open opens the row of the outline showing key, as Right does on the row
+// chosen.
+func open(t *testing.T, tt *ui.Tester, key string) {
+	t.Helper()
+	must(t, tt.Click(key))
+	tt.Key(0, ui.KeyRight)
+}
 
 func TestScalarMasksSecrets(t *testing.T) {
 	for _, c := range []struct {
@@ -25,8 +36,9 @@ func TestScalarMasksSecrets(t *testing.T) {
 		{"note", "Bearer abc", "••••••"},
 		{"0", "sk-abcdefgh123", "••••••"},
 		{"url", "postgres://u:p@h/db", "••••••"},
-		{"url", "https://example.com/mcp", `"https://example.com/mcp"`},
-		{"EDITOR", "vim", `"vim"`},
+		{"url", "https://example.com/mcp", "https://example.com/mcp"},
+		{"EDITOR", "vim", "vim"},
+		{"empty", "", `""`},
 		{"count", 3.0, "3"},
 		{"on", true, "true"},
 		{"none", nil, "null"},
@@ -40,15 +52,18 @@ func TestScalarMasksSecrets(t *testing.T) {
 func TestConfigMasksSecrets(t *testing.T) {
 	_, tt, _, _ := newApp(t)
 	must(t, tt.Click("Config"))
-	must(t, tt.Click("env"))
-	if !tt.HasText("API_TOKEN: ••••••") || !tt.HasText(`EDITOR: "vim"`) {
+	open(t, tt, "env")
+	if !tt.HasText("API_TOKEN") || !tt.HasText("••••••") || !tt.HasText("vim") {
 		t.Errorf("env not shown masked; texts %q", tt.Texts())
 	}
 	must(t, tt.Click("MCP servers"))
-	must(t, tt.Click("remote"))
-	must(t, tt.Click("headers"))
-	if !tt.HasText("Authorization: ••••••") {
-		t.Errorf("MCP header not masked; texts %q", tt.Texts())
+	if !tt.HasText("http · https://example.com/mcp") {
+		t.Errorf("no summary of the remote server; texts %q", tt.Texts())
+	}
+	open(t, tt, "remote")
+	open(t, tt, "headers")
+	if !tt.HasText("Authorization") {
+		t.Errorf("MCP header not shown; texts %q", tt.Texts())
 	}
 	for _, s := range tt.Texts() {
 		if strings.Contains(s, "secret123") || strings.Contains(s, "Bearer abc") {
@@ -61,9 +76,16 @@ func TestConfigDocsAndBackups(t *testing.T) {
 	_, tt, d, trashed := newApp(t)
 	must(t, tt.Click("Config"))
 	must(t, tt.Click("Memory"))
-	must(t, tt.Click("-Users-me-proj/memory/MEMORY.md"))
-	if !tt.HasText("likes Go") {
-		t.Errorf("memory file not rendered; texts %q", tt.Texts())
+	if !tt.HasText("All projects") || !tt.HasText("Global rules") {
+		t.Errorf("CLAUDE.md not listed first and shown; texts %q", tt.Texts())
+	}
+	must(t, tt.Click("MEMORY.md"))
+	if !tt.HasText("me-proj") || !tt.HasText("likes Go") {
+		t.Errorf("memory file not rendered under its project; texts %q", tt.Texts())
+	}
+	must(t, tt.Click("Skills"))
+	if !tt.HasText("A demo skill") || !tt.HasText("description") {
+		t.Errorf("skill's front matter not shown; texts %q", tt.Texts())
 	}
 	must(t, tt.Click("Backups"))
 	must(t, tt.Click("settings.json.bak-1"))
@@ -83,13 +105,15 @@ func TestConfigMasksByStructure(t *testing.T) {
 	tt.Frame()
 	must(t, tt.Click("Config"))
 	must(t, tt.Click("MCP servers"))
-	must(t, tt.Click("x"))
-	for _, k := range []string{"args [2]", "env", "auth", "tokens [1]"} {
-		must(t, tt.Click(k))
+	open(t, tt, "x")
+	for _, k := range []string{"tokens", "env", "auth", "args"} { // bottom up, so rows opened don't move those above
+		open(t, tt, k)
 	}
-	must(t, tt.Click("NEST"))
-	if !tt.HasText("FOO: ••••••") || !tt.HasText("deep: ••••••") || !tt.HasText("value: ••••••") || !tt.HasText("0: ••••••") {
-		t.Errorf("expected masked values; texts %q", tt.Texts())
+	open(t, tt, "NEST")
+	for _, k := range []string{"FOO", "deep", "value"} {
+		if !tt.HasText(k) {
+			t.Errorf("%s not shown; texts %q", k, tt.Texts())
+		}
 	}
 	for _, s := range tt.Texts() {
 		for _, bad := range []string{"plain-secret", "nested-secret", "abc-auth", "tok-arr", "sk-abcdefgh123"} {
@@ -106,7 +130,7 @@ func TestConfigEmptySettings(t *testing.T) {
 	a.Rescan()
 	tt.Frame()
 	must(t, tt.Click("Config"))
-	if !tt.HasText("Nothing configured") {
+	if !tt.HasText("Nothing configured in settings.json.") {
 		t.Errorf("texts %q", tt.Texts())
 	}
 }
@@ -136,13 +160,77 @@ func TestConfigMasksValueAfterSecretFlag(t *testing.T) {
 	tt.Frame()
 	must(t, tt.Click("Config"))
 	must(t, tt.Click("MCP servers"))
-	must(t, tt.Click("x"))
-	must(t, tt.Click("args [4]"))
-	if !tt.HasText("1: ••••••") || !tt.HasText(`3: "plain"`) {
-		t.Errorf("expected only the value after --api-key masked; texts %q", tt.Texts())
+	if !tt.HasText("stdio · --api-key •••••• --verbose plain") {
+		t.Errorf("summary does not mask the value after --api-key; texts %q", tt.Texts())
+	}
+	open(t, tt, "x")
+	open(t, tt, "args")
+	if !tt.HasText("plain") {
+		t.Errorf("args not shown; texts %q", tt.Texts())
 	}
 	for _, s := range tt.Texts() {
 		if strings.Contains(s, "abc123") {
+			t.Errorf("a credential shows: %q", s)
+		}
+	}
+}
+
+// A long list scrolls inside its face: the tabs and the title stay put.
+func TestConfigLongListStaysInItsFace(t *testing.T) {
+	a, tt, d, _ := newApp(t)
+	for i := range 80 {
+		f := filepath.Join(d.Root, "projects", fmt.Sprintf("-gone-project-%d", i%8), "memory", fmt.Sprintf("note-%02d.md", i))
+		must(t, os.MkdirAll(filepath.Dir(f), 0o755))
+		must(t, os.WriteFile(f, []byte("---\ndescription: a note\n---\nbody\n"), 0o644))
+	}
+	a.Rescan()
+	tt.Frame()
+	must(t, tt.Click("Config"))
+	tab, _ := tt.Find("Memory")
+	title, _ := tt.Find("Read-only. Credentials are masked.")
+	must(t, tt.Click("Memory"))
+	tab2, _ := tt.Find("Memory")
+	title2, ok := tt.Find("Read-only. Credentials are masked.")
+	first, _ := tt.Find("All projects")
+	if !ok || tab2.Y != tab.Y || title2.Y != title.Y || first.Y <= tab2.Y {
+		t.Errorf("the list moved the page: tab %v to %v, title %v to %v, first header at %v", tab, tab2, title, title2, first)
+	}
+}
+
+func TestHookRows(t *testing.T) {
+	hooks := map[string]any{
+		"Stop":         []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "say\n  done", "timeout": 30.0}}}},
+		"Custom":       []any{map[string]any{"hooks": []any{map[string]any{"type": "prompt", "prompt": "check"}}}},
+		"SessionStart": []any{map[string]any{"matcher": "startup", "hooks": []any{map[string]any{"command": "curl -H 'Authorization: Bearer abc' x"}}}},
+	}
+	got := hookRows(hooks)
+	want := []hookRow{
+		{event: "SessionStart", matcher: "startup", command: mask},
+		{event: "Stop", command: "say done", timeout: "30 s"},
+		{event: "Custom", command: "prompt: check"},
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("hookRows = %+v, want %+v", got, want)
+	}
+}
+
+// settings.json's own mcpServers show on the Settings tab too, masked as on
+// the MCP servers tab.
+func TestSettingsMasksItsMCPServers(t *testing.T) {
+	a, tt, d, _ := newApp(t)
+	must(t, os.WriteFile(filepath.Join(d.Root, "settings.json"), []byte(`{"mcpServers":{"s":{"args":["--api-key","plain-arg"],"env":{"FOO":"plain-env"}}}}`), 0o600))
+	a.Rescan()
+	tt.Frame()
+	must(t, tt.Click("Config"))
+	open(t, tt, "mcpServers")
+	open(t, tt, "s")
+	open(t, tt, "env")
+	open(t, tt, "args")
+	if !tt.HasText("FOO") {
+		t.Errorf("env not opened; texts %q", tt.Texts())
+	}
+	for _, s := range tt.Texts() {
+		if strings.Contains(s, "plain-env") || strings.Contains(s, "plain-arg") {
 			t.Errorf("a credential shows: %q", s)
 		}
 	}

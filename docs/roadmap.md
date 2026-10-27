@@ -34,7 +34,6 @@ Found in review and left for later.
 - Transcript reading continues after Back.
 - `.claude.json` is decoded whole (only `mcpServers` is needed).
 - Read errors on skills, commands and memory are not surfaced.
-- The config tree is not virtualized.
 - Checked rows hidden by the search are still trashed.
 - `int(days)` truncates a fractional number of days.
 - Untitled sessions are rescanned up to 8 MB on each rescan.

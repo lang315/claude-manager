@@ -396,7 +396,7 @@
       },
       "mono": {
         "displayName": "Mono",
-        "purpose": "Tool input and output folded inside a transcript."
+        "purpose": "Code only: tool input and output folded inside a transcript, and hook commands in Config (12px there)."
       }
     },
     "shadows": [

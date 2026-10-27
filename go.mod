@@ -1,6 +1,6 @@
 module github.com/lang315/claude-manager
 
-go 1.27.1
+go 1.27.3
 
 replace github.com/egoist/mygo => ../mygo
 

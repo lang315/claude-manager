@@ -29,7 +29,13 @@ func TestScreenshots(t *testing.T) {
 		{"overview", "Overview", nil},
 		{"sessions", "Sessions", []string{"me/proj"}},
 		{"transcript", "Sessions", []string{"me/proj", "Login bug fix", "Open Transcript"}},
-		{"config", "Back", []string{"Config", "env"}},
+		{"config", "Back", []string{"Config", "Settings", "env"}},
+		{"config-hooks", "Hooks", nil},
+		{"config-mcp", "MCP servers", []string{"remote"}},
+		{"config-plugins", "Plugins", nil},
+		{"config-skills", "Skills", nil},
+		{"config-memory", "Memory", []string{"MEMORY.md"}},
+		{"config-backups", "Backups", []string{"settings.json.bak-1"}},
 		{"cleanup", "Cleanup", []string{"paste-cache"}},
 	}
 	// One tester at a time: they share the app, and the transcript shot
