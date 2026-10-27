@@ -275,3 +275,19 @@ func TestBackupsChecksClearOnReload(t *testing.T) {
 		t.Errorf("a stale check keeps the key off; texts %q", tt.Texts())
 	}
 }
+
+// Names are matched by their segments: author, hotkey and design are not
+// credentials, while api-key, privatekey and access_token are.
+func TestSecretNames(t *testing.T) {
+	for _, v := range []string{"author: Jane", "hotkey: ctrl+k", "--design=x", "https://x.io/?bypass=1", "https://x.io/?page=2"} {
+		if got := scalar("1", v); got != v {
+			t.Errorf("scalar(%q) = %q, want it shown", v, got)
+		}
+	}
+	for _, v := range []string{"x-api-key: abc", "https://x.io/?apiKey=abc", "https://x.io/?privatekey=abc", "--auth-token=abc",
+		"Authorization: Bearer x", "https://x.io/?sig=abc", "https://x.io/?access_token=abc", "--password=x", "Cookie: a=b"} {
+		if got := scalar("1", v); got != mask {
+			t.Errorf("scalar(%q) = %q, want the mask", v, got)
+		}
+	}
+}

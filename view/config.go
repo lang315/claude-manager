@@ -252,16 +252,71 @@ const mask = "••••••"
 // secretKey matches keys whose values are credentials, which the tree hides.
 var secretKey = regexp.MustCompile(`(?i)token|secret|password|passwd|passphrase|api[-_]?key|access[-_]?key|private[-_]?key|_key$|^key$|auth|credential|cookie|bearer|_pat$|^pat$|dsn|webhook|headers`)
 
-// secretValue matches credentials inside a string value, whatever its key.
-// shortcut: known shapes only (bearer/basic, sk-, gh?_, github_pat_, xox?-, AKIA, user:pass@, a query
-// parameter or --flag=value named like a secret, a "Name: value" header named like one); a token without a known shape still shows, as does a
-// bare value after a separate flag element outside an MCP "args" array (inside one it is masked, see
-// tree.add). Match more shapes if one leaks.
-var secretValue = regexp.MustCompile(`(?i)bearer\s+\S+|basic\s+\S+|\bsk-[\w-]{8,}|\bgh[pousr]_\w+|github_pat_\w+|xox[abposr]-\S+|\bAKIA[0-9A-Z]{16}|://[^/\s:@]+:[^@\s]+@|` +
-	`[?&][^=&\s]*` + secretWords + `[^=&\s]*=[^&\s]+|--?[\w-]*` + secretWords + `[\w-]*=\S+|(^|[=\s])[\w-]*` + secretWords + `[\w-]*\s*:\s*\S`)
+// secretValue matches credentials inside a string value by their shape,
+// whatever its key.
+// shortcut: known shapes only (bearer/basic, sk-, gh?_, github_pat_, xox?-, AKIA, user:pass@); a token without a known
+// shape still shows unless secretString finds it named like a secret. Match more shapes if one leaks.
+var secretValue = regexp.MustCompile(`(?i)bearer\s+\S+|basic\s+\S+|\bsk-[\w-]{8,}|\bgh[pousr]_\w+|github_pat_\w+|xox[abposr]-\S+|\bAKIA[0-9A-Z]{16}|://[^/\s:@]+:[^@\s]+@`)
 
-// secretWords name a credential in a query parameter, a --flag= or a "Name: value" header.
-const secretWords = `(key|token|secret|pass|auth|cookie|sig|credential)`
+// secretNamed find the names a string gives its values: a query parameter,
+// a --flag=, a "Name: value" header. Each is searched on its own, as one can
+// sit inside another (--header=X-API-Key: v).
+var secretNamed = []*regexp.Regexp{
+	regexp.MustCompile(`[?&]([^=&\s]+)=[^&\s]+`),
+	regexp.MustCompile(`--?([\w-]+)=\S+`),
+	regexp.MustCompile(`(?:^|[=\s])([\w-]+)\s*:\s*\S`),
+}
+
+// secretString reports whether s holds a credential: one of a known shape,
+// or a value named like a secret. A bare value after a separate flag
+// element outside an MCP "args" array still shows (inside one it is masked,
+// see tree.add).
+func secretString(s string) bool {
+	if secretValue.MatchString(s) {
+		return true
+	}
+	for _, re := range secretNamed {
+		for _, m := range re.FindAllStringSubmatch(s, -1) {
+			if secretName(m[1]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// camelBoundary splits apiKey into api_Key.
+var camelBoundary = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+
+// secretSegments are name segments that name a credential by themselves.
+var secretSegments = map[string]bool{
+	"key": true, "token": true, "secret": true, "secrets": true, "pass": true, "passwd": true, "password": true,
+	"passphrase": true, "passcode": true, "auth": true, "authorization": true, "cookie": true, "sig": true,
+	"signature": true, "credential": true, "credentials": true, "bearer": true,
+}
+
+// secretName reports whether a parameter, flag or header name names a
+// credential. It looks at the name's segments, split on -, _, . and at
+// camelCase: one that is a credential word, or that ends in key, token,
+// secret, password or cookie (hotkey aside). So author, hotkey and design
+// don't count, while x-api-key, privatekey and access_token do.
+func secretName(name string) bool {
+	name = strings.ToLower(camelBoundary.ReplaceAllString(name, "${1}_${2}"))
+	for _, seg := range strings.FieldsFunc(name, func(r rune) bool { return r == '-' || r == '_' || r == '.' }) {
+		if secretSegments[seg] {
+			return true
+		}
+		if seg == "hotkey" {
+			continue
+		}
+		for _, end := range []string{"key", "token", "secret", "password", "cookie"} {
+			if strings.HasSuffix(seg, end) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // secretFlag reports whether v is a command-line flag named like a secret.
 func secretFlag(v any) bool {
@@ -274,7 +329,7 @@ func secretFlag(v any) bool {
 func scalar(key string, v any) string {
 	if s, ok := v.(string); ok {
 		switch {
-		case secretKey.MatchString(key) || secretValue.MatchString(s):
+		case secretKey.MatchString(key) || secretString(s):
 			return mask
 		case s == "":
 			return `""`
