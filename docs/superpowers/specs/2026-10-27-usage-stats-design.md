@@ -1,0 +1,364 @@
+# Usage Statistics — Design
+
+Date: 2026-10-27
+Status: approved in conversation, pending written-spec review
+
+## Goal
+
+A Usage screen that shows the tokens Claude Code used, and an estimate of
+their API cost, broken down by session, project, day and model. It answers
+"where do my tokens go, and when".
+
+Roadmap item: v2, "Token and cost statistics per session, project and day
+(from `message.usage`)".
+
+Reference: [codeburn](https://github.com/getagentseal/codeburn) (read, not
+run), a Node token tracker. Its Claude parser is `src/parser.ts`. What this
+design takes from it, and what it leaves out, is noted inline.
+
+## Decisions
+
+| Decision | Choice | Why |
+|---|---|---|
+| Scope | Tokens and an estimated cost | The cost answers "how much"; tokens alone don't |
+| Prices | A price table built into the app | No network calls. The table goes stale, so it carries its date |
+| Cost label | "est. API cost" | A Claude subscription doesn't bill per token; this is what the same use would cost on the API |
+| Cache | In memory, per app run | The app writes nothing to disk. Only the first scan reads everything |
+| Scan | Filter lines by bytes before decoding JSON | The scan reads 4.55 GB on this machine; only lines that hold usage are decoded |
+| Granularity | One bucket per (session, local day, model) | A few thousand buckets instead of about 800k calls. Every view sums buckets |
+| Cost per call | Each call is priced as it is scanned | Haiku 5.5's price depends on that call's prompt length, and `inference_geo` is per call |
+
+## Data (checked on the user's machine)
+
+- **Transcripts:**
+  - main sessions: `projects/<dir>/<uuid>.jsonl`, 159 files, 2.47 GB;
+  - subagents: `projects/<dir>/<uuid>/subagents/**/*.jsonl`, 2,167 files, 2.08 GB.
+- **A call** is a `type:"assistant"` line with `message.usage` and
+  `message.model`.
+- **Usage fields** on every call: `input_tokens`, `output_tokens`,
+  `cache_read_input_tokens`, `cache_creation_input_tokens`,
+  `cache_creation.ephemeral_5m_input_tokens`,
+  `cache_creation.ephemeral_1h_input_tokens`, `service_tier`, `inference_geo`.
+- **Usage fields on most calls:** `speed`,
+  `server_tool_use.web_search_requests`, `iterations`.
+- **Duplicates:**
+  - Claude Code writes one message as several lines, one per content block.
+  - Lines with a usage record outnumber distinct `(message.id, requestId)` pairs 2.05 to 1.
+  - In a sample of 120 main transcripts, the copies of a pair always carry identical usage, and no pair spans two files.
+  - 45 calls in that sample lack the pair.
+- **Models seen:** `claude-opus-5-5`, `claude-sonnet-5-5`,
+  `claude-opus-4-8`, `claude-opus-5`, `claude-haiku-4-5-20251001`,
+  `claude-sonnet-5`, `claude-haiku-5-5`, `claude-fable-5-1`, `<synthetic>`
+  (always zero usage) and `claude-opus-4-6`.
+- **`cwd`:** every call has it.
+
+## Store
+
+New file `store/usage.go`.
+
+```go
+// Usage is one bucket: a session's calls to one model on one local day.
+type Usage struct {
+	SessionID string    // the parent session; a subagent's calls fold into it
+	Project   string    // the session's cwd: the first cwd its calls carry
+	Day       time.Time // local midnight
+	Model     string    // as recorded, date suffix and all
+	Calls     int
+	Input, Output, CacheRead, CacheWrite5m, CacheWrite1h int64
+	WebSearches int64
+	Cost        float64 // USD, estimated; calls of an unpriced model add nothing
+	Unpriced    int     // calls whose model has no price
+}
+
+// UsageScan keeps what earlier scans read, per file, so a Rescan reads only
+// files that are new, grew or changed. Not safe for concurrent use: one
+// scan at a time, as App.run already guarantees per screen.
+type UsageScan struct { /* per-file state: see below */ }
+
+// Usage scans the transcripts and returns every bucket, with the count of
+// lines that weren't JSON and of files that couldn't be read. progress, when
+// set, is called after each file with how many are done of how many.
+func (s *Store) Usage(scan *UsageScan, progress func(done, total int)) (buckets []Usage, bad, unreadable int, err error)
+```
+
+### Reading a file
+
+1. Read line by line with `bufio.Reader.ReadBytes`, as `History` does, so a
+   huge line has no size limit.
+2. Skip a line unless it contains both `"usage"` and `"assistant"` as bytes.
+3. Decode the lines that pass into a small struct:
+   - `type`, `timestamp`, `cwd`, `requestId`;
+   - `message.id`, `message.model`;
+   - `message.usage`: the token fields, the `cache_creation` split, `speed`,
+     `inference_geo`, `server_tool_use.web_search_requests` and `iterations`.
+4. Count a line that is not JSON in `bad`.
+5. Skip a call whose model is `<synthetic>`. Count negative numbers as 0.
+6. **Duplicates.** Key a call by `message.id + "/" + requestId`. The first line
+   of a key sets the call's timestamp. The last line of a key sets its usage
+   (codeburn found that keeping the first line undercounts output). A call
+   without the key is counted on every line.
+   - Keys are kept per file only: no pair spans two files.
+   - shortcut: the dedupe is per file. Switch to a set shared across files if
+     a resumed session ever repeats a call in another file.
+7. **Advisor tokens.** `usage.iterations` entries of type `advisor_message`
+   are added as calls of their own, under the advisor's model. This follows
+   codeburn: advisor tokens are not in the top-level totals.
+8. **Cache writes.** When `cache_creation` has the 5m/1h split, use it. Without
+   the split, count all of `cache_creation_input_tokens` as 5m writes.
+9. **Cost.** Price each call with `price(model, call)` (below), then add it to
+   its bucket.
+
+### Attribution
+
+- **Session:**
+  - for `projects/<dir>/<uuid>.jsonl`, the session is `<uuid>`;
+  - for a file under `projects/<dir>/<uuid>/subagents/`, at any depth, the
+    session is the parent `<uuid>`.
+- **Project:** the first `cwd` found in the session's main file, else in any
+  of its subagent files.
+  - A session that changes directory still counts whole in one project.
+  - codeburn splits per call and folds worktrees into their repo; this
+    design does neither.
+- **Day:** the local midnight of the call's timestamp, in
+  `Store.Now().Location()` (`time.Local` in the app, the fixture clock's
+  zone in tests). A call that crosses midnight counts on the day of its
+  first line.
+
+### Incremental scan
+
+`UsageScan` keeps, per file path:
+- its size, its mtime and its inode;
+- the byte offset after its last complete line;
+- the keys it has seen (for dedupe);
+- its buckets.
+
+On a Rescan, for each file:
+
+| Case | What happens |
+|---|---|
+| Size and mtime unchanged | Its buckets are reused, unread |
+| Same inode and the file grew | Read on from the saved offset, adding to its buckets |
+| Anything else (smaller, other inode) | The file is read again whole |
+| A file gone since the last scan | Its buckets are dropped |
+
+- **A last line still being written:** it has no `\n`, so it is not read yet,
+  and the saved offset stops before it.
+- **The project of a session** is worked out again after each scan, from its
+  files' first `cwd`.
+
+### Prices
+
+New file `store/prices.go`: a table of USD per million tokens, from
+<https://platform.claude.com/docs/en/about-claude/pricing>, checked
+2026-10-27. The constant `PricesAsOf = "2026-10-27"` carries the date.
+
+| Model | Input | 5m write | 1h write | Cache read | Output |
+|---|---|---|---|---|---|
+| `claude-fable-5-1` | 10 | 12.50 | 20 | 0.25 | 50 |
+| `claude-fable-5` | 10 | 12.50 | 20 | 1 | 50 |
+| `claude-opus-5-5` | 4 | 5 | 8 | 0.20 | 20 |
+| `claude-opus-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6`, `claude-opus-4-5` | 5 | 6.25 | 10 | 0.50 | 25 |
+| `claude-sonnet-5-5` | 2 | 2.50 | 4 | 0.10 | 10 |
+| `claude-sonnet-5` | 2 | 2.50 | 4 | 0.20 | 10 |
+| `claude-sonnet-4-6`, `claude-sonnet-4-5` | 3 | 3.75 | 6 | 0.30 | 15 |
+| `claude-haiku-5-5`, prompt ≤ 100,000 tokens | 0.10 | 0.125 | 0.20 | 0.01 | 0.50 |
+| `claude-haiku-5-5`, prompt > 100,000 tokens | 0.50 | 0.625 | 1 | 0.05 | 2.50 |
+| `claude-haiku-4-5` | 1 | 1.25 | 2 | 0.10 | 5 |
+
+Rules for `price(model, call)`:
+- **Model name:** a `-YYYYMMDD` suffix is dropped before the lookup, so
+  `claude-haiku-4-5-20251001` matches `claude-haiku-4-5`.
+- **Haiku 5.5 tier:** the prompt length is input + cache read + cache write
+  of that one call.
+- **Fast mode:** with `speed: "fast"`, every rate doubles. This applies on
+  `claude-opus-5-5`, `claude-opus-5` and `claude-opus-4-8`; their fast
+  prices are 2× standard.
+- **US-only inference:** with `inference_geo: "us"`, every rate is multiplied
+  by 1.1. This applies to Claude 4.6 and later, which covers every model in
+  the table except the 4.5 ones.
+- **Web search:** $10 per 1,000 searches.
+- **Unknown model:** a model not in the table has no price. Its tokens still
+  count, and the call counts in `Unpriced`.
+
+## Screen: Usage
+
+A new sidebar item after History, with its own icon. The header reads the
+figures for the period chosen, for example
+`$1,234.56 est. API cost · 2.1B tokens · 91% from cache`, then:
+- `· N calls unpriced` when some are;
+- `· N unreadable lines` when some are.
+
+"From cache" is cache read ÷ (input + cache read + cache writes).
+
+```
+[Today|7 days|30 days|All]                 Project: lang315/claude-manager ✕
+┌ COST BY DAY ─────────────────────────────────── $1,234.56 over 30 days ┐
+│ ▂▃▅▂▁▇█▄▃▂ …   one ink bar a day, ticks at round dollars                │
+└─────────────────────────────────────────────────────────────────────────┘
+┌ [Projects | Sessions | Models] ─────────────────────────────────────────┐
+│ Project              Sessions    Tokens       Cost   ▬▬▬▬▬▬ share       │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Period
+
+- A `Segmented` with Today · 7 days · 30 days · All. 30 days is the default.
+- The days count the same way as History's: whole local days, today
+  included. History's `rangeOf` is reused.
+
+### Project filter
+
+- A click on a project row filters the whole screen to that project:
+  - the header;
+  - the chart;
+  - the Sessions and Models tabs.
+- A chip `Project: <shortPath> ✕` shows the filter; the ✕ clears it.
+
+### Cost by day
+
+- A face holding a `Painter` chart:
+  - one ink bar per day of the period;
+  - a gap for a day without calls;
+  - ticks at round dollar amounts, labelled like the Overview's dial.
+- Its caption is `COST BY DAY`, with the period's total at the right.
+- With All, if the data spans more than 90 days, there is one bar per week
+  (weeks start on Monday) and the caption reads `COST BY WEEK`.
+
+### Tabs
+
+The breakdown is one face holding `Tabs`. Rows are sorted by cost, highest
+first; unpriced rows sort by tokens after the priced ones.
+- **Projects:**
+  - columns Project (`shortPath`, full path as tooltip), Sessions, Tokens,
+    Cost, and an ink scale bar of the row's share of the period's cost;
+  - a click on a row filters the screen to that project.
+- **Sessions:**
+  - columns Session (title from the Sessions scan, else the id), Project,
+    Last day, Tokens, Cost;
+  - a session with subagents counts them in its row;
+  - an **Open Transcript** button opens the session chosen, through the
+    Sessions screen. It is disabled when the session is not on disk.
+- **Models:**
+  - columns Model, Calls, Input, Output, Cache write, Cache read, Cost;
+  - the model name as recorded, with ` · fast` when fast calls exist.
+
+### Figures and look
+
+- Tokens are short: `820.4M`, `2.1B`, `12.3K`, `950`.
+- Cost is `$1,234.56`. A cost under $0.01 shows `<$0.01`. An unpriced row
+  shows `—`.
+- All figures use tabular numerals (`FontFeatures("tnum")`).
+- The look follows DESIGN.md (Braun Instrument):
+  - bars and scales in ink;
+  - selection in graphite;
+  - no orange, since orange marks only what can be cleaned up.
+
+### While scanning
+
+- The first scan of an app run shows a spinner. The header shows
+  `Reading 812 of 2,326 transcripts`.
+- The tables show once the scan lands; the screen does not stream partial
+  sums.
+- Later Rescans keep the last figures in place until the new ones land.
+
+### Elsewhere
+
+- The Overview's `projects` row stays as it is.
+- Nothing else changes.
+
+## Errors
+
+| Case | Behavior |
+|---|---|
+| Line not JSON | Skipped, counted, shown in the header |
+| File unreadable | Skipped; counted; one toast `N transcripts could not be read` |
+| Last line half-written | Not read yet; the next Rescan reads it |
+| File rewritten or shrunk | Read again whole |
+| File gone (trashed) | Its buckets drop at the next scan |
+| Model not in the price table | Tokens counted; cost `—`; header `N calls unpriced` |
+| `<synthetic>`, negative or missing counts | `<synthetic>` skipped; bad counts are 0 |
+| Call without `message.id`/`requestId` | Counted on each line (no dedupe) |
+| No transcripts | `No usage yet.` |
+| Period with no calls | `No usage in this period.` |
+
+## Testing
+
+TDD. Tests never read the real `~/.claude`.
+
+### Fixture
+
+The fixture gains assistant lines with usage:
+- In `Old`'s transcript:
+  - one call written as 3 lines with the same key, whose last line has the
+    higher output;
+  - a call with a 5m/1h cache split;
+  - a call with `speed: "fast"` and `inference_geo: "us"`;
+  - a `<synthetic>` call;
+  - a call with advisor iterations.
+- In `Old`'s subagent `agent-a1.jsonl`: one `claude-haiku-4-5-20251001` call.
+- In `Recent`'s transcript:
+  - one `claude-haiku-5-5` call over 100,000 prompt tokens;
+  - one call of an unknown model;
+  - one call at 23:59:59.900 whose next line, of the same key, is at
+    00:00:00.100 the next day.
+
+The view tests check figures computed by hand from these lines.
+
+### Store tests
+
+- **Dedupe:** 3 lines count once, with the first line's timestamp and the
+  last line's usage.
+- **Attribution:**
+  - the subagent call folds into `Old`;
+  - the project is `Old`'s cwd;
+  - the day is local midnight.
+- **Cache split:** the 5m/1h split is used; a call without the split counts
+  all writes as 5m.
+- **Skips and extras:**
+  - `<synthetic>` is skipped;
+  - advisor iterations add their own calls;
+  - `bad` counts the broken line.
+- **Prices:**
+  - each rate of the table, applied per token type;
+  - the date suffix is stripped from the model name;
+  - the Haiku 5.5 tier is picked per call;
+  - fast doubles every rate, and US-only inference multiplies by 1.1;
+  - web search is priced;
+  - an unknown model counts as `Unpriced`.
+- **Incremental scan** (`UsageScan`):
+  - **unchanged files:** a second scan opens no file. The test counts opens
+    through an `open` hook the scan uses.
+  - **appended lines:** they are read from the offset, and the totals grow
+    by exactly the new calls.
+  - **a rewritten file** (shorter) is read whole.
+  - **a deleted file** drops its buckets.
+  - **a half-written last line** is read only after its `\n` arrives.
+
+### View tests (Tester)
+
+- **Header:** the totals for 30 days and for All.
+- **Period:** a change updates the chart and tables.
+- **Project filter:** a click filters the screen; the ✕ clears it.
+- **Sessions tab:** Open Transcript opens `Old`'s transcript.
+- **Models tab:** the rows, with `· fast`.
+- **Empty states and progress:**
+  - no transcripts shows `No usage yet.`;
+  - a period with no calls shows `No usage in this period.`;
+  - the progress text shows while the scan is held.
+
+### Screenshots
+
+`usage-{light,dark}.png`, drawn from the fixture.
+
+## Out of scope
+
+| Left out | Why |
+|---|---|
+| Fetching prices from the network (LiteLLM) | Decided: a built-in table, dated |
+| A cache on disk | Decided: in memory only; the app writes nothing |
+| Splitting a session's calls by each call's `cwd`; folding worktrees | One project per session is enough for a first version |
+| Batch, data-residency on other platforms, priority tier | Claude Code transcripts don't record a batch; `inference_geo` is handled |
+| Tools, MCP, git branch, activity classification, quotas, "optimize" | Codeburn features beyond "tokens by session, project, day" |
+| Export (CSV/JSON) | Not asked for |
+| Keeping totals after transcripts are deleted | Codeburn keeps 10 years of daily totals; this app reads what is on disk |
+| Live refresh | Its own roadmap item; Rescan stays |
