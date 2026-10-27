@@ -20,6 +20,9 @@ const (
 
 var datePresets = []string{"Today", "7 days", "30 days", "All", "Custom"}
 
+// periodText names each preset but Custom in a sentence, for Usage's chart.
+var periodText = []string{"today", "over 7 days", "over 30 days", "in all"}
+
 // dateRange is the span the date filter keeps. Off, it keeps every prompt;
 // on, those with a time from lo up to hi, hi excluded, a zero bound leaving
 // its side open. It is part of the filter key, so it stays comparable.

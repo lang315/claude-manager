@@ -59,7 +59,7 @@ func TestUsageFileReadsCalls(t *testing.T) {
 	if _, ok := got["msg-o4/req-o4"]; ok {
 		t.Error("a <synthetic> message counts as a call")
 	}
-	if a := got["msg-o5/req-o5:advisor:0"]; a.model != "claude-opus-5-5" || a.Input != 100000 || a.Output != 50000 {
+	if a := got["msg-o5/req-o5:advisor:1"]; a.model != "claude-opus-5-5" || a.Input != 100000 || a.Output != 50000 {
 		t.Errorf("the advisor call: %+v", a)
 	}
 	if o6 := got["msg-o6/req-o6"]; o6.CacheWrite5m != 400000 || o6.CacheWrite1h != 0 || o6.WebSearches != 100 {
@@ -278,5 +278,15 @@ func TestUsageNoProjects(t *testing.T) {
 	got, bad, unreadable, err := (&Store{Root: t.TempDir(), Now: time.Now}).Usage(&UsageScan{}, nil)
 	if err != nil || len(got) != 0 || bad != 0 || unreadable != 0 {
 		t.Errorf("no projects/: %v %d %d %v", got, bad, unreadable, err)
+	}
+}
+
+// A field of an unexpected type doesn't fail the line, as parseRecord has it:
+// the call counts with the fields that decoded.
+func TestUsageFileOddFieldType(t *testing.T) {
+	line := fixture.UsageLine("/p", "2026-10-26T08:00:00.000Z", "a", "claude-haiku-4-5", `{"input_tokens":7,"output_tokens":"many"}`) + "\n"
+	f := &usageFile{}
+	if _, err := f.read(strings.NewReader(line)); err != nil || f.bad != 0 || len(f.calls) != 1 || f.calls[0].Input != 7 {
+		t.Errorf("bad %d, calls %+v, err %v; want the call with input 7", f.bad, f.calls, err)
 	}
 }

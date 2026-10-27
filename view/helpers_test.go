@@ -10,9 +10,18 @@ import (
 	"github.com/lang315/claude-manager/store"
 )
 
-// newApp shows the app on a fresh fixture. Work runs inline, and its result
-// lands on the next frame, as Window.Update would land it.
+// newApp shows the app on a fresh fixture, scanned. Work runs inline, and
+// its result lands on the next frame, as Window.Update would land it.
 func newApp(t *testing.T) (*App, *ui.Tester, fixture.Dirs, *[]string) {
+	t.Helper()
+	a, tt, d, trashed := unscannedApp(t)
+	a.Rescan()
+	tt.Frame()
+	return a, tt, d, trashed
+}
+
+// unscannedApp shows the app on a fresh fixture before its first Rescan.
+func unscannedApp(t *testing.T) (*App, *ui.Tester, fixture.Dirs, *[]string) {
 	t.Helper()
 	d := fixture.New(t)
 	var trashed []string
@@ -29,8 +38,6 @@ func newApp(t *testing.T) (*App, *ui.Tester, fixture.Dirs, *[]string) {
 	a.Go = func(f func()) { f() }
 	tt := ui.NewTester(a.View, 1200, 800)
 	a.Update = tt.Update
-	a.Rescan()
-	tt.Frame()
 	return a, tt, d, &trashed
 }
 

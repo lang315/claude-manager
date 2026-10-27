@@ -19,7 +19,7 @@ type App struct {
 
 	root   string // Store.Root as shown, with ~ for the home directory
 	page   string
-	busy   int    // loads and moves in flight
+	busy   int    // loads and moves in flight, but Usage's scan, which feeds no Trash target
 	notice string // shown as a toast on the next frame
 
 	overview overview

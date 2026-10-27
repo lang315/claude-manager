@@ -56,8 +56,8 @@ type usageRow struct {
 // usageSum is the screen's figures for one period and project.
 type usageSum struct {
 	total                      store.Usage
-	byDay                      map[string]float64 // cost by local day, "2006-01-02"
-	first, last                time.Time          // the days the chart spans
+	bars                       []float64 // the chart's cost a day, or a week, from first
+	first, last                time.Time // the days the chart spans
 	weekly                     bool
 	projects, sessions, models []usageRow
 	allProjects                float64 // the period's cost in every project: the Share bars' whole
@@ -112,7 +112,8 @@ func (u *usage) refresh(now time.Time) {
 		return
 	}
 	u.key, u.sessAt = k, -1
-	s := usageSum{byDay: map[string]float64{}}
+	var s usageSum
+	byDay := map[string]float64{} // cost by local day, "2006-01-02"
 	projects, sessions, models := map[string]*usageRow{}, map[string]*usageRow{}, map[string]*usageRow{}
 	inProject := map[string]map[string]bool{} // project: its sessions
 	for _, b := range u.buckets {
@@ -130,7 +131,7 @@ func (u *usage) refresh(now time.Time) {
 		}
 		s.total.Add(b)
 		if !b.Day.IsZero() {
-			s.byDay[b.Day.Format(time.DateOnly)] += b.Cost
+			byDay[b.Day.Format(time.DateOnly)] += b.Cost
 			if s.first.IsZero() || b.Day.Before(s.first) {
 				s.first = b.Day
 			}
@@ -152,6 +153,7 @@ func (u *usage) refresh(now time.Time) {
 		s.first = k.dates.lo
 	}
 	s.weekly = !k.dates.on && !s.first.IsZero() && s.last.Sub(s.first) > 90*24*time.Hour
+	s.bars = bars(byDay, s.first, s.last, s.weekly)
 	u.sum = s
 }
 
@@ -237,13 +239,10 @@ func (u *usage) view(c *ui.Context, a *App, pal *palette) {
 	})
 }
 
-var periodText = []string{"today", "over 7 days", "over 30 days", "in all"}
-
 // chart draws the period's cost, a bar a day, or a week when All spans more
 // than 90 days.
 func (u *usage) chart(c *ui.Context, pal *palette) {
 	s := &u.sum
-	vals := bars(s.byDay, s.first, s.last, s.weekly)
 	title := "Cost by day"
 	if s.weekly {
 		title = "Cost by week"
@@ -252,7 +251,7 @@ func (u *usage) chart(c *ui.Context, pal *palette) {
 		head(c, pal, title, money(s.total.Cost)+" "+periodText[u.preset]+" · prices of "+store.PricesAsOf)
 		ui.Column(c).Padding(2, 16, 12, 16).Children(func() {
 			ui.Box(c).Height(110).Label(title).Draw(func(pt *ui.Painter, r ui.Rect) {
-				drawBars(pt, r, pal, vals)
+				drawBars(pt, r, pal, s.bars)
 			})
 		})
 	})

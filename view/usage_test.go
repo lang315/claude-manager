@@ -85,12 +85,10 @@ func TestUsageEmpty(t *testing.T) {
 
 // heldApp shows the app with its work queued, not run.
 func heldApp(t *testing.T) (*App, *ui.Tester, *[]func()) {
-	d := fixture.New(t)
-	a := New(&store.Store{Root: d.Root, ClaudeJSON: d.ClaudeJSON, Now: func() time.Time { return fixture.Now }, Alive: fixture.Alive})
+	t.Helper()
+	a, tt, _, _ := unscannedApp(t)
 	var queued []func()
 	a.Go = func(f func()) { queued = append(queued, f) }
-	tt := ui.NewTester(a.View, 1200, 800)
-	a.Update = tt.Update
 	return a, tt, &queued
 }
 

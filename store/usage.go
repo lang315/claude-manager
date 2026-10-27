@@ -114,7 +114,8 @@ func (f *usageFile) read(r io.Reader) (int64, error) {
 
 func (f *usageFile) line(b []byte) {
 	var x usageLine
-	if json.Unmarshal(b, &x) != nil {
+	// As parseRecord: a field of an unexpected type doesn't fail the line.
+	if err := json.Unmarshal(b, &x); err != nil && !errors.As(err, new(*json.UnmarshalTypeError)) {
 		f.bad++
 		return
 	}
@@ -133,16 +134,14 @@ func (f *usageFile) line(b []byte) {
 	f.add(call{key, t, m.Model, m.Usage.tokens()})
 	// An advisor's tokens are not in the top-level counts: each is a call of
 	// its own, under the advisor's model.
-	n := 0
-	for _, it := range m.Usage.Iterations {
+	for i, it := range m.Usage.Iterations {
 		if it.Type != "advisor_message" {
 			continue
 		}
 		k := ""
 		if key != "" {
-			k = key + ":advisor:" + strconv.Itoa(n)
+			k = key + ":advisor:" + strconv.Itoa(i)
 		}
-		n++
 		tk := it.tokens()
 		tk.Fast = tk.Fast || it.Speed == "" && m.Usage.Speed == "fast"
 		f.add(call{k, t, cmp.Or(it.Model, m.Model), tk})
@@ -395,16 +394,17 @@ func (sc *UsageScan) buckets(loc *time.Location) []Usage {
 			b = &Usage{SessionID: id, Project: project, Day: day, Model: c.model}
 			byKey[k] = b
 		}
-		b.Add(Usage{Calls: 1, Input: c.Input, Output: c.Output, CacheRead: c.CacheRead,
-			CacheWrite5m: c.CacheWrite5m, CacheWrite1h: c.CacheWrite1h, WebSearches: c.WebSearches})
+		x := Usage{Calls: 1, Input: c.Input, Output: c.Output, CacheRead: c.CacheRead,
+			CacheWrite5m: c.CacheWrite5m, CacheWrite1h: c.CacheWrite1h, WebSearches: c.WebSearches}
 		if c.Fast {
-			b.Fast++
+			x.Fast = 1
 		}
 		if cost, ok := price(c.model, c.callTokens); ok {
-			b.Cost += cost
+			x.Cost = cost
 		} else {
-			b.Unpriced++
+			x.Unpriced = 1
 		}
+		b.Add(x)
 	}
 	for id, x := range sessions {
 		project := cmp.Or(x.cwd, x.subCwd)
