@@ -19,6 +19,7 @@ type usage struct {
 	scan        store.UsageScan // touched only by the scanning goroutine
 	buckets     []store.Usage
 	bad         int
+	unreadable  int  // the last scan's unreadable transcripts, so its toast shows once
 	loaded      bool // a scan has landed
 	scanning    bool
 	again       bool // a Rescan came during a scan
@@ -91,13 +92,20 @@ func (u *usage) load(a *App) {
 		buckets, bad, unreadable, err := a.Store.Usage(&u.scan, progress)
 		a.Update(func() {
 			u.scanning, u.loaded = false, true
-			u.buckets, u.bad = buckets, bad
-			u.gen++
+			// A failed scan keeps the last figures; the toast says why.
+			if err == nil {
+				u.buckets, u.bad = buckets, bad
+				u.gen++
+			}
 			switch {
+			case a.notice != "": // a pending notice, like a Trash's, stays
 			case err != nil:
 				a.notice = err.Error()
-			case unreadable > 0:
+			case unreadable > 0 && unreadable != u.unreadable:
 				a.notice = plural(unreadable, "transcript") + " could not be read"
+			}
+			if err == nil {
+				u.unreadable = unreadable
 			}
 			if u.again {
 				u.again = false
@@ -114,7 +122,13 @@ func (u *usage) refresh(now time.Time) {
 	if k == u.key {
 		return
 	}
-	u.key, u.sessAt = k, -1
+	// A scan that lands keeps the chosen session; a new period or project
+	// drops it.
+	keep := ""
+	if k.dates == u.key.dates && k.project == u.key.project && u.sessAt >= 0 && u.sessAt < len(u.sum.sessions) {
+		keep = u.sum.sessions[u.sessAt].name
+	}
+	u.key = k
 	var s usageSum
 	byDay := map[string]stack{} // cost by local day, "2006-01-02"
 	var byHour [24]stack
@@ -169,6 +183,7 @@ func (u *usage) refresh(now time.Time) {
 		s.hourly, s.bars = true, byHour[:]
 	}
 	u.sum = s
+	u.sessAt = slices.IndexFunc(s.sessions, func(r usageRow) bool { return keep != "" && r.name == keep })
 }
 
 func rowOf(m map[string]*usageRow, name string) *usageRow {
@@ -428,12 +443,25 @@ func num(c *ui.Context, s string) ui.Element {
 	return ui.Text(c, s).FontFeatures("tnum").SingleLine()
 }
 
-// costText is a row's cost, "—" when none of its calls has a price.
+// costText is a row's cost: "—" when none of its calls has a price, and a
+// "+" after the amount when only some have.
 func costText(u store.Usage) string {
-	if u.Cost == 0 && u.Unpriced > 0 {
+	switch {
+	case u.Cost == 0 && u.Unpriced > 0:
 		return "—"
+	case u.Unpriced > 0:
+		return money(u.Cost) + "+"
 	}
 	return money(u.Cost)
+}
+
+// costCell is a row's cost in a table cell, saying how many calls it leaves
+// out.
+func costCell(c *ui.Context, u store.Usage) {
+	e := num(c, costText(u))
+	if u.Unpriced > 0 {
+		e.Tooltip(plural(u.Unpriced, "call") + " unpriced")
+	}
 }
 
 func cents(f float64) int64 { return int64(f * 100) }
@@ -452,7 +480,7 @@ func (u *usage) projectTable(c *ui.Context, pal *palette) {
 		case 2:
 			num(c, tokenCount(r.Tokens()))
 		case 3:
-			num(c, costText(r.Usage))
+			costCell(c, r.Usage)
 		case 4:
 			scale(c, pal, cents(r.Cost), 0, cents(u.sum.allProjects)).Grow(1)
 		}
@@ -488,7 +516,7 @@ func (u *usage) sessionTable(c *ui.Context, a *App, pal *palette) {
 		case 3:
 			num(c, tokenCount(r.Tokens()))
 		case 4:
-			num(c, costText(r.Usage))
+			costCell(c, r.Usage)
 		}
 	}).Grow(1).MinHeight(0)
 	ui.Divider(c)
@@ -530,7 +558,7 @@ func (u *usage) modelTable(c *ui.Context) {
 		case 5:
 			num(c, tokenCount(r.CacheRead))
 		case 6:
-			num(c, costText(r.Usage))
+			costCell(c, r.Usage)
 		}
 	}).Grow(1).MinHeight(0)
 }

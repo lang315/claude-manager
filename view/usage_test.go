@@ -246,3 +246,105 @@ func TestUsageShareOfPeriod(t *testing.T) {
 		t.Errorf("alpha's bar is %d px, want about %.0f (half of 140)", full, want)
 	}
 }
+
+// inlineApp runs every load and lands every result at once, so a test can
+// read a.notice before a frame shows it.
+func inlineApp(t *testing.T) (*App, fixture.Dirs) {
+	t.Helper()
+	a, _, d, _ := unscannedApp(t)
+	a.Update = func(f func()) { f() }
+	return a, d
+}
+
+func TestUsageUnreadableToastsOnce(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any file")
+	}
+	a, d := inlineApp(t)
+	recent := filepath.Join(d.Root, fixture.Other, fixture.Recent+".jsonl")
+	must(t, os.Chmod(recent, 0))
+	t.Cleanup(func() { os.Chmod(recent, 0o644) })
+	a.Rescan()
+	if a.notice != "1 transcript could not be read" {
+		t.Fatalf("notice %q, want the unreadable toast", a.notice)
+	}
+	a.notice = ""
+	a.Rescan()
+	if a.notice != "" {
+		t.Errorf("the same count toasts again: %q", a.notice)
+	}
+	// A pending notice, as a Trash leaves, isn't replaced.
+	old := filepath.Join(d.Root, fixture.Proj, fixture.Old+".jsonl")
+	must(t, os.Chmod(old, 0))
+	t.Cleanup(func() { os.Chmod(old, 0o644) })
+	a.notice = "Moved 1 item to the Trash"
+	a.Rescan()
+	if a.notice != "Moved 1 item to the Trash" {
+		t.Errorf("the Trash notice became %q", a.notice)
+	}
+}
+
+func TestUsageRescanKeepsChosenSession(t *testing.T) {
+	a, tt, _, _ := newApp(t)
+	must(t, tt.Click("Usage"))
+	a.usage.tab = 1
+	tt.Frame()
+	must(t, tt.Click("Login bug fix"))
+	a.Rescan()
+	tt.Frame()
+	must(t, tt.Click("Open Transcript"))
+	if a.page != "sessions" || a.sessions.open == nil || a.sessions.open.ID != fixture.Old {
+		t.Fatalf("after a Rescan: page %q, open %v; want Old's transcript", a.page, a.sessions.open)
+	}
+}
+
+func TestCostText(t *testing.T) {
+	for _, c := range []struct {
+		u    store.Usage
+		want string
+	}{
+		{store.Usage{Cost: 12.3}, "$12.30"},
+		{store.Usage{Cost: 12.3, Unpriced: 2}, "$12.30+"},
+		{store.Usage{Unpriced: 1}, "—"},
+	} {
+		if got := costText(c.u); got != c.want {
+			t.Errorf("costText(%+v) = %q, want %q", c.u, got, c.want)
+		}
+	}
+}
+
+func TestUsageScanErrorKeepsFigures(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any folder")
+	}
+	a, d := inlineApp(t)
+	a.Rescan()
+	n := len(a.usage.buckets)
+	if n == 0 {
+		t.Fatal("no buckets after the first scan")
+	}
+	a.notice = ""
+	projects := filepath.Join(d.Root, "projects")
+	must(t, os.Chmod(projects, 0))
+	t.Cleanup(func() { os.Chmod(projects, 0o755) })
+	a.Rescan()
+	if len(a.usage.buckets) != n || a.notice == "" {
+		t.Errorf("after a failed scan: %d buckets (want %d), notice %q", len(a.usage.buckets), n, a.notice)
+	}
+}
+
+// A new period changes the Models tab and the chart, not only the header.
+func TestUsagePeriodChangesTablesAndChart(t *testing.T) {
+	a, tt, _, _ := newApp(t)
+	must(t, tt.Click("Usage"))
+	a.usage.tab = 2
+	tt.Frame()
+	if !tt.HasText("claude-opus-5-5 · fast") || len(a.usage.sum.bars) != 30 {
+		t.Fatalf("30 days: %d bars; texts %q", len(a.usage.sum.bars), tt.Texts())
+	}
+	must(t, tt.Click("Today"))
+	tt.Frame()
+	if tt.HasText("claude-opus-5-5 · fast") || !tt.HasText("claude-haiku-5-5") || len(a.usage.sum.bars) != 24 {
+		t.Errorf("today: %d bars; texts %q", len(a.usage.sum.bars), tt.Texts())
+	}
+}
