@@ -285,7 +285,10 @@ func TestSecretNames(t *testing.T) {
 		}
 	}
 	for _, v := range []string{"x-api-key: abc", "https://x.io/?apiKey=abc", "https://x.io/?privatekey=abc", "--auth-token=abc",
-		"Authorization: Bearer x", "https://x.io/?sig=abc", "https://x.io/?access_token=abc", "--password=x", "Cookie: a=b"} {
+		"Authorization: Bearer x", "https://x.io/?sig=abc", "https://x.io/?access_token=abc", "--password=x", "Cookie: a=b",
+		// A token in a URL inside another's query, and names in the plural.
+		"https://a.com/login?next=https://b.com/cb?token=abc123", "https://a.com/?redirect_uri=https://b/?api_key=abc",
+		"--api-keys=sk_live_abc", "--tokens=abc", "Cookies: a=b", "https://x.io/?passwords=x", "--authentication=abc"} {
 		if got := scalar("1", v); got != mask {
 			t.Errorf("scalar(%q) = %q, want the mask", v, got)
 		}

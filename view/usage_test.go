@@ -348,3 +348,21 @@ func TestUsagePeriodChangesTablesAndChart(t *testing.T) {
 		t.Errorf("today: %d bars; texts %q", len(a.usage.sum.bars), tt.Texts())
 	}
 }
+
+// A warning held back by a pending notice shows on the next scan.
+func TestUsageHeldBackToastShowsLater(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any file")
+	}
+	a, d := inlineApp(t)
+	recent := filepath.Join(d.Root, fixture.Other, fixture.Recent+".jsonl")
+	must(t, os.Chmod(recent, 0))
+	t.Cleanup(func() { os.Chmod(recent, 0o644) })
+	a.notice = "Moved 1 item to the Trash"
+	a.Rescan()
+	a.notice = ""
+	a.Rescan()
+	if a.notice != "1 transcript could not be read" {
+		t.Errorf("notice %q, want the held-back warning", a.notice)
+	}
+}

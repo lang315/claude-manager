@@ -252,7 +252,9 @@ func (s *Store) Usage(scan *UsageScan, progress func(done, total int)) (buckets 
 			if p == root {
 				return err
 			}
-			unreadable++ // an unreadable folder: its transcripts can't be counted
+			if !errors.Is(err, fs.ErrNotExist) { // gone since the listing: not an error
+				unreadable++ // an unreadable folder: its transcripts can't be counted
+			}
 			return nil
 		}
 		if !d.IsDir() && strings.HasSuffix(p, ".jsonl") {

@@ -30,7 +30,8 @@ type Session struct {
 	Err                  string
 }
 
-// Project is a directory of projects/, its sessions newest first.
+// Project is a directory of projects/, its sessions newest first. Folders
+// whose sessions share a cwd are one project: Dir is its newest session's.
 type Project struct {
 	Dir      string // absolute projects/<encoded> dir
 	Path     string // the real path, from a session's cwd; the encoded name without one
@@ -73,16 +74,19 @@ func (sc *SessionScan) head(file string, info fs.FileInfo, x *Session) {
 	sc.mu.Unlock()
 	if !ok || h.size != info.Size() || !h.mtime.Equal(info.ModTime()) {
 		h = sessionHead{size: info.Size(), mtime: info.ModTime()}
-		if err := readHead(file, &h.Session); err != nil {
+		err := readHead(file, &h.Session)
+		sc.mu.Lock()
+		sc.reads++
+		if err == nil { // an error is not kept: the next scan tries again
+			if sc.heads == nil {
+				sc.heads = map[string]sessionHead{}
+			}
+			sc.heads[file] = h
+		}
+		sc.mu.Unlock()
+		if err != nil {
 			h.Err = err.Error()
 		}
-		sc.mu.Lock()
-		if sc.heads == nil {
-			sc.heads = map[string]sessionHead{}
-		}
-		sc.heads[file] = h
-		sc.reads++
-		sc.mu.Unlock()
 	}
 	x.Cwd, x.Branch, x.Version = h.Cwd, h.Branch, h.Version
 	x.Title, x.FirstPrompt, x.Started, x.Err = h.Title, h.FirstPrompt, h.Started, h.Err
@@ -201,6 +205,18 @@ func (s *Store) Projects(scan *SessionScan) ([]Project, error) {
 	}
 	slices.SortFunc(out, func(a, b Project) int { return cmp.Compare(b.Size, a.Size) })
 	return out, nil
+}
+
+// dirs are the folders a project's sessions are in: one, or more when
+// folders that share a cwd were merged.
+func (p Project) dirs() []string {
+	out := []string{p.Dir}
+	for _, x := range p.Sessions {
+		if !slices.Contains(out, x.Dir) {
+			out = append(out, x.Dir)
+		}
+	}
+	return out
 }
 
 func (s *Store) session(file string, live map[string]bool, scan *SessionScan) Session {

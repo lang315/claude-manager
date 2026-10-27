@@ -299,3 +299,23 @@ func TestTrashPathsSkipsRecentPath(t *testing.T) {
 		t.Errorf("moved %d, err %v, trashed %q; want nothing", moved, err, *trashed)
 	}
 }
+
+// A project merged from two folders is cleaned in both: the orphan in the
+// older folder is still found.
+func TestCleanupMergedProjectFolders(t *testing.T) {
+	s, d, _ := newStore(t)
+	movedSession(t, d)
+	ps, _ := s.Projects(nil)
+	want := filepath.Join(d.Root, fixture.Proj, fixture.OrphanDir)
+	for _, g := range s.Cleanup(ps, 30) {
+		if g.Name != "session data without a session" {
+			continue
+		}
+		for _, it := range g.Items {
+			if it.Path == want {
+				return
+			}
+		}
+		t.Errorf("orphan %s not found in %+v", want, g.Items)
+	}
+}

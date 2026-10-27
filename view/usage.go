@@ -97,14 +97,15 @@ func (u *usage) load(a *App) {
 				u.buckets, u.bad = buckets, bad
 				u.gen++
 			}
+			pending := a.notice != ""
 			switch {
-			case a.notice != "": // a pending notice, like a Trash's, stays
+			case pending: // a pending notice, like a Trash's, stays; the warning waits
 			case err != nil:
 				a.notice = err.Error()
 			case unreadable > 0 && unreadable != u.unreadable:
 				a.notice = plural(unreadable, "transcript") + " could not be read"
 			}
-			if err == nil {
+			if err == nil && !pending {
 				u.unreadable = unreadable
 			}
 			if u.again {

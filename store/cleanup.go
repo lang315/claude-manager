@@ -64,9 +64,11 @@ func (s *Store) Cleanup(projects []Project, days int) []Group {
 	ids := map[string]bool{}
 	for _, p := range projects {
 		// The list may be older than the disk: a session whose .jsonl exists is never an orphan.
-		for _, f := range listFiles(p.Dir, ".jsonl") {
-			if id := strings.TrimSuffix(filepath.Base(f), ".jsonl"); uuidRe.MatchString(id) {
-				ids[id] = true
+		for _, dir := range p.dirs() {
+			for _, f := range listFiles(dir, ".jsonl") {
+				if id := strings.TrimSuffix(filepath.Base(f), ".jsonl"); uuidRe.MatchString(id) {
+					ids[id] = true
+				}
 			}
 		}
 		for _, x := range p.Sessions {
@@ -100,10 +102,12 @@ func (s *Store) Cleanup(projects []Project, days int) []Group {
 	orphans := Group{Name: "session data without a session"}
 	old := Group{Name: fmt.Sprintf("sessions older than %d days", days)}
 	for _, p := range projects {
-		des, _ := os.ReadDir(p.Dir)
-		for _, d := range des {
-			if d.IsDir() && uuidRe.MatchString(d.Name()) && !ids[d.Name()] {
-				orphans.add(item(filepath.Join(p.Dir, d.Name())), skip)
+		for _, dir := range p.dirs() {
+			des, _ := os.ReadDir(dir)
+			for _, d := range des {
+				if d.IsDir() && uuidRe.MatchString(d.Name()) && !ids[d.Name()] {
+					orphans.add(item(filepath.Join(dir, d.Name())), skip)
+				}
 			}
 		}
 		for _, x := range p.Sessions {

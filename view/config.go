@@ -262,7 +262,7 @@ var secretValue = regexp.MustCompile(`(?i)bearer\s+\S+|basic\s+\S+|\bsk-[\w-]{8,
 // a --flag=, a "Name: value" header. Each is searched on its own, as one can
 // sit inside another (--header=X-API-Key: v).
 var secretNamed = []*regexp.Regexp{
-	regexp.MustCompile(`[?&]([^=&\s]+)=[^&\s]+`),
+	regexp.MustCompile(`[?&]([^=&?\s]+)=[^&?\s]+`), // a value stops at ?, so a URL in it is searched too
 	regexp.MustCompile(`--?([\w-]+)=\S+`),
 	regexp.MustCompile(`(?:^|[=\s])([\w-]+)\s*:\s*\S`),
 }
@@ -292,7 +292,7 @@ var camelBoundary = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 var secretSegments = map[string]bool{
 	"key": true, "token": true, "secret": true, "secrets": true, "pass": true, "passwd": true, "password": true,
 	"passphrase": true, "passcode": true, "auth": true, "authorization": true, "cookie": true, "sig": true,
-	"signature": true, "credential": true, "credentials": true, "bearer": true,
+	"signature": true, "credential": true, "credentials": true, "bearer": true, "authentication": true,
 }
 
 // secretName reports whether a parameter, flag or header name names a
@@ -302,16 +302,19 @@ var secretSegments = map[string]bool{
 // don't count, while x-api-key, privatekey and access_token do.
 func secretName(name string) bool {
 	name = strings.ToLower(camelBoundary.ReplaceAllString(name, "${1}_${2}"))
-	for _, seg := range strings.FieldsFunc(name, func(r rune) bool { return r == '-' || r == '_' || r == '.' }) {
-		if secretSegments[seg] {
-			return true
-		}
-		if seg == "hotkey" {
-			continue
-		}
-		for _, end := range []string{"key", "token", "secret", "password", "cookie"} {
-			if strings.HasSuffix(seg, end) {
+	for _, word := range strings.FieldsFunc(name, func(r rune) bool { return r == '-' || r == '_' || r == '.' }) {
+		// A plural names the same thing: keys, tokens, cookies.
+		for _, seg := range []string{word, strings.TrimSuffix(word, "s")} {
+			if secretSegments[seg] {
 				return true
+			}
+			if seg == "hotkey" {
+				continue
+			}
+			for _, end := range []string{"key", "token", "secret", "password", "cookie"} {
+				if strings.HasSuffix(seg, end) {
+					return true
+				}
 			}
 		}
 	}

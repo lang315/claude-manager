@@ -167,20 +167,7 @@ func TestProjectsMergeSameCwd(t *testing.T) {
 			count = len(p.Sessions)
 		}
 	}
-	dir := filepath.Join(d.Root, "projects", "-Users-me-proj-v2")
-	id := "99999999-9999-4999-8999-999999999999"
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	line := `{"type":"user","cwd":"/Users/me/proj","timestamp":"2026-10-26T11:00:00.000Z","message":{"role":"user","content":"Moved folder"}}` + "\n"
-	file := filepath.Join(dir, id+".jsonl")
-	if err := os.WriteFile(file, []byte(line), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// The newest session of all, on the fixture's clock.
-	if err := os.Chtimes(file, fixture.Now, fixture.Now); err != nil {
-		t.Fatal(err)
-	}
+	dir, id := movedSession(t, d)
 	ps, _ := s.Projects(nil)
 	var hits []Project
 	for _, p := range ps {
@@ -240,4 +227,50 @@ func TestProjectsScanFromTwoLoads(t *testing.T) {
 		wg.Go(func() { s.Projects(&scan) })
 	}
 	wg.Wait()
+}
+
+// movedSession writes the newest session of all, on the fixture's clock, in
+// a second folder for /Users/me/proj, and returns that folder and its id.
+func movedSession(t *testing.T, d fixture.Dirs) (dir, id string) {
+	t.Helper()
+	dir = filepath.Join(d.Root, "projects", "-Users-me-proj-v2")
+	id = "99999999-9999-4999-8999-999999999999"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"type":"user","cwd":"/Users/me/proj","timestamp":"2026-10-26T11:00:00.000Z","message":{"role":"user","content":"Moved folder"}}` + "\n"
+	file := filepath.Join(dir, id+".jsonl")
+	if err := os.WriteFile(file, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(file, fixture.Now, fixture.Now); err != nil {
+		t.Fatal(err)
+	}
+	return dir, id
+}
+
+// A head that couldn't be read is read again on the next scan, once the
+// file can be: the error isn't kept.
+func TestProjectsRetriesFailedHead(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any file")
+	}
+	s, d, _ := newStore(t)
+	recent := filepath.Join(d.Root, fixture.Other, fixture.Recent+".jsonl")
+	if err := os.Chmod(recent, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(recent, 0o644) })
+	var scan SessionScan
+	ps, _ := s.Projects(&scan)
+	if x := session(t, ps, fixture.Recent); x.Err == "" {
+		t.Fatal("an unreadable session has no error")
+	}
+	if err := os.Chmod(recent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ps, _ = s.Projects(&scan)
+	if x := session(t, ps, fixture.Recent); x.Err != "" || x.FirstPrompt != "Recent thing" {
+		t.Errorf("after the file can be read: err %q, first prompt %q", x.Err, x.FirstPrompt)
+	}
 }
