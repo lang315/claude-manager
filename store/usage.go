@@ -5,8 +5,16 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 )
 
@@ -172,4 +180,247 @@ func merge(a, b call) call {
 		keep.time = b.time
 	}
 	return keep
+}
+
+// Usage is one bucket: a session's calls to one model on one local day.
+type Usage struct {
+	SessionID string    // the parent session; its subagents' calls fold into it
+	Project   string    // the session's cwd
+	Day       time.Time // local midnight; zero for calls without a time
+	Model     string    // as recorded, date suffix and all
+	Calls     int
+	Fast      int // calls in fast mode
+
+	Input, Output, CacheRead, CacheWrite5m, CacheWrite1h int64
+
+	WebSearches int64
+	Cost        float64 // USD at API list prices, estimated; unpriced calls add nothing
+	Unpriced    int     // calls whose model has no price
+}
+
+// Add sums b's counts into u.
+func (u *Usage) Add(b Usage) {
+	u.Calls += b.Calls
+	u.Fast += b.Fast
+	u.Input += b.Input
+	u.Output += b.Output
+	u.CacheRead += b.CacheRead
+	u.CacheWrite5m += b.CacheWrite5m
+	u.CacheWrite1h += b.CacheWrite1h
+	u.WebSearches += b.WebSearches
+	u.Cost += b.Cost
+	u.Unpriced += b.Unpriced
+}
+
+// Tokens are all of u's tokens: input, output, cache reads and writes.
+func (u Usage) Tokens() int64 {
+	return u.Input + u.Output + u.CacheRead + u.CacheWrite5m + u.CacheWrite1h
+}
+
+// UsageScan keeps what earlier scans read, so a Rescan reads only what is new
+// or changed. Its zero value is ready; use it from one goroutine at a time.
+type UsageScan struct {
+	files map[string]*scannedFile
+	open  func(name string) (*os.File, error) // os.Open; tests count the opens
+}
+
+// scannedFile is a transcript as the last scan left it.
+type scannedFile struct {
+	usageFile
+	session string // the parent session's id
+	main    bool   // the session's own transcript, not a subagent's
+	size    int64
+	mtime   time.Time
+	ino     uint64
+	off     int64 // the end of the last whole line read
+}
+
+// Usage scans the transcripts under projects/ and returns the buckets of all
+// their calls, with the usage lines that weren't JSON and the transcripts
+// that couldn't be read. progress, when set, hears how many files are done
+// of how many, on the scanning goroutine.
+func (s *Store) Usage(scan *UsageScan, progress func(done, total int)) (buckets []Usage, bad, unreadable int, err error) {
+	root := filepath.Join(s.Root, "projects")
+	var paths []string
+	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if p == root {
+				return err
+			}
+			return nil // an unreadable folder: its transcripts aren't counted
+		}
+		if !d.IsDir() && strings.HasSuffix(p, ".jsonl") {
+			if _, _, ok := sessionOf(root, p); ok {
+				paths = append(paths, p)
+			}
+		}
+		return nil
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, 0, 0, nil
+	}
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	if scan.files == nil {
+		scan.files = map[string]*scannedFile{}
+	}
+	open := scan.open
+	if open == nil {
+		open = os.Open
+	}
+	seen := make(map[string]bool, len(paths))
+	for i, p := range paths {
+		switch err := scan.refresh(root, p, open); {
+		case err == nil:
+			seen[p] = true
+		case !errors.Is(err, fs.ErrNotExist): // gone since the listing: not an error
+			unreadable++
+		}
+		if progress != nil {
+			progress(i+1, len(paths))
+		}
+	}
+	for p := range scan.files {
+		if !seen[p] {
+			delete(scan.files, p)
+		}
+	}
+	for _, f := range scan.files {
+		bad += f.bad
+	}
+	return scan.buckets(s.Now().Location()), bad, unreadable, nil
+}
+
+// sessionOf returns the session a transcript under root belongs to:
+// <dir>/<id>.jsonl is session id's own, and a file anywhere under
+// <dir>/<id>/subagents/ is one of its subagents'.
+func sessionOf(root, path string) (id string, main, ok bool) {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", false, false
+	}
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	switch {
+	case len(parts) == 2:
+		id = strings.TrimSuffix(parts[1], ".jsonl")
+		return id, true, uuidRe.MatchString(id)
+	case len(parts) >= 4 && parts[2] == "subagents":
+		return parts[1], false, uuidRe.MatchString(parts[1])
+	}
+	return "", false, false
+}
+
+// refresh brings path's calls up to date. Unchanged, it isn't read; grown on
+// the same inode, it is read on from where the last scan stopped; anything
+// else, it is read whole.
+func (sc *UsageScan) refresh(root, path string, open func(string) (*os.File, error)) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	var ino uint64
+	if st, ok := info.Sys().(*syscall.Stat_t); ok {
+		ino = st.Ino
+	}
+	f := sc.files[path]
+	if f != nil && f.size == info.Size() && f.mtime.Equal(info.ModTime()) {
+		return nil
+	}
+	if f == nil || f.ino != ino || info.Size() <= f.size {
+		id, main, _ := sessionOf(root, path)
+		f = &scannedFile{session: id, main: main, ino: ino}
+	}
+	fh, err := open(path)
+	if err != nil {
+		return err
+	}
+	defer fh.Close()
+	if _, err := fh.Seek(f.off, io.SeekStart); err != nil {
+		return err
+	}
+	n, err := f.read(fh)
+	if err != nil {
+		return err
+	}
+	f.off += n
+	f.size, f.mtime = info.Size(), info.ModTime()
+	sc.files[path] = f
+	return nil
+}
+
+// buckets merges each session's calls across its files, by key as merge
+// does, and sums them by local day and model, each call priced on its own.
+func (sc *UsageScan) buckets(loc *time.Location) []Usage {
+	type session struct {
+		cwd, subCwd string
+		keyed       map[string]call
+		loose       []call
+	}
+	sessions := map[string]*session{}
+	for _, p := range slices.Sorted(maps.Keys(sc.files)) {
+		f := sc.files[p]
+		x := sessions[f.session]
+		if x == nil {
+			x = &session{keyed: map[string]call{}}
+			sessions[f.session] = x
+		}
+		if f.main {
+			x.cwd = cmp.Or(x.cwd, f.cwd)
+		} else {
+			x.subCwd = cmp.Or(x.subCwd, f.cwd)
+		}
+		for _, c := range f.calls {
+			if c.key == "" {
+				x.loose = append(x.loose, c)
+				continue
+			}
+			if old, ok := x.keyed[c.key]; ok {
+				c = merge(old, c)
+			}
+			x.keyed[c.key] = c
+		}
+	}
+	type bucketKey struct{ session, day, model string }
+	byKey := map[bucketKey]*Usage{}
+	add := func(id, project string, c call) {
+		var day time.Time
+		if !c.time.IsZero() {
+			t := c.time.In(loc)
+			day = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
+		}
+		k := bucketKey{id, day.Format(time.DateOnly), c.model}
+		b := byKey[k]
+		if b == nil {
+			b = &Usage{SessionID: id, Project: project, Day: day, Model: c.model}
+			byKey[k] = b
+		}
+		b.Add(Usage{Calls: 1, Input: c.Input, Output: c.Output, CacheRead: c.CacheRead,
+			CacheWrite5m: c.CacheWrite5m, CacheWrite1h: c.CacheWrite1h, WebSearches: c.WebSearches})
+		if c.Fast {
+			b.Fast++
+		}
+		if cost, ok := price(c.model, c.callTokens); ok {
+			b.Cost += cost
+		} else {
+			b.Unpriced++
+		}
+	}
+	for id, x := range sessions {
+		project := cmp.Or(x.cwd, x.subCwd)
+		for _, c := range x.keyed {
+			add(id, project, c)
+		}
+		for _, c := range x.loose {
+			add(id, project, c)
+		}
+	}
+	out := make([]Usage, 0, len(byKey))
+	for _, b := range byKey {
+		out = append(out, *b)
+	}
+	slices.SortFunc(out, func(a, b Usage) int {
+		return cmp.Or(a.Day.Compare(b.Day), cmp.Compare(a.SessionID, b.SessionID), cmp.Compare(a.Model, b.Model))
+	})
+	return out
 }
