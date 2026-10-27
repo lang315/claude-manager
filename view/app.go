@@ -26,6 +26,7 @@ type App struct {
 	sessions sessions
 	history  history
 	usage    usage
+	heads    store.SessionScan // session heads, kept across Rescans
 	config   configPage
 	cleanup  cleanup
 }

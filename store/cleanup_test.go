@@ -41,7 +41,7 @@ func session(t *testing.T, projects []Project, id string) Session {
 
 func TestSessionPaths(t *testing.T) {
 	s, d, _ := newStore(t)
-	projects, _ := s.Projects()
+	projects, _ := s.Projects(nil)
 	got := s.SessionPaths(session(t, projects, fixture.Old))
 	want := []string{
 		filepath.Join(d.Root, fixture.Proj, fixture.Old+".jsonl"),
@@ -59,7 +59,7 @@ func TestSessionPaths(t *testing.T) {
 
 func TestCleanupGroups(t *testing.T) {
 	s, d, _ := newStore(t)
-	projects, _ := s.Projects()
+	projects, _ := s.Projects(nil)
 	groups := s.Cleanup(projects, 30)
 	want := map[string][]string{
 		"session-env":                    {"session-env/" + fixture.Old, "session-env/" + fixture.OrphanEnv},
@@ -209,7 +209,7 @@ func TestCleanupSkipsRecentSessionData(t *testing.T) {
 		"file-history/"+fixture.Recent+"/v1",
 		"debug/"+fixture.Recent+".txt",
 		"debug/"+fixture.Live+".txt")
-	projects, _ := s.Projects()
+	projects, _ := s.Projects(nil)
 	for _, g := range s.Cleanup(projects, 30) {
 		for _, it := range g.Items {
 			if b := filepath.Base(it.Path); strings.Contains(b, fixture.Recent) || strings.Contains(b, fixture.Live) {
@@ -245,7 +245,7 @@ func TestTrashPathsOverlapMissingAndLive(t *testing.T) {
 // is no orphan, whatever the list says.
 func TestCleanupStaleProjectsNoFalseOrphans(t *testing.T) {
 	s, d, _ := newStore(t)
-	stale, _ := s.Projects()
+	stale, _ := s.Projects(nil)
 	// A session that starts and ends after the scan, an hour before Now.
 	id := "77777777-7777-4777-8777-777777777777"
 	hour := fixture.Now.Add(-time.Hour)
@@ -274,7 +274,7 @@ func TestCleanupStaleProjectsNoFalseOrphans(t *testing.T) {
 // since, none of its paths moves.
 func TestTrashPathsSkipsSessionWrittenSinceTheList(t *testing.T) {
 	s, d, trashed := newStore(t)
-	projects, _ := s.Projects()
+	projects, _ := s.Projects(nil)
 	paths := s.SessionPaths(session(t, projects, fixture.Old))
 	soon := fixture.Now.Add(-time.Minute)
 	if err := os.Chtimes(filepath.Join(d.Root, fixture.Proj, fixture.Old+".jsonl"), soon, soon); err != nil {

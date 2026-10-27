@@ -107,7 +107,7 @@ func (s *sessions) load(a *App) {
 	s.loadGen++
 	loadGen := s.loadGen
 	a.run(func() func() {
-		projects, err := a.Store.Projects()
+		projects, err := a.Store.Projects(&a.heads)
 		groups := a.Store.Cleanup(projects, days)
 		return func() {
 			if loadGen == s.loadGen {
