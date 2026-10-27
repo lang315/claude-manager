@@ -122,7 +122,25 @@ that reloads it and checks that the user's place survives:
 | Config | the tab and the open file in Skills, Commands and Memory; ticked backups that still exist |
 | Cleanup | ticked items that still exist |
 
-If a screen does not keep one of these today, this PR fixes it.
+Checked on 2026-10-27, with a throwaway test per row that reloads through
+Rescan. Six of the eight items already survive. Two are lost today, on a
+manual Rescan too, and this PR fixes them:
+
+- **Sessions: ticked sessions.** `sessions.set` resets `shown`, so the next
+  frame calls `table.Checked.Clear()` and `Chosen.Clear()`.
+  - **Fix:** when the project shown is the same one, keep the ticks and
+    drop only those of sessions that are gone.
+  - The ticks and choice still clear when the user picks another project.
+- **Config: ticked backups.** `configPage.load` calls
+  `backups.Checked.Clear()`, so that a trashed file's tick doesn't linger.
+  - **Fix:** drop only the ticks of backups no longer listed.
+    `TestBackupsChecksClearOnReload` must stay green.
+
+The chosen Sessions project is keyed by `Project.Dir`. A merged project's
+`Dir` moves when a new session lands in its other folder (PR #7, a deferred
+minor), and that drops the choice once. Live refresh makes this more likely,
+so the Sessions project table keys by `Project.Path` instead. `Path` is
+unique after the merge.
 
 ## Errors
 
