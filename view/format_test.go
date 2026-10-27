@@ -32,3 +32,21 @@ func TestTilde(t *testing.T) {
 		}
 	}
 }
+
+func TestUsageFormats(t *testing.T) {
+	for in, want := range map[int64]string{0: "0", 999: "999", 1000: "1,000", 15086: "15,086", 1234567: "1,234,567"} {
+		if got := commas(in); got != want {
+			t.Errorf("commas(%d) = %q, want %q", in, got, want)
+		}
+	}
+	for in, want := range map[float64]string{0: "$0.00", 0.004: "<$0.01", 0.058: "$0.06", 15.488: "$15.49", 1234.5: "$1,234.50"} {
+		if got := money(in); got != want {
+			t.Errorf("money(%v) = %q, want %q", in, got, want)
+		}
+	}
+	for in, want := range map[int64]string{950: "950", 12345: "12.3K", 3124400: "3.1M", 820_400_000: "820.4M", 2_100_000_000: "2.1B"} {
+		if got := tokenCount(in); got != want {
+			t.Errorf("tokenCount(%d) = %q, want %q", in, got, want)
+		}
+	}
+}

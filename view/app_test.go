@@ -10,7 +10,7 @@ import (
 func TestSidebarChoosesPage(t *testing.T) {
 	a := New(&store.Store{Root: t.TempDir()})
 	tt := ui.NewTester(a.View, 1200, 800)
-	for _, label := range []string{"Overview", "Sessions", "History", "Config", "Cleanup"} {
+	for _, label := range []string{"Overview", "Sessions", "History", "Usage", "Config", "Cleanup"} {
 		if !tt.HasText(label) {
 			t.Errorf("sidebar lacks %q", label)
 		}

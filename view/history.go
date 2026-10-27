@@ -33,7 +33,7 @@ type dateRange struct {
 // included; Custom spans from's day to to's, both whole. A Custom field that
 // is not a date turns the filter off, so the table doesn't empty.
 func rangeOf(preset int, now time.Time, from, to string) dateRange {
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	today := midnight(now)
 	switch preset {
 	case presetToday:
 		return dateRange{on: true, lo: today}
@@ -53,6 +53,11 @@ func rangeOf(preset int, now time.Time, from, to string) dateRange {
 		return dateRange{on: true, lo: lo, hi: hi}
 	}
 	return dateRange{}
+}
+
+// midnight is the start of t's day, in t's location.
+func midnight(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 }
 
 // parseDay reads a Custom field: a YYYY-MM-DD date, its midnight in loc. An

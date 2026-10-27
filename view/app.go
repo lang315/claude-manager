@@ -25,6 +25,7 @@ type App struct {
 	overview overview
 	sessions sessions
 	history  history
+	usage    usage
 	config   configPage
 	cleanup  cleanup
 }
@@ -33,6 +34,7 @@ func New(s *store.Store) *App {
 	a := &App{Store: s, Go: func(f func()) { go f() }, page: "overview", root: tilde(s.Root)}
 	a.sessions.init()
 	a.history.init()
+	a.usage.init()
 	a.config.init()
 	a.cleanup.days = 30
 	return a
@@ -43,6 +45,7 @@ func (a *App) Rescan() {
 	a.overview.load(a)
 	a.sessions.load(a)
 	a.history.load(a)
+	a.usage.load(a)
 	a.config.load(a)
 	// Each screen adds its load here.
 }
@@ -63,6 +66,7 @@ func (a *App) View(c *ui.Context) {
 				}
 			})
 			ui.SidebarItem(c, "history", iconHistory, "History")
+			ui.SidebarItem(c, "usage", iconUsage, "Usage")
 			ui.SidebarItem(c, "config", iconConfig, "Config")
 			ui.SidebarItem(c, "cleanup", iconCleanup, "Cleanup")
 		}).Width(200).Background(pal.ground)
@@ -76,6 +80,8 @@ func (a *App) View(c *ui.Context) {
 				a.sessions.view(c, a, pal)
 			case "history":
 				a.history.view(c, a, pal)
+			case "usage":
+				a.usage.view(c, a, pal)
 			case "config":
 				a.config.view(c, a, pal)
 			case "cleanup":
@@ -110,6 +116,8 @@ func (a *App) header(c *ui.Context, pal *palette, live int) {
 		if h.bad > 0 {
 			sub += " · " + plural(h.bad, "unreadable line")
 		}
+	case "usage":
+		title, sub = "Usage", a.usage.subtitle(a.Store.Now())
 	case "config":
 		title, sub = "Config", "Read-only. Credentials are masked."
 	case "cleanup":
