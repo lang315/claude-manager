@@ -14,7 +14,7 @@ Each item gets its own design before it is built.
 - [x] Full-text search of `history.jsonl` (every prompt typed), filtered by project and date.
 - [ ] Full-text search across session transcripts.
 - [x] Token and cost statistics per session, project and day (from `message.usage`).
-- [ ] Watch `~/.claude` for changes and refresh live instead of manual Rescan.
+- [x] Watch `~/.claude` for changes and refresh live instead of manual Rescan.
 - [ ] Export a session to Markdown.
 
 ## v3 — editing configuration
