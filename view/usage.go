@@ -359,7 +359,7 @@ func (u *usage) projectTable(c *ui.Context, pal *palette) {
 		case 3:
 			num(c, costText(r.Usage))
 		case 4:
-			scale(c, pal, cents(r.Cost), 0, cents(rows[0].Cost))
+			scale(c, pal, cents(r.Cost), 0, cents(rows[0].Cost)).Grow(1)
 		}
 	}).Grow(1).MinHeight(0)
 	// A click on a project filters the screen to it.
