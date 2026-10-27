@@ -373,6 +373,51 @@ The view tests check figures computed by hand from these lines.
 
 `usage-{light,dark}.png`, drawn from the fixture.
 
+## How the data was checked
+
+These checks ran on the user's machine on 2026-10-27. They only read
+`~/.claude`; nothing in it was written.
+
+- **Field census.** A Python sample of 359 transcripts (983k lines)
+  counted record types, usage fields and models.
+- **Go spike.** A throwaway program, kept out of the repo, read all 2,327
+  transcripts the way this design does: a byte filter on `"usage"` and
+  `"assistant"`, then `encoding/json` into a small struct. It measured:
+  - the scan time;
+  - every `(message.id, requestId)` pair seen in two files, and whether
+    the two files share a parent session;
+  - every pair whose copies differ, within a file or across two, with the
+    fields that differ.
+- **Results:**
+  - **Speed.** 5.5–6.6 s, single goroutine.
+  - **Cross-file pairs.** 45, all subagent files of one session.
+  - **Partials.** 29,310 within single subagent files, and 11 of the
+    cross-file pairs. In every case the later copy had the larger output.
+  - **Main transcripts.** No differing copies.
+- **Prices.** Read from
+  <https://platform.claude.com/docs/en/about-claude/pricing> on 2026-10-27,
+  and cross-checked with the Claude API reference that ships with Claude
+  Code:
+  - the per-model table;
+  - the cache multipliers: 1.25× for a 5m write, 2× for a 1h write, and
+    0.1× for a read (0.05× on Opus 5.5 and Sonnet 5.5, 0.025× on Fable 5.1);
+  - fast mode;
+  - Haiku 5.5's 100K-token tier;
+  - the `inference_geo` multiplier (1.1×);
+  - web search ($10 per 1,000).
+
+## Risks and assumptions
+
+| Risk or assumption | Effect if wrong | How it is contained |
+|---|---|---|
+| The copy with the largest `output_tokens` is the final usage. Observed in every case, never the reverse | If Claude Code ever writes a larger partial first, that call is overcounted | A test pins the rule; the data checks above can be rerun |
+| No pair spans two sessions | A call copied into another session would count twice | Dedupe is per session. A global set would cost little; switch if this is ever seen |
+| The first scan takes about 6 s. A fully cold scan was not measured (it needs `sudo purge`) | A cold first open could be slower, a few times 6 s on a slow disk | The scan runs off the main thread and shows progress. Later Rescans read only what changed |
+| Prices are those of 2026-10-27 | Costs drift as prices change; a new model shows as unpriced | `PricesAsOf` is shown with the cost. Unpriced calls are counted in the header. The table is one file to update |
+| The cost is the API list price of the same use | Someone on a Claude subscription pays a flat fee, not this sum | The header says "est. API cost" |
+| Memory | The spike peaked at 260 MB because it kept every raw usage string. The design keeps about 100k small call records, roughly 10–20 MB | Calls hold numbers only, no raw JSON |
+| Advisor tokens are not in the top-level usage (codeburn's finding) | Without them, advisor use is undercounted | `usage.iterations` entries of type `advisor_message` are added, with a test |
+
 ## Out of scope
 
 | Left out | Why |
