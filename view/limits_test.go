@@ -1,6 +1,7 @@
 package view
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -327,4 +328,29 @@ func TestLimitsAddAccountDoesNotBlock(t *testing.T) {
 	}
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("Submit Code") })
 	l.a.limits.stopSignIn()
+}
+
+func TestLimitsShowsPitboardAccounts(t *testing.T) {
+	l := limitsApp(t)
+	l.book.Pitboard = func() ([]account.Account, error) {
+		return []account.Account{{AccountUUID: "carol", OrgUUID: "org", Email: "carol@example.com", Plan: "Max 5x", Source: "Pitboard",
+			ReadAt: fixture.Now.Add(-4 * time.Minute), Limits: []account.Limit{{Kind: "session", Percent: 5}}}}, nil
+	}
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("carol@example.com") })
+	for _, s := range []string{"Max 5x", "5%", "Read 4 min ago by Pitboard"} {
+		if !l.tt.HasText(s) {
+			t.Errorf("no %q in %q", s, l.tt.Texts())
+		}
+	}
+	if l.tt.HasText("⋯") {
+		t.Error("a Pitboard account offers the app's own actions")
+	}
+}
+
+func TestLimitsNotesUnreadablePitboard(t *testing.T) {
+	l := limitsApp(t)
+	l.book.Pitboard = func() ([]account.Account, error) { return nil, errors.New("Pitboard's files could not be read.") }
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Pitboard's files could not be read.") })
 }

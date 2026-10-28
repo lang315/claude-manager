@@ -112,6 +112,9 @@ func (l *limits) view(c *ui.Context, a *App, pal *palette) {
 				for _, b := range l.blocks {
 					l.block(c, a, pal, b, now)
 				}
+				if n := a.Accounts.Note(); n != "" {
+					ui.Text(c, n).FontSize(12).TextColor(pal.muted)
+				}
 			})
 		})
 	}
@@ -151,6 +154,9 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 		}
 		if len(b.Limits) > 0 && b.Err != "" {
 			ui.Text(c, b.Err+" Showing numbers from "+clock(b.ReadAt, now)+".").TextColor(pal.muted).Wrap()
+		}
+		if b.Source != "" && !b.ReadAt.IsZero() {
+			ui.Text(c, "Read "+ago(b.ReadAt, now)+" by "+b.Source).FontSize(12).TextColor(pal.muted)
 		}
 		if b.Added && !b.GoodUntil.IsZero() {
 			ui.Text(c, goodUntil(b.GoodUntil, now)).FontSize(12).TextColor(pal.muted)
