@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -60,7 +61,7 @@ type Book struct {
 	nobody *Account             // stands in for it when the login in use can't be read
 	who    map[[32]byte]Profile // an access token's SHA-256: whose it is
 	others []Account            // Pitboard's accounts, as last read
-	note   string               // why Pitboard's files could not be read
+	note   atomic.Value         // string: why Pitboard's files could not be read; read without the lock
 }
 
 type saved struct {
@@ -118,7 +119,6 @@ func (b *Book) Blocks() ([]Account, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	err := b.load()
-	b.readPitboard()
 	return b.blocks(), err
 }
 
@@ -128,21 +128,25 @@ func (b *Book) readPitboard() {
 		return
 	}
 	others, err := b.Pitboard()
-	b.others, b.note = others, ""
+	note := ""
 	if err != nil {
-		b.note = err.Error()
+		note = err.Error()
 	}
+	b.others = others
+	b.note.Store(note)
 }
 
 // Note says why Pitboard's files could not be read at the last load, or
 // "".
 func (b *Book) Note() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.note
+	n, _ := b.note.Load().(string)
+	return n
 }
 
+// blocks reads Pitboard's accounts again, then merges them into the
+// accounts as last read.
 func (b *Book) blocks() []Account {
+	b.readPitboard()
 	var out []Account
 	switch {
 	case b.inUse != nil:

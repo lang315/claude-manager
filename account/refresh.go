@@ -78,7 +78,6 @@ func (b *Book) Refresh(ctx context.Context, force bool) ([]Account, error) {
 		}()
 	}
 	wg.Wait()
-	b.readPitboard()
 	return b.blocks(), b.save()
 }
 

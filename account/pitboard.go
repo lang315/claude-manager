@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
-	"math"
 	"os"
 	"path/filepath"
 	"time"
@@ -61,23 +60,22 @@ func ReadPitboard(dir string) ([]Account, error) {
 		for _, raw := range u.Windows {
 			var w struct {
 				Kind     string   `json:"kind"`
-				Scope    *string  `json:"scope"`
+				Scope    string   `json:"scope"` // null for an unscoped limit
 				Percent  *float64 `json:"percent"`
 				ResetsAt int64    `json:"resets_at"`
 			}
-			if json.Unmarshal(raw, &w) != nil || w.Kind == "" || !valid(w.Percent) {
+			if json.Unmarshal(raw, &w) != nil {
 				continue
 			}
-			l := Limit{Kind: w.Kind, Percent: math.Min(*w.Percent, 100)}
-			if w.Scope != nil {
-				l.Scope = *w.Scope
-			}
+			var resets time.Time
 			if w.ResetsAt > 0 {
-				l.ResetsAt = time.Unix(w.ResetsAt, 0)
+				resets = time.Unix(w.ResetsAt, 0)
 			}
-			a.Limits = append(a.Limits, l)
+			if l, ok := limitOf(w.Kind, w.Scope, w.Percent, resets); ok {
+				a.Limits = append(a.Limits, l)
+			}
 		}
-		if len(a.Limits) > 0 && u.ObservedAt > 0 {
+		if u.ObservedAt > 0 {
 			a.ReadAt = time.Unix(u.ObservedAt, 0)
 		}
 		out = append(out, a)

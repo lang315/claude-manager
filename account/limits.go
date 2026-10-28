@@ -69,26 +69,31 @@ func ParseUsage(body []byte) ([]Limit, error) {
 	var out []Limit
 	for _, raw := range u.Limits {
 		var r row
-		if json.Unmarshal(raw, &r) != nil || r.Kind == "" || !valid(r.Percent) {
+		if json.Unmarshal(raw, &r) != nil {
 			continue
 		}
-		l := Limit{Kind: r.Kind, Percent: math.Min(*r.Percent, 100), ResetsAt: when(r.ResetsAt)}
+		scope := ""
 		if s := r.Scope; s != nil {
 			if s.Model != nil && s.Model.DisplayName != "" {
-				l.Scope = s.Model.DisplayName
+				scope = s.Model.DisplayName
 			} else if s.Surface != nil {
-				l.Scope = s.Surface.DisplayName
+				scope = s.Surface.DisplayName
 			}
 		}
-		out = append(out, l)
+		if l, ok := limitOf(r.Kind, scope, r.Percent, when(r.ResetsAt)); ok {
+			out = append(out, l)
+		}
 	}
 	if len(out) == 0 {
 		for _, w := range []struct {
 			kind string
 			w    *window
 		}{{"five_hour", u.FiveHour}, {"seven_day", u.SevenDay}} {
-			if w.w != nil && valid(w.w.Utilization) {
-				out = append(out, Limit{Kind: w.kind, Percent: math.Min(*w.w.Utilization, 100), ResetsAt: when(w.w.ResetsAt)})
+			if w.w == nil {
+				continue
+			}
+			if l, ok := limitOf(w.kind, "", w.w.Utilization, when(w.w.ResetsAt)); ok {
+				out = append(out, l)
 			}
 		}
 	}
@@ -96,6 +101,15 @@ func ParseUsage(body []byte) ([]Limit, error) {
 		return nil, errNoLimits
 	}
 	return out, nil
+}
+
+// limitOf makes a limit of a row: none without a kind or a share it can
+// read. A share over 100 shows as 100.
+func limitOf(kind, scope string, pct *float64, resets time.Time) (Limit, bool) {
+	if kind == "" || !valid(pct) {
+		return Limit{}, false
+	}
+	return Limit{Kind: kind, Scope: scope, Percent: math.Min(*pct, 100), ResetsAt: resets}, true
 }
 
 func valid(p *float64) bool { return p != nil && *p >= 0 && !math.IsInf(*p, 0) }
