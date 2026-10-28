@@ -31,6 +31,7 @@ type Account struct {
 	WaitUntil   time.Time `json:"waitUntil,omitzero"` // Anthropic asked to wait until then
 	InUse       bool      `json:"-"`                  // Claude Code is signed in to it
 	Added       bool      `json:"-"`                  // the app holds a login of its own for it
+	Source      string    `json:"-"`                  // "Pitboard" when Limits are Pitboard's reading
 }
 
 // Key names the account by Anthropic's account and organisation.
@@ -49,6 +50,8 @@ type Book struct {
 	// minutes when zero.
 	Claude        func() (string, error)
 	SignInTimeout time.Duration
+	// Pitboard reads the accounts Pitboard follows; nil reads none.
+	Pitboard func() ([]Account, error)
 
 	mu     sync.Mutex
 	loaded bool
@@ -56,6 +59,8 @@ type Book struct {
 	inUse  *Account             // the account in use, when it is not an added one
 	nobody *Account             // stands in for it when the login in use can't be read
 	who    map[[32]byte]Profile // an access token's SHA-256: whose it is
+	others []Account            // Pitboard's accounts, as last read
+	note   string               // why Pitboard's files could not be read
 }
 
 type saved struct {
@@ -113,7 +118,28 @@ func (b *Book) Blocks() ([]Account, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	err := b.load()
+	b.readPitboard()
 	return b.blocks(), err
+}
+
+// readPitboard reads Pitboard's accounts again, a cheap read of two files.
+func (b *Book) readPitboard() {
+	if b.Pitboard == nil {
+		return
+	}
+	others, err := b.Pitboard()
+	b.others, b.note = others, ""
+	if err != nil {
+		b.note = err.Error()
+	}
+}
+
+// Note says why Pitboard's files could not be read at the last load, or
+// "".
+func (b *Book) Note() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.note
 }
 
 func (b *Book) blocks() []Account {
@@ -129,6 +155,17 @@ func (b *Book) blocks() []Account {
 	for _, a := range b.added {
 		a.Added = true
 		out = append(out, a)
+	}
+	// Pitboard's reading of an account shows where it is newer than ours;
+	// an account only Pitboard follows gets a block of its own.
+	for _, p := range b.others {
+		i := slices.IndexFunc(out, func(a Account) bool { return a.Key() == p.Key() })
+		switch {
+		case i < 0:
+			out = append(out, p)
+		case len(p.Limits) > 0 && p.ReadAt.After(out[i].ReadAt):
+			out[i].Limits, out[i].ReadAt, out[i].Source = p.Limits, p.ReadAt, p.Source
+		}
 	}
 	for i := range out {
 		out[i].Limits = slices.Clone(out[i].Limits)

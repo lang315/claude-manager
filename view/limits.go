@@ -19,6 +19,7 @@ type limits struct {
 	again   bool      // a load was asked during one
 	force   bool      // and it was forced
 	updated time.Time // when the last refresh landed
+	note    string    // why Pitboard's files could not be read
 
 	// The Add Account dialog, while a sign-in runs.
 	adding bool
@@ -56,7 +57,7 @@ func (l *limits) load(a *App, force bool) {
 		blocks, err := a.Accounts.Refresh(context.Background(), force)
 		a.Update(func() {
 			l.loading, l.loaded = false, true
-			l.blocks, l.updated = blocks, a.Store.Now()
+			l.blocks, l.updated, l.note = blocks, a.Store.Now(), a.Accounts.Note()
 			l.toast(a, err)
 			if l.again {
 				f := l.force
@@ -112,6 +113,9 @@ func (l *limits) view(c *ui.Context, a *App, pal *palette) {
 				for _, b := range l.blocks {
 					l.block(c, a, pal, b, now)
 				}
+				if l.note != "" {
+					ui.Text(c, l.note).FontSize(12).TextColor(pal.muted)
+				}
 			})
 		})
 	}
@@ -151,6 +155,9 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 		}
 		if len(b.Limits) > 0 && b.Err != "" {
 			ui.Text(c, b.Err+" Showing numbers from "+clock(b.ReadAt, now)+".").TextColor(pal.muted).Wrap()
+		}
+		if b.Source == "Pitboard" && !b.ReadAt.IsZero() {
+			ui.Text(c, "Read "+ago(b.ReadAt, now)+" by Pitboard").FontSize(12).TextColor(pal.muted)
 		}
 		if b.Added && !b.GoodUntil.IsZero() {
 			ui.Text(c, goodUntil(b.GoodUntil, now)).FontSize(12).TextColor(pal.muted)
