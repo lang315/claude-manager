@@ -54,6 +54,9 @@ type Book struct {
 	SignInTimeout time.Duration
 	// Pitboard reads the accounts Pitboard follows; nil reads none.
 	Pitboard func() ([]Account, error)
+	// PitboardCLI finds Pitboard's command, which switches accounts.
+	PitboardCLI   func() (string, error)
+	SwitchTimeout time.Duration // how long a switch may take; 0 means 60 s
 
 	mu     sync.Mutex
 	loaded bool

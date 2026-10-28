@@ -241,19 +241,26 @@ func (b *Book) cleanLeftovers() {
 // FindClaude finds the claude binary as a login shell would, else where its
 // installers put it.
 func FindClaude() (string, error) {
+	home, _ := os.UserHomeDir()
+	return findTool("claude", "Claude Code not found.",
+		filepath.Join(home, ".local", "bin", "claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude")
+}
+
+// findTool finds name as a login shell would, else at the first of places
+// that is a file.
+func findTool(name, notFound string, places ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if out, err := exec.CommandContext(ctx, "/bin/zsh", "-lc", "command -v claude").Output(); err == nil {
+	if out, err := exec.CommandContext(ctx, "/bin/zsh", "-lc", "command -v "+name).Output(); err == nil {
 		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 		if p := strings.TrimSpace(lines[len(lines)-1]); filepath.IsAbs(p) {
 			return p, nil
 		}
 	}
-	home, _ := os.UserHomeDir()
-	for _, p := range []string{filepath.Join(home, ".local", "bin", "claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude"} {
+	for _, p := range places {
 		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
 			return p, nil
 		}
 	}
-	return "", errors.New("Claude Code not found.")
+	return "", errors.New(notFound)
 }
