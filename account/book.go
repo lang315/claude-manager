@@ -65,12 +65,14 @@ type saved struct {
 
 func (b *Book) path() string { return filepath.Join(b.Dir, "accounts.json") }
 
-// load reads accounts.json once.
+// load reads accounts.json once, after removing what an unfinished
+// sign-in left.
 func (b *Book) load() error {
 	if b.loaded {
 		return nil
 	}
 	b.loaded = true
+	b.cleanLeftovers()
 	data, err := os.ReadFile(b.path())
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
