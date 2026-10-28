@@ -449,3 +449,17 @@ func TestSwitchedText(t *testing.T) {
 		}
 	}
 }
+
+func TestLimitsSavedShowBeforePitboardIsFound(t *testing.T) {
+	l := limitsApp(t)
+	seedBob(t, l, "bob")
+	l.book.PitboardCLI = func() (string, error) { time.Sleep(2 * time.Second); return "", account.ErrNoPitboard }
+	l.book.Live = func() (account.Login, error) { time.Sleep(3 * time.Second); return *l.live, nil }
+	l.a.Go = func(f func()) { go f() }
+	start := time.Now()
+	must(t, l.tt.Click("Limits"))
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("saved figures took %v: they wait for the pitboard lookup", d)
+	}
+}

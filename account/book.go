@@ -58,6 +58,9 @@ type Book struct {
 	PitboardCLI   func() (string, error)
 	SwitchTimeout time.Duration // how long a switch may take; 0 means 60 s
 
+	cliMu sync.Mutex
+	cli   string // Pitboard's command, once found
+
 	mu     sync.Mutex
 	loaded bool
 	added  []Account

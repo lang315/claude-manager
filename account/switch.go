@@ -47,11 +47,21 @@ func (b *Book) CanSwitch() bool {
 	return err == nil
 }
 
+// pitboard is Pitboard's command, looked for until it is found once.
 func (b *Book) pitboard() (string, error) {
+	b.cliMu.Lock()
+	defer b.cliMu.Unlock()
+	if b.cli != "" {
+		return b.cli, nil
+	}
 	if b.PitboardCLI == nil {
 		return "", ErrNoPitboard
 	}
-	return b.PitboardCLI()
+	p, err := b.PitboardCLI()
+	if err == nil {
+		b.cli = p
+	}
+	return p, err
 }
 
 // Switch puts Claude Code on the account Pitboard parks under label, by

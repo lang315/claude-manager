@@ -124,3 +124,22 @@ func TestCanSwitch(t *testing.T) {
 		t.Error(ErrNoPitboard)
 	}
 }
+
+func TestPitboardFoundOnce(t *testing.T) {
+	calls := 0
+	b := &Book{PitboardCLI: func() (string, error) { calls++; return "/bin/true", nil }}
+	b.CanSwitch()
+	b.CanSwitch()
+	if calls != 1 {
+		t.Fatalf("looked for pitboard %d times, want once: a login shell each time", calls)
+	}
+}
+
+func TestFindToolDoesNotWaitOnAChildsPipe(t *testing.T) {
+	start := time.Now()
+	// The shell exits at once, but a child it leaves keeps stdout open.
+	findTool("nonexistent-tool; sleep 30 &", "not found")
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("took %v: a leftover child held the lookup", d)
+	}
+}

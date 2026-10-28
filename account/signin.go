@@ -251,7 +251,9 @@ func FindClaude() (string, error) {
 func findTool(name, notFound string, places ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if out, err := exec.CommandContext(ctx, "/bin/zsh", "-lc", "command -v "+name).Output(); err == nil {
+	cmd := exec.CommandContext(ctx, "/bin/zsh", "-lc", "command -v "+name)
+	cmd.WaitDelay = time.Second // a child the profile leaves may hold stdout open
+	if out, err := cmd.Output(); err == nil {
 		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 		if p := strings.TrimSpace(lines[len(lines)-1]); filepath.IsAbs(p) {
 			return p, nil

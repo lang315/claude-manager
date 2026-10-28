@@ -53,14 +53,14 @@ func (l *limits) load(a *App, force bool) {
 	l.loading = true
 	a.Go(func() {
 		saved, err := a.Accounts.Blocks()
-		can := a.Accounts.CanSwitch()
 		a.Update(func() {
 			if !l.loaded {
 				l.blocks = saved
 			}
-			l.canSwitch = can
 			l.toast(a, err)
 		})
+		can := a.Accounts.CanSwitch() // may run a login shell: after the saved figures show
+		a.Update(func() { l.canSwitch = can })
 		blocks, err := a.Accounts.Refresh(context.Background(), force)
 		a.Update(func() {
 			l.loading, l.loaded = false, true
