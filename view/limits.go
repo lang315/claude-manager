@@ -19,6 +19,18 @@ type limits struct {
 	again   bool      // a load was asked during one
 	force   bool      // and it was forced
 	updated time.Time // when the last refresh landed
+
+	// The Add Account dialog, while a sign-in runs.
+	adding bool
+	signIn *account.SignIn
+	gen    int // counts sign-ins, so an old one's late events are ignored
+	link   string
+	asks   bool // claude waits for a code
+	code   string
+	failed string // why the sign-in failed
+
+	asking   bool // the Remove confirmation is open
+	removing account.Account
 }
 
 // load shows the book's saved readings, then refreshes them from
@@ -102,6 +114,7 @@ func (l *limits) view(c *ui.Context, a *App, pal *palette) {
 			})
 		})
 	}
+	l.dialogs(c, a, pal)
 }
 
 // block is one account: its name, then a meter per limit, or why there are
@@ -121,10 +134,14 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 				ui.Text(c, "In use").FontSize(11).Bold().TextColor(pal.muted)
 			}
 			ui.Spacer(c)
+			l.menu(c, a, b)
 		})
 		switch {
 		case len(b.Limits) == 0 && b.Err != "":
 			ui.Text(c, b.Err).TextColor(pal.muted).Wrap()
+			if b.Added && b.Err == account.ErrInvalidGrant.Error() && ui.Button(c, "Sign In Again").Clicked() {
+				l.startAdd(a)
+			}
 		case len(b.Limits) == 0:
 			ui.Text(c, "No figures yet.").TextColor(pal.muted)
 		}
@@ -220,5 +237,138 @@ func goodUntil(t, now time.Time) string {
 	return "Sign-in good until " + t.In(now.Location()).Format("Jan 2")
 }
 
-// startAdd opens the Add Account dialog. Task 9 builds it.
-func (l *limits) startAdd(a *App) {}
+// startAdd opens the Add Account dialog and starts a sign-in.
+func (l *limits) startAdd(a *App) {
+	l.stopSignIn()
+	l.adding, l.link, l.asks, l.code, l.failed = true, "", false, "", ""
+	gen := l.gen
+	s, err := a.Accounts.SignIn(context.Background(), func(ev account.Event) {
+		a.Update(func() {
+			if gen == l.gen {
+				l.event(a, ev)
+			}
+		})
+	})
+	if err != nil {
+		l.failed = err.Error()
+		return
+	}
+	l.signIn = s
+}
+
+// event takes what the sign-in reports.
+func (l *limits) event(a *App, ev account.Event) {
+	switch {
+	case ev.Link != "":
+		l.link = ev.Link
+	case ev.AsksCode:
+		l.asks = true
+	case ev.Done:
+		l.signIn = nil
+		if ev.Err != nil {
+			l.failed = ev.Err.Error()
+			return
+		}
+		l.adding = false
+		l.load(a, true)
+	}
+}
+
+// stopSignIn cancels the sign-in under way, if any. What it still reports
+// is ignored.
+func (l *limits) stopSignIn() {
+	l.gen++
+	if l.signIn != nil {
+		l.signIn.Cancel()
+		l.signIn = nil
+	}
+}
+
+// dialogs are the Add Account dialog and the Remove confirmation.
+func (l *limits) dialogs(c *ui.Context, a *App, pal *palette) {
+	was := l.adding
+	ui.Modal(c, &l.adding, func() {
+		ui.Column(c).Gap(12).Padding(20).Width(440).Children(func() {
+			ui.Text(c, "Add Account").FontSize(17).Bold()
+			if l.failed != "" {
+				ui.Text(c, l.failed).Wrap()
+				ui.Row(c).Gap(8).Children(func() {
+					ui.Spacer(c)
+					if ui.Button(c, "Cancel").Clicked() {
+						l.adding = false
+					}
+					if ui.PrimaryButton(c, "Try Again").Clicked() {
+						l.startAdd(a)
+					}
+				})
+				return
+			}
+			ui.Text(c, "Sign in, in the browser that opens, as the account to add.").Wrap()
+			if l.link == "" {
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Spinner(c).Label("Starting the sign-in")
+					ui.Text(c, "Starting Claude Code's sign-in…").TextColor(pal.muted)
+				})
+			} else {
+				ui.Row(c).Gap(8).Children(func() {
+					if ui.Button(c, "Copy Link").Clicked() {
+						a.CopyText(l.link)
+					}
+					if ui.Button(c, "Open Browser").Clicked() {
+						if err := a.OpenURL(l.link); err != nil {
+							l.failed = err.Error()
+						}
+					}
+				})
+			}
+			if l.asks {
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.TextInput(c, &l.code).Placeholder("Code").Grow(1)
+					submit := ui.Button(c, "Submit Code").Disabled(strings.TrimSpace(l.code) == "").Clicked()
+					if submit && l.signIn != nil {
+						if err := l.signIn.Code(l.code); err != nil {
+							l.failed = err.Error()
+						}
+					}
+				})
+			}
+			ui.Row(c).Children(func() {
+				ui.Spacer(c)
+				if ui.Button(c, "Cancel").Clicked() {
+					l.adding = false
+				}
+			})
+		})
+	})
+	if was && !l.adding { // Cancel, Escape, or a click outside
+		l.stopSignIn()
+	}
+	title := "Remove " + l.removing.Email + "?"
+	msg := "Its saved sign-in is deleted from this Mac. It is not revoked: it stays valid at Anthropic until it expires."
+	if ui.AlertDialog(c, &l.asking, title, msg, "Cancel", "Remove") == 1 {
+		key := l.removing.Key()
+		a.Go(func() {
+			err := a.Accounts.Remove(key)
+			blocks, _ := a.Accounts.Blocks()
+			a.Update(func() {
+				l.toast(a, err)
+				l.blocks = blocks
+			})
+		})
+	}
+}
+
+// menu holds an added account's actions.
+func (l *limits) menu(c *ui.Context, a *App, b account.Account) {
+	if !b.Added {
+		return
+	}
+	ui.MenuButton(c, "⋯", func(m *ui.Menu) {
+		if m.Item("Sign In Again").Chosen() {
+			l.startAdd(a)
+		}
+		if m.Item("Remove…").Destructive(true).Chosen() {
+			l.removing, l.asking = b, true
+		}
+	}).Tooltip("Actions for " + b.Email)
+}

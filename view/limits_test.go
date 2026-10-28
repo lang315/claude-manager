@@ -5,6 +5,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -185,5 +188,126 @@ func TestLimitsTimes(t *testing.T) {
 		if c.got != c.want {
 			t.Errorf("got %q, want %q", c.got, c.want)
 		}
+	}
+}
+
+// seedBob lists bob as an added account, as a sign-in would have, with his
+// login under token tok.
+func seedBob(t *testing.T, l *lim, tok string) {
+	t.Helper()
+	login := account.Login{AccessToken: tok, RefreshToken: "bob-rt", ExpiresAt: fixture.Now.Add(time.Hour).UnixMilli()}
+	must(t, l.vault.Put(account.ParkService, "bob/org", login.Marshal()))
+	must(t, os.WriteFile(filepath.Join(l.book.Dir, "accounts.json"),
+		[]byte(`{"accounts":[{"accountUuid":"bob","orgUuid":"org","email":"bob@example.com","goodUntil":"2026-11-15T12:00:00Z"}]}`), 0o600))
+}
+
+// claudeAt stands in for claude auth login: it prints a link, asks for a
+// code and, on "good", leaves bob's login in its config folder.
+func claudeAt(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	login := filepath.Join(dir, "login.json")
+	must(t, os.WriteFile(login, account.Login{AccessToken: "bob", RefreshToken: "bob-rt", ExpiresAt: fixture.Now.Add(time.Hour).UnixMilli()}.Marshal(), 0o600))
+	bin := filepath.Join(dir, "claude")
+	must(t, os.WriteFile(bin, []byte(`#!/bin/sh
+echo "Visit: https://claude.ai/oauth/authorize?state=abc"
+printf 'Paste code here if prompted > '
+read code
+[ "$code" = "good" ] || { echo "Invalid code" >&2; exit 1; }
+cp '`+login+`' "$CLAUDE_CONFIG_DIR/.credentials.json"
+`), 0o755))
+	return bin
+}
+
+func TestLimitsRemove(t *testing.T) {
+	l := limitsApp(t)
+	seedBob(t, l, "bob")
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
+	if !l.tt.HasText("Sign-in good until Nov 15") {
+		t.Errorf("no sign-in date in %q", l.tt.Texts())
+	}
+	must(t, l.tt.Click("⋯"))
+	must(t, l.tt.ChooseMenuItem("Remove…"))
+	l.tt.Frame()
+	must(t, l.tt.Click("Remove"))
+	waitFor(t, l.tt, func() bool { return !l.tt.HasText("bob@example.com") })
+	if l.vault.Len() != 0 {
+		t.Fatal("bob's login stays in the keychain")
+	}
+}
+
+func TestLimitsOffersSignInAgain(t *testing.T) {
+	l := limitsApp(t)
+	seedBob(t, l, "expired")
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Sign-in expired.") })
+	if !l.tt.HasText("Sign In Again") {
+		t.Fatalf("texts %q", l.tt.Texts())
+	}
+}
+
+func TestLimitsAddAccount(t *testing.T) {
+	l := limitsApp(t)
+	bin := claudeAt(t)
+	l.book.Claude = func() (string, error) { return bin, nil }
+	l.open(t)
+	must(t, l.tt.Click("Add Account…"))
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Submit Code") })
+	must(t, l.tt.Click("Copy Link"))
+	must(t, l.tt.Click("Open Browser"))
+	want := []string{"https://claude.ai/oauth/authorize?state=abc"}
+	if !slices.Equal(*l.copied, want) || !slices.Equal(*l.opened, want) {
+		t.Fatalf("copied %v, opened %v", *l.copied, *l.opened)
+	}
+	l.tt.Update(func() { l.a.limits.code = "good" })
+	l.tt.Frame()
+	must(t, l.tt.Click("Submit Code"))
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") && !l.tt.HasText("Submit Code") })
+}
+
+func TestLimitsAddAccountFails(t *testing.T) {
+	l := limitsApp(t)
+	bin := claudeAt(t)
+	l.book.Claude = func() (string, error) { return bin, nil }
+	l.open(t)
+	must(t, l.tt.Click("Add Account…"))
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Submit Code") })
+	l.tt.Update(func() { l.a.limits.code = "bad" })
+	l.tt.Frame()
+	must(t, l.tt.Click("Submit Code"))
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Invalid code") && l.tt.HasText("Try Again") })
+}
+
+func TestLimitsCancelAddAccount(t *testing.T) {
+	l := limitsApp(t)
+	bin := claudeAt(t)
+	l.book.Claude = func() (string, error) { return bin, nil }
+	l.open(t)
+	must(t, l.tt.Click("Add Account…"))
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Submit Code") })
+	must(t, l.tt.Click("Cancel"))
+	waitFor(t, l.tt, func() bool {
+		left, _ := filepath.Glob(filepath.Join(l.book.Dir, "signin-*"))
+		return !l.tt.HasText("Submit Code") && len(left) == 0
+	})
+}
+
+func TestLimitsIgnoresAnOldSignIn(t *testing.T) {
+	l := limitsApp(t)
+	bin := claudeAt(t)
+	l.book.Claude = func() (string, error) { return bin, nil }
+	l.open(t)
+	must(t, l.tt.Click("Add Account…"))
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Submit Code") })
+	defer l.a.limits.stopSignIn()
+	l.tt.Update(func() { l.a.limits.startAdd(l.a) }) // Try Again: the first is canceled
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Submit Code") })
+	for range 30 { // the first one's end comes late; it must change nothing
+		l.tt.Frame()
+		time.Sleep(10 * time.Millisecond)
+	}
+	if l.a.limits.failed != "" || !l.a.limits.adding || l.a.limits.signIn == nil {
+		t.Fatalf("the old sign-in's end reached the new dialog: failed %q, adding %v", l.a.limits.failed, l.a.limits.adding)
 	}
 }
