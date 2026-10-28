@@ -93,4 +93,23 @@ func TestLimitsScreenshot(t *testing.T) {
 		}
 		f.Close()
 	}
+	// A switch under way, with carol parked by Pitboard.
+	l := limitsApp(t)
+	carolOnPitboard(t, l, "sleep 5\n"+pitboardOK)
+	tt := ui.NewTester(l.a.View, 1100, 720)
+	l.a.Update, l.tt = tt.Update, tt
+	l.open(t)
+	waitFor(t, tt, func() bool { return tt.HasText("carol@example.com") })
+	l.a.Go = func(f func()) { go f() }
+	must(t, tt.Click("⋯"))
+	must(t, tt.ChooseMenuItem("Switch to This Account"))
+	waitFor(t, tt, func() bool { return tt.HasText("Switching…") })
+	f, err := os.Create(filepath.Join(dir, "limits-switching.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, tt.Image()); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
 }
