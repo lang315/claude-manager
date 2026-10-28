@@ -172,6 +172,14 @@ A grey instrument with two signal colours, each bound to one meaning.
   - In light, Sonnet's pink sits under 3:1 against the face. The legend names every family, and the Models tab gives the same figures as a table.
   - The hues keep clear of orange and green, so the One Meaning Rule holds.
 
+### Limit Meters
+- **Limit meter** (Limits page): MyGo's level indicator, 0 to 100.
+  - Below 80% it is selection graphite.
+  - From 80% it takes MyGo's Warning amber, and from 95% its Danger red.
+  - Amber and red mean "near a limit", and appear nowhere else.
+  - The percentage is always printed beside the meter, with "Limit reached" at 100%, so colour is never the only signal.
+  - Green stays the lamp's.
+
 ### Named Rules
 **The One Meaning Rule.** Orange means "can be cleaned, or cleans". Green means "running". Neither colour appears for any other reason, including selection, focus, links or decoration. The model hues mean "this model family", only in the Usage chart.
 
@@ -270,6 +278,18 @@ The reader is padded 16 by 24. It shows the title (Heading), then the meta line:
 
 ### Backups Table
 MyGo's native data table, with the File column filling the width. Its footer matches Cleanup's: a muted "Selected", the bold tabular "N files · size", and the orange "Move to Trash…" at the right.
+
+### Account Block
+A face per account on the Limits page, padded 14 by 16.
+- **Header:** the email in bold, the plan in muted (with the organisation for a team plan), a small bold muted "In use" on the account Claude Code is signed in to, and, for an added account, a "⋯" menu with Sign In Again and Remove….
+- **Rows:** one per limit:
+  - the name (150);
+  - the meter, filling the width;
+  - the percentage, tabular (44);
+  - the muted reset time (150).
+- **Footer:**
+  - An added account ends with its sign-in date, muted, at 12px.
+  - A block with no figures says why, in muted text.
 
 ## Do's and Don'ts
 
