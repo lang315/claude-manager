@@ -159,10 +159,10 @@ func (a *App) header(c *ui.Context, pal *palette, live int) {
 			ui.Text(c, "Scanning…").TextColor(pal.muted)
 		}
 		if a.page == "limits" {
-			if ui.Button(c, "Add Account…").Disabled(a.Accounts == nil).Clicked() {
+			if ui.Button(c, "Add Account…").Disabled(a.Accounts == nil || a.limits.switching != "").Clicked() {
 				a.limits.startAdd(a)
 			}
-			if ui.Button(c, "Refresh").Disabled(a.Accounts == nil || a.limits.loading).Clicked() {
+			if ui.Button(c, "Refresh").Disabled(a.Accounts == nil || a.limits.loading || a.limits.switching != "").Clicked() {
 				a.limits.load(a, true)
 			}
 		} else if ui.Button(c, "Rescan").Disabled(a.busy > 0).Clicked() {

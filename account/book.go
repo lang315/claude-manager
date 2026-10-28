@@ -20,19 +20,20 @@ const ParkService = "claude-manager-park"
 // Account is an account the Limits page shows, with its last reading. It
 // holds no secret: the book saves it as is.
 type Account struct {
-	AccountUUID string    `json:"accountUuid,omitempty"`
-	OrgUUID     string    `json:"orgUuid,omitempty"`
-	Email       string    `json:"email,omitempty"`
-	OrgName     string    `json:"orgName,omitempty"`
-	Plan        string    `json:"plan,omitempty"`     // the login's subscriptionType: pro, max, team…
-	GoodUntil   time.Time `json:"goodUntil,omitzero"` // when an added account's sign-in lapses
-	Limits      []Limit   `json:"limits,omitempty"`   // as last read
-	ReadAt      time.Time `json:"readAt,omitzero"`    // when Limits were read
-	Err         string    `json:"err,omitempty"`      // why the last ask failed; "" once one works
-	WaitUntil   time.Time `json:"waitUntil,omitzero"` // Anthropic asked to wait until then
-	InUse       bool      `json:"-"`                  // Claude Code is signed in to it
-	Added       bool      `json:"-"`                  // the app holds a login of its own for it
-	Source      string    `json:"-"`                  // "Pitboard" when Limits are Pitboard's reading
+	AccountUUID   string    `json:"accountUuid,omitempty"`
+	OrgUUID       string    `json:"orgUuid,omitempty"`
+	Email         string    `json:"email,omitempty"`
+	OrgName       string    `json:"orgName,omitempty"`
+	Plan          string    `json:"plan,omitempty"`     // the login's subscriptionType: pro, max, team…
+	GoodUntil     time.Time `json:"goodUntil,omitzero"` // when an added account's sign-in lapses
+	Limits        []Limit   `json:"limits,omitempty"`   // as last read
+	ReadAt        time.Time `json:"readAt,omitzero"`    // when Limits were read
+	Err           string    `json:"err,omitempty"`      // why the last ask failed; "" once one works
+	WaitUntil     time.Time `json:"waitUntil,omitzero"` // Anthropic asked to wait until then
+	InUse         bool      `json:"-"`                  // Claude Code is signed in to it
+	Added         bool      `json:"-"`                  // the app holds a login of its own for it
+	Source        string    `json:"-"`                  // "Pitboard" when Limits are Pitboard's reading
+	PitboardLabel string    `json:"-"`                  // Pitboard's label, when it holds a parked login for the account
 }
 
 // Key names the account by Anthropic's account and organisation.
@@ -53,6 +54,12 @@ type Book struct {
 	SignInTimeout time.Duration
 	// Pitboard reads the accounts Pitboard follows; nil reads none.
 	Pitboard func() ([]Account, error)
+	// PitboardCLI finds Pitboard's command, which switches accounts.
+	PitboardCLI   func() (string, error)
+	SwitchTimeout time.Duration // how long a switch may take; 0 means 60 s
+
+	cliMu sync.Mutex
+	cli   string // Pitboard's command, once found
 
 	mu     sync.Mutex
 	loaded bool
@@ -164,10 +171,12 @@ func (b *Book) blocks() []Account {
 	// an account only Pitboard follows gets a block of its own.
 	for _, p := range b.others {
 		i := slices.IndexFunc(out, func(a Account) bool { return a.Key() == p.Key() })
-		switch {
-		case i < 0:
+		if i < 0 {
 			out = append(out, p)
-		case len(p.Limits) > 0 && p.ReadAt.After(out[i].ReadAt):
+			continue
+		}
+		out[i].PitboardLabel = p.PitboardLabel
+		if len(p.Limits) > 0 && p.ReadAt.After(out[i].ReadAt) {
 			out[i].Limits, out[i].ReadAt, out[i].Source = p.Limits, p.ReadAt, p.Source
 		}
 	}
