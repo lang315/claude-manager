@@ -76,8 +76,9 @@ func (a *API) Profile(ctx context.Context, token string) (Profile, error) {
 	}
 	var p struct {
 		Account struct {
-			UUID  string `json:"uuid"`
-			Email string `json:"email_address"`
+			UUID         string `json:"uuid"`
+			Email        string `json:"email"`
+			EmailAddress string `json:"email_address"`
 		} `json:"account"`
 		Organization struct {
 			UUID string `json:"uuid"`
@@ -87,7 +88,11 @@ func (a *API) Profile(ctx context.Context, token string) (Profile, error) {
 	if json.Unmarshal(body, &p) != nil || p.Account.UUID == "" || p.Organization.UUID == "" {
 		return Profile{}, errors.New("Anthropic's profile names no account.")
 	}
-	return Profile{AccountUUID: p.Account.UUID, Email: p.Account.Email, OrgUUID: p.Organization.UUID, OrgName: p.Organization.Name}, nil
+	email := p.Account.Email
+	if email == "" { // the token endpoint's answer names it so
+		email = p.Account.EmailAddress
+	}
+	return Profile{AccountUUID: p.Account.UUID, Email: email, OrgUUID: p.Organization.UUID, OrgName: p.Organization.Name}, nil
 }
 
 // Renew asks for fresh tokens for l, as Claude Code renews its own login,

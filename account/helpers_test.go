@@ -56,7 +56,7 @@ func (f *anthropic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		fmt.Fprintf(w, `{"account":{"uuid":%q,"email_address":%q},"organization":{"uuid":%q,"name":%q}}`, p.AccountUUID, p.Email, p.OrgUUID, p.OrgName)
+		fmt.Fprintf(w, `{"account":{"uuid":%q,"email":%q},"organization":{"uuid":%q,"name":%q}}`, p.AccountUUID, p.Email, p.OrgUUID, p.OrgName)
 	case "/api/oauth/usage":
 		f.calls = append(f.calls, "usage "+tok)
 		if s, ok := f.status[tok]; ok {

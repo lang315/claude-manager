@@ -48,6 +48,13 @@ func TestProfile(t *testing.T) {
 	if err != nil || got != want || got.Key() != "acc/org" {
 		t.Fatalf("Profile = %+v, %v", got, err)
 	}
+	// As /api/oauth/profile answered on the user's Mac, 2026-10-28: "email".
+	a = apiOn(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"account":{"uuid":"acc","email":"me@example.com","display_name":"Me"},"organization":{"uuid":"org","name":"Acme","rate_limit_tier":"x"}}`)
+	})
+	if got, err := a.Profile(context.Background(), "tok"); err != nil || got != want {
+		t.Fatalf("Profile of the real shape = %+v, %v", got, err)
+	}
 	a = apiOn(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{}`) })
 	if _, err := a.Profile(context.Background(), "tok"); err == nil {
 		t.Fatal("a profile with no account worked")

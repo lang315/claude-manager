@@ -40,7 +40,7 @@ func limitsApp(t *testing.T) *lim {
 		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		switch r.URL.Path {
 		case "/api/oauth/profile":
-			fmt.Fprintf(w, `{"account":{"uuid":%q,"email_address":"%s@example.com"},"organization":{"uuid":"org","name":"Acme"}}`, tok, tok)
+			fmt.Fprintf(w, `{"account":{"uuid":%q,"email":"%s@example.com"},"organization":{"uuid":"org","name":"Acme"}}`, tok, tok)
 		case "/api/oauth/usage":
 			if tok == "expired" {
 				w.WriteHeader(http.StatusUnauthorized)
