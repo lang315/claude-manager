@@ -15,6 +15,7 @@ Each item gets its own design before it is built.
 - [ ] Full-text search across session transcripts.
 - [x] Token and cost statistics per session, project and day (from `message.usage`).
 - [x] Watch `~/.claude` for changes and refresh live instead of manual Rescan.
+- [x] Limits of each Claude Code account: the five-hour, weekly and per-model weekly limits, for the account in use and accounts added through Claude Code's own sign-in (after [Pitboard](https://github.com/datlechin/pitboard)'s approach).
 - [ ] Export a session to Markdown.
 
 ## v3 — editing configuration

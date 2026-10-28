@@ -11,18 +11,22 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/lang315/claude-manager/account"
 	"github.com/lang315/claude-manager/store"
 	"github.com/lang315/claude-manager/view"
 )
 
+// version is mygo.json's, for the User-Agent of requests to Anthropic.
+const version = "0.1.0"
+
 func main() {
-	root := os.Getenv("CLAUDE_CONFIG_DIR")
-	claudeJSON := filepath.Join(root, ".claude.json")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	configDir := os.Getenv("CLAUDE_CONFIG_DIR")
+	root, claudeJSON := configDir, filepath.Join(configDir, ".claude.json")
 	if root == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			log.Fatal(err)
-		}
 		root, claudeJSON = filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json")
 	}
 	a := view.New(&store.Store{
@@ -32,6 +36,8 @@ func main() {
 		Now:        time.Now,
 		Alive:      store.PIDAlive,
 	})
+	a.Accounts = accounts(home, configDir, root)
+	a.OpenURL, a.CopyText = mygo.Shell.OpenExternal, mygo.Clipboard.WriteText
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:   "Claude Manager",
@@ -45,8 +51,28 @@ func main() {
 		mygo.App.OnDidBecomeActive(func() { a.SetActive(true) })
 		mygo.App.OnDidResignActive(func() { a.SetActive(false) })
 		a.SetActive(mygo.App.IsActive()) // launched in the background: hold reloads until it is in front
+		go func() {
+			for range time.Tick(5 * time.Minute) {
+				a.LimitsTick()
+			}
+		}()
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// accounts is the Limits page's book, in the app's folder, with logins in
+// the login keychain.
+func accounts(home, configDir, root string) *account.Book {
+	vault := account.Keychain{}
+	return &account.Book{
+		Dir:           filepath.Join(home, "Library", "Application Support", "Claude Manager"),
+		Vault:         vault,
+		API:           account.NewAPI(version),
+		Live:          func() (account.Login, error) { return account.ReadLive(vault, configDir, root) },
+		Now:           time.Now,
+		Claude:        account.FindClaude,
+		SignInTimeout: 10 * time.Minute,
 	}
 }

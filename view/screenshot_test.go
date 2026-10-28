@@ -64,3 +64,33 @@ func TestScreenshots(t *testing.T) {
 		}
 	}
 }
+
+// TestLimitsScreenshot writes the Limits page, on the fake Anthropic of
+// limitsApp, light and dark at main.go's window size, into $SCREENSHOT_DIR.
+func TestLimitsScreenshot(t *testing.T) {
+	dir := os.Getenv("SCREENSHOT_DIR")
+	if dir == "" {
+		t.Skip("set SCREENSHOT_DIR to write PNGs of the Limits page")
+	}
+	for _, dark := range []bool{false, true} {
+		l := limitsApp(t)
+		seedBob(t, l, "bob")
+		tt := ui.NewTester(l.a.View, 1100, 720)
+		tt.SetDark(dark)
+		l.a.Update, l.tt = tt.Update, tt
+		l.open(t)
+		waitFor(t, tt, func() bool { return tt.HasText("bob@example.com") })
+		name := "limits.png"
+		if dark {
+			name = "limits-dark.png"
+		}
+		f, err := os.Create(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := png.Encode(f, tt.Image()); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+}

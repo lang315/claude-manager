@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/lang315/claude-manager/account"
 	"github.com/lang315/claude-manager/store"
 )
 
@@ -17,6 +18,11 @@ type App struct {
 	// Update runs a change on the main thread and redraws: Window.Update in
 	// the app, Tester.Update in tests.
 	Update func(func())
+	// Accounts holds the Limits page's accounts; nil shows the page empty.
+	Accounts *account.Book
+	// OpenURL and CopyText reach the system: the browser and the clipboard.
+	OpenURL  func(string) error
+	CopyText func(string)
 
 	root   string // Store.Root as shown, with ~ for the home directory
 	page   string
@@ -33,6 +39,7 @@ type App struct {
 	heads    store.SessionScan // session heads, kept across Rescans
 	config   configPage
 	cleanup  cleanup
+	limits   limits
 }
 
 func New(s *store.Store) *App {
@@ -62,6 +69,9 @@ func (a *App) View(c *ui.Context) {
 	if a.page != a.shown { // a page opened: what it missed while hidden loads now
 		a.shown = a.page
 		a.live.show(pageScreens(a.page))
+		if a.page == "limits" {
+			a.limits.load(a, false)
+		}
 	}
 	if a.notice != "" {
 		c.Toast(a.notice)
@@ -78,6 +88,7 @@ func (a *App) View(c *ui.Context) {
 			})
 			ui.SidebarItem(c, "history", iconHistory, "History")
 			ui.SidebarItem(c, "usage", iconUsage, "Usage")
+			ui.SidebarItem(c, "limits", iconLimits, "Limits")
 			ui.SidebarItem(c, "config", iconConfig, "Config")
 			ui.SidebarItem(c, "cleanup", iconCleanup, "Cleanup")
 		}).Width(200).Background(pal.ground)
@@ -93,6 +104,8 @@ func (a *App) View(c *ui.Context) {
 				a.history.view(c, a, pal)
 			case "usage":
 				a.usage.view(c, a, pal)
+			case "limits":
+				a.limits.view(c, a, pal)
 			case "config":
 				a.config.view(c, a, pal)
 			case "cleanup":
@@ -129,6 +142,8 @@ func (a *App) header(c *ui.Context, pal *palette, live int) {
 		}
 	case "usage":
 		title, sub = "Usage", a.usage.subtitle(a.Store.Now())
+	case "limits":
+		title, sub = "Limits", a.limits.subtitle(a.Store.Now())
 	case "config":
 		title, sub = "Config", "Read-only. Credentials are masked."
 	case "cleanup":
@@ -139,11 +154,18 @@ func (a *App) header(c *ui.Context, pal *palette, live int) {
 			ui.Text(c, title).FontSize(24).Bold().SingleLine()
 			ui.Text(c, sub).TextColor(pal.muted).SingleLine()
 		})
-		if a.busy > 0 {
+		if a.busy > 0 || a.page == "limits" && a.limits.loading {
 			ui.Spinner(c).Label("Scanning")
 			ui.Text(c, "Scanning…").TextColor(pal.muted)
 		}
-		if ui.Button(c, "Rescan").Disabled(a.busy > 0).Clicked() {
+		if a.page == "limits" {
+			if ui.Button(c, "Add Account…").Disabled(a.Accounts == nil).Clicked() {
+				a.limits.startAdd(a)
+			}
+			if ui.Button(c, "Refresh").Disabled(a.Accounts == nil || a.limits.loading).Clicked() {
+				a.limits.load(a, true)
+			}
+		} else if ui.Button(c, "Rescan").Disabled(a.busy > 0).Clicked() {
 			a.Rescan()
 		}
 		if a.page == "overview" && orangeKey(c, pal, "Clean up…", a.cleanup.reclaim == 0).Clicked() {
@@ -198,6 +220,9 @@ func (a *App) SetActive(on bool) {
 	a.Update(func() {
 		if on {
 			a.live.activate()
+			if a.page == "limits" {
+				a.limits.load(a, false)
+			}
 		} else {
 			a.live.resign()
 		}
