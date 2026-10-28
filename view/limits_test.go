@@ -311,3 +311,20 @@ func TestLimitsIgnoresAnOldSignIn(t *testing.T) {
 		t.Fatalf("the old sign-in's end reached the new dialog: failed %q, adding %v", l.a.limits.failed, l.a.limits.adding)
 	}
 }
+
+// Starting a sign-in must not hold the main thread: finding claude runs a
+// login shell, and the book may be busy with a refresh.
+func TestLimitsAddAccountDoesNotBlock(t *testing.T) {
+	l := limitsApp(t)
+	bin := claudeAt(t)
+	l.book.Claude = func() (string, error) { time.Sleep(time.Second); return bin, nil }
+	l.open(t)
+	l.a.Go = func(f func()) { go f() }
+	start := time.Now()
+	l.a.limits.startAdd(l.a)
+	if d := time.Since(start); d > 200*time.Millisecond {
+		t.Fatalf("startAdd held the main thread for %v", d)
+	}
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Submit Code") })
+	l.a.limits.stopSignIn()
+}

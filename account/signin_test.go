@@ -205,8 +205,11 @@ func TestSignInTimesOut(t *testing.T) {
 	b, _ := signInBook(t, sleepyClaude(t))
 	b.SignInTimeout = 300 * time.Millisecond
 	_, next := start(t, b)
-	next()
-	if e := next(); !e.Done || e.Err == nil || e.Err.Error() != "The sign-in took too long." {
+	e := next()
+	for !e.Done { // under load the timeout can come before the link
+		e = next()
+	}
+	if e.Err == nil || e.Err.Error() != "The sign-in took too long." {
 		t.Fatalf("got %+v", e)
 	}
 }

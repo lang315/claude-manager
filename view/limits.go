@@ -23,7 +23,8 @@ type limits struct {
 	// The Add Account dialog, while a sign-in runs.
 	adding bool
 	signIn *account.SignIn
-	gen    int // counts sign-ins, so an old one's late events are ignored
+	gen    int  // counts sign-ins, so an old one's late events are ignored
+	ended  bool // this sign-in reported its end
 	link   string
 	asks   bool // claude waits for a code
 	code   string
@@ -242,20 +243,31 @@ func goodUntil(t, now time.Time) string {
 // startAdd opens the Add Account dialog and starts a sign-in.
 func (l *limits) startAdd(a *App) {
 	l.stopSignIn()
-	l.adding, l.link, l.asks, l.code, l.failed = true, "", false, "", ""
+	l.adding, l.link, l.asks, l.code, l.failed, l.ended = true, "", false, "", "", false
 	gen := l.gen
-	s, err := a.Accounts.SignIn(context.Background(), func(ev account.Event) {
+	// Off the main thread: finding claude runs a login shell, and the book
+	// may be busy with a refresh.
+	a.Go(func() {
+		s, err := a.Accounts.SignIn(context.Background(), func(ev account.Event) {
+			a.Update(func() {
+				if gen == l.gen {
+					l.event(a, ev)
+				}
+			})
+		})
 		a.Update(func() {
-			if gen == l.gen {
-				l.event(a, ev)
+			switch {
+			case gen != l.gen: // canceled while it started
+				if s != nil {
+					s.Cancel()
+				}
+			case err != nil:
+				l.failed = err.Error()
+			case !l.ended:
+				l.signIn = s
 			}
 		})
 	})
-	if err != nil {
-		l.failed = err.Error()
-		return
-	}
-	l.signIn = s
 }
 
 // event takes what the sign-in reports.
@@ -266,7 +278,7 @@ func (l *limits) event(a *App, ev account.Event) {
 	case ev.AsksCode:
 		l.asks = true
 	case ev.Done:
-		l.signIn = nil
+		l.signIn, l.ended = nil, true
 		if ev.Err != nil {
 			l.failed = ev.Err.Error()
 			return
