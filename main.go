@@ -74,6 +74,7 @@ func accounts(home, configDir, root string) *account.Book {
 		Now:           time.Now,
 		Claude:        account.FindClaude,
 		SignInTimeout: 10 * time.Minute,
+		PitboardCLI:   account.FindPitboard,
 		Pitboard:      func() ([]account.Account, error) { return account.ReadPitboard(filepath.Join(home, ".pitboard")) },
 	}
 }

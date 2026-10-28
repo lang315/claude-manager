@@ -2,6 +2,7 @@ package view
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -32,6 +33,11 @@ type limits struct {
 
 	asking   bool // the Remove confirmation is open
 	removing account.Account
+
+	canSwitch bool            // Pitboard's command is here
+	switching string          // the key of the account a switch runs to, or ""
+	replacing bool            // the Replace confirmation is open
+	target    account.Account // the account it would switch to
 }
 
 // load shows the book's saved readings, then refreshes them from
@@ -47,10 +53,12 @@ func (l *limits) load(a *App, force bool) {
 	l.loading = true
 	a.Go(func() {
 		saved, err := a.Accounts.Blocks()
+		can := a.Accounts.CanSwitch()
 		a.Update(func() {
 			if !l.loaded {
 				l.blocks = saved
 			}
+			l.canSwitch = can
 			l.toast(a, err)
 		})
 		blocks, err := a.Accounts.Refresh(context.Background(), force)
@@ -160,6 +168,9 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 		}
 		if b.Added && !b.GoodUntil.IsZero() {
 			ui.Text(c, goodUntil(b.GoodUntil, now)).FontSize(12).TextColor(pal.muted)
+		}
+		if l.switching == b.Key() {
+			ui.Text(c, "Switching…").FontSize(12).TextColor(pal.muted)
 		}
 	})
 }
@@ -304,7 +315,7 @@ func (l *limits) stopSignIn() {
 	}
 }
 
-// dialogs are the Add Account dialog and the Remove confirmation.
+// dialogs are the Add Account dialog, the Remove confirmation and the Replace confirmation.
 func (l *limits) dialogs(c *ui.Context, a *App, pal *palette) {
 	was := l.adding
 	ui.Modal(c, &l.adding, func() {
@@ -376,19 +387,61 @@ func (l *limits) dialogs(c *ui.Context, a *App, pal *palette) {
 			})
 		})
 	}
+	msg = "Claude Code's sign-in no longer works, so it can't be put away. Put " + l.target.Email + "'s sign-in in its place?"
+	if ui.AlertDialog(c, &l.replacing, "Replace Claude Code's sign-in?", msg, "Cancel", "Replace") == 1 {
+		l.startSwitch(a, l.target, true)
+	}
 }
 
-// menu holds an added account's actions.
+// menu holds an account's actions: switching to it, when Pitboard parks
+// it, and for an added account, signing in again and removing it.
 func (l *limits) menu(c *ui.Context, a *App, b account.Account) {
-	if !b.Added {
+	switchable := l.canSwitch && b.PitboardLabel != "" && !b.InUse
+	if !b.Added && !switchable {
 		return
 	}
 	ui.MenuButton(c, "⋯", func(m *ui.Menu) {
-		if m.Item("Sign In Again").Chosen() {
+		if switchable && m.Item("Switch to This Account").Disabled(l.switching != "").Chosen() {
+			l.startSwitch(a, b, false)
+		}
+		if b.Added && m.Item("Sign In Again").Chosen() {
 			l.startAdd(a)
 		}
-		if m.Item("Remove…").Destructive(true).Chosen() {
+		if b.Added && m.Item("Remove…").Destructive(true).Chosen() {
 			l.removing, l.asking = b, true
 		}
 	}).Tooltip("Actions for " + b.Email)
+}
+
+// startSwitch has Pitboard put Claude Code on b's account. replace answers
+// yes to replacing a sign-in Anthropic refuses for good.
+func (l *limits) startSwitch(a *App, b account.Account, replace bool) {
+	l.switching = b.Key()
+	a.Go(func() {
+		s, err := a.Accounts.Switch(context.Background(), b.PitboardLabel, replace)
+		a.Update(func() {
+			l.switching = ""
+			switch {
+			case errors.Is(err, account.ErrLiveRefused):
+				l.target, l.replacing = b, true
+				return
+			case err != nil:
+				l.toast(a, err)
+			default:
+				a.notice = switchedText(b.Email, s)
+			}
+			l.load(a, true)
+		})
+	})
+}
+
+// switchedText is the toast after a switch to email.
+func switchedText(email string, s account.Switched) string {
+	switch {
+	case !s.Changed:
+		return email + " is already in use."
+	case s.Follow > 0:
+		return fmt.Sprintf("Switched to %s. Running sessions follow within %d seconds.", email, int(s.Follow.Seconds()))
+	}
+	return "Switched to " + email + ". Running sessions keep the old account until they're started again."
 }
