@@ -164,9 +164,11 @@ func limitRow(c *ui.Context, pal *palette, x account.Limit, now time.Time) {
 		meter(c, pal, x.Percent).Grow(1).Label(x.Label())
 		num(c, fmt.Sprintf("%.0f%%", x.Percent)).Width(44)
 		ui.Text(c, resets(x.ResetsAt, now)).TextColor(pal.muted).Width(150).SingleLine()
+		reached := "" // its slot stays, so every row's meter is as long
 		if x.Percent >= 100 {
-			ui.Text(c, "Limit reached").Bold().SingleLine()
+			reached = "Limit reached"
 		}
+		ui.Text(c, reached).Bold().Width(100).SingleLine()
 	})
 }
 
