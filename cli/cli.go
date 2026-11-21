@@ -650,7 +650,7 @@ func (c *cmd) auto(ctx context.Context, dry, asJSON bool) (int, error) {
 
 func (c *cmd) addToken(token, email string, slot int, yes bool) error {
 	if token == "-" || token == "" {
-		line, err := bufio.NewReader(c.in).ReadString('\n')
+		line, err := c.reader().ReadString('\n')
 		if err != nil && line == "" {
 			return errors.New("give a token, or - and the token on stdin")
 		}

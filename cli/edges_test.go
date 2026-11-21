@@ -126,4 +126,10 @@ func TestAddSlotAsks(t *testing.T) {
 			t.Errorf("token in slot %d", x.Slot)
 		}
 	}
+	// The token and the answer down one pipe: the token's read keeps the
+	// answer for the question.
+	b := newApp(t)
+	if code, out, errs := b.run(t, "sk-ant-oat01-y\ny\n", "add-token", "-", "--slot", "1"); code != ok || strings.Contains(out, "in slot") {
+		t.Errorf("piped add-token --slot: %d %s %s", code, out, errs)
+	}
 }
