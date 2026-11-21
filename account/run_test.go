@@ -563,3 +563,33 @@ func TestRunCommandDefault(t *testing.T) {
 		t.Errorf("RunCommand = %s", got)
 	}
 }
+
+// claude-swap's MCP mirror (issue #139): with setup shared, the profile's
+// mcpServers mirror ~/.claude.json's, its own first kept aside once; with
+// it off, a mirrored copy goes, and a profile never mirrored is left be.
+func TestSeedMirrorsMCPServers(t *testing.T) {
+	r := newRunBook(t)
+	conf := filepath.Join(r.dir(), ".claude.json")
+	must(t, os.WriteFile(r.h.ClaudeJSON, []byte(strings.Replace(aliceConf, `"numStartups": 3,`, `"numStartups": 3, "mcpServers": {"srv": {"command": "x"}},`, 1)), 0o600))
+	write(t, conf, `{"mcpServers":{"own":{"command":"y"}}}`)
+	// Never mirrored, sharing off: its own servers stay.
+	must(t, r.b.Run(bob.Key(), "/a", Share{}))
+	if c, _ := os.ReadFile(conf); !strings.Contains(string(c), `"own"`) {
+		t.Fatalf("an unmirrored profile lost its servers: %s", c)
+	}
+	r.b.Now = func() time.Time { return t0.Add(time.Hour) }
+	r.b.Refresh(ctx, true) // taken back
+	must(t, r.b.Run(bob.Key(), "/a", both))
+	if c, _ := os.ReadFile(conf); !strings.Contains(string(c), `"srv"`) || strings.Contains(string(c), `"own"`) {
+		t.Errorf("mirror: %s", c)
+	}
+	if s, _ := os.ReadFile(filepath.Join(r.dir(), mcpDisplaced)); !strings.Contains(string(s), `"own"`) {
+		t.Errorf("its own servers weren't kept aside: %q", s)
+	}
+	r.b.Now = func() time.Time { return t0.Add(2 * time.Hour) }
+	r.b.Refresh(ctx, true)
+	must(t, r.b.Run(bob.Key(), "/a", Share{}))
+	if c, _ := os.ReadFile(conf); strings.Contains(string(c), `"srv"`) {
+		t.Errorf("the mirrored servers stayed with sharing off: %s", c)
+	}
+}

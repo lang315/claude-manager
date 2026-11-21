@@ -185,13 +185,8 @@ func (b *Book) seed(dir string, parked []byte, acct json.RawMessage, share Share
 	if err != nil {
 		return err
 	}
-	if mine, err := os.ReadFile(h.ClaudeJSON); err == nil && share.Setup {
-		var m map[string]json.RawMessage
-		if json.Unmarshal(mine, &m) == nil && len(m["mcpServers"]) > 0 {
-			if conf, err = spliceKey(conf, "mcpServers", m["mcpServers"]); err != nil {
-				return err
-			}
-		}
+	if conf, err = mirrorMCP(dir, conf, h.ClaudeJSON, share.Setup); err != nil {
+		return err
 	}
 	if err := writeAtomic(filepath.Join(dir, ".claude.json"), conf, 0o600); err != nil {
 		return err
@@ -453,3 +448,51 @@ func RunCommand(folder, configDir string, args ...string) string {
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// The MCP mirror's marker, that a profile's mcpServers are ~/.claude.json's,
+// and where its own were kept the first time (claude-swap's
+// MCP_MIRROR_MARKER and MCP_DISPLACED_STASH).
+const (
+	mcpMarker    = ".claude-manager-mcp-mirror"
+	mcpDisplaced = ".claude-manager-mcp-displaced.json"
+)
+
+// mirrorMCP is claude-swap's _sync_mcp_servers (issue #139) on a profile's
+// .claude.json, conf: shared, mcpServers become ~/.claude.json's, its
+// own kept aside once; not shared, a mirrored copy goes, and a profile
+// never mirrored is left as it is. Anything unreadable leaves conf be.
+func mirrorMCP(dir string, conf []byte, mine string, share bool) ([]byte, error) {
+	marker := filepath.Join(dir, mcpMarker)
+	_, merr := os.Stat(marker)
+	adopted := merr == nil
+	src := json.RawMessage(`{}`)
+	if share {
+		var m map[string]json.RawMessage
+		data, err := os.ReadFile(mine)
+		if err != nil || json.Unmarshal(data, &m) != nil {
+			return conf, nil
+		}
+		if s, ok := m["mcpServers"]; ok {
+			src = s
+		}
+	} else if !adopted {
+		return conf, nil
+	}
+	var p map[string]json.RawMessage
+	if json.Unmarshal(conf, &p) != nil {
+		return conf, nil
+	}
+	if own := p["mcpServers"]; share && !adopted && len(own) > 0 && string(own) != "{}" {
+		stash := filepath.Join(dir, mcpDisplaced)
+		if _, err := os.Stat(stash); errors.Is(err, fs.ErrNotExist) {
+			if err := writeAtomic(stash, own, 0o600); err != nil {
+				return conf, err
+			}
+		}
+	}
+	out, err := spliceKey(conf, "mcpServers", src)
+	if err == nil && share && !adopted {
+		err = os.WriteFile(marker, nil, 0o600)
+	}
+	return out, err
+}
