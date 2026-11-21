@@ -34,6 +34,7 @@ type limits struct {
 	removing account.Account
 
 	switching string
+	run       runUI
 
 	auto autoUI
 }
@@ -334,6 +335,7 @@ func (l *limits) stopSignIn() {
 
 // dialogs are the Add Account dialog, the Remove confirmation and the Replace confirmation.
 func (l *limits) dialogs(c *ui.Context, a *App, pal *palette) {
+	l.runDialog(c, a)
 	was := l.adding
 	ui.Modal(c, &l.adding, func() {
 		ui.Column(c).Gap(12).Padding(20).Width(440).Children(func() {
@@ -427,25 +429,6 @@ func (l *limits) menu(c *ui.Context, a *App, b account.Account) {
 			l.removing, l.asking = b, true
 		}
 	}).Tooltip("Actions for " + b.Email)
-}
-
-// startRun asks for a folder, then opens Claude Code there in Terminal as b.
-func (l *limits) startRun(a *App, b account.Account) {
-	a.Go(func() {
-		folder, err := a.ChooseFolder("Open Claude Code in this folder as " + b.Email + ". Until it quits there, its sign-in renews in that terminal.")
-		if err != nil || folder == "" {
-			a.Update(func() { l.toast(a, err) })
-			return
-		}
-		err = a.Accounts.Run(b.Key(), folder)
-		a.Update(func() {
-			if err == nil {
-				a.notice = "Opened Claude Code in Terminal as " + b.Email + "."
-			}
-			l.toast(a, err)
-			l.load(a, true)
-		})
-	})
 }
 
 func (l *limits) startSwitch(a *App, b account.Account) {

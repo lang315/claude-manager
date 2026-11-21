@@ -63,7 +63,7 @@ Every feature in claude-swap's README and `src/`, and where it went.
 | `auto --once`, `--dry-run`, `--json`, exit codes | Not applicable: CLI and cron only |
 | Dead-token quarantine | Covered: a refused login shows its error and is never an auto-switch candidate; Sign In Again replaces it |
 | `export` / `import` | Ported: 3 |
-| `run` (session mode), history and setup sharing, MCP mirror | 4 |
+| `run` (session mode), history and setup sharing, MCP mirror | 4; `--no-share` / `--no-share-history` as the dialog's two checkboxes (4b) |
 | `map` / `unmap` (directory to account) | Not applicable: it picks the account for a bare `cswap run` typed in a folder; the app asks for the folder |
 | Weekly pace marker | 5 |
 | Menu bar, LaunchAgent, Start at login | 6 (the app itself stays in the menu bar; MyGo's open-at-login, no LaunchAgent) |

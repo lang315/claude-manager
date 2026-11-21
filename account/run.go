@@ -40,10 +40,18 @@ const InTerminalExpired = "Its sign-in in the terminal has lapsed; claude there 
 // claude to show up before it takes the account back.
 const launchGrace = 2 * time.Minute
 
-// shared are what a profile takes from ~/.claude by link, as claude-swap's
-// session mode with history shared. sessions, plugins, ide and the logins
-// stay the profile's own.
-var shared = []string{"settings.json", "keybindings.json", "CLAUDE.md", "skills", "commands", "agents", "rules", "projects", "history.jsonl"}
+// setup and history are what a profile takes from ~/.claude by link, as
+// claude-swap's session mode: setup unless --no-share, history unless
+// --no-share-history. sessions, plugins, ide and the logins stay the
+// profile's own.
+var (
+	setup   = []string{"settings.json", "keybindings.json", "CLAUDE.md", "skills", "commands", "agents", "rules"}
+	history = []string{"projects", "history.jsonl"}
+)
+
+// Share is what a profile shares with ~/.claude: its setup (settings,
+// CLAUDE.md, skills…, and the user's MCP servers) and its chat history.
+type Share struct{ Setup, History bool }
 
 // ProfilesDir is where the profiles live, under dir, the app's folder.
 func ProfilesDir(dir string) string { return filepath.Join(dir, "profiles") }
@@ -57,7 +65,10 @@ func (b *Book) profile(key string) string {
 // from that account's own profile: the rest of the Mac stays on the
 // account in use. From then on that terminal renews the account's login;
 // the app takes it back once claude has quit there.
-func (b *Book) Run(key, folder string) error {
+//
+// share applies when the profile is seeded; opened again while claude may
+// run there, the profile is left as it is.
+func (b *Book) Run(key, folder string, share Share) error {
 	h := b.Home
 	if h == nil {
 		return ErrCantSwitch
@@ -113,13 +124,13 @@ func (b *Book) Run(key, folder string) error {
 		a.Terminal = Terminal{}
 		return err
 	}
-	if err := b.seed(dir, parked, a.OAuthAccount); err != nil {
+	if err := b.seed(dir, parked, a.OAuthAccount, share); err != nil {
 		return errors.Join(err, b.clearProfile(dir))
 	}
 	return b.Launch(folder, dir)
 }
 
-func (b *Book) seed(dir string, parked []byte, acct json.RawMessage) error {
+func (b *Book) seed(dir string, parked []byte, acct json.RawMessage, share Share) error {
 	h := b.Home
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -144,7 +155,7 @@ func (b *Book) seed(dir string, parked []byte, acct json.RawMessage) error {
 	if err != nil {
 		return err
 	}
-	if mine, err := os.ReadFile(h.ClaudeJSON); err == nil {
+	if mine, err := os.ReadFile(h.ClaudeJSON); err == nil && share.Setup {
 		var m map[string]json.RawMessage
 		if json.Unmarshal(mine, &m) == nil && len(m["mcpServers"]) > 0 {
 			if conf, err = spliceKey(conf, "mcpServers", m["mcpServers"]); err != nil {
@@ -155,19 +166,38 @@ func (b *Book) seed(dir string, parked []byte, acct json.RawMessage) error {
 	if err := writeAtomic(filepath.Join(dir, ".claude.json"), conf, 0o600); err != nil {
 		return err
 	}
-	for _, name := range shared {
-		src, dest := filepath.Join(h.Root, name), filepath.Join(dir, name)
-		if _, err := os.Stat(src); err != nil {
-			continue
-		}
-		if _, err := os.Lstat(dest); err == nil {
-			continue // a link made before, or the profile's own: never replaced
-		}
-		if err := os.Symlink(src, dest); err != nil {
-			return err
+	for _, g := range []struct {
+		names []string
+		on    bool
+	}{{setup, share.Setup}, {history, share.History}} {
+		for _, name := range g.names {
+			if err := link(filepath.Join(h.Root, name), filepath.Join(dir, name), g.on); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+// link makes dest a link to src, or, when !on, removes such a link. Only
+// links to src are touched: the profile's own file or folder of that name,
+// and src itself, never are.
+func link(src, dest string, on bool) error {
+	to, lerr := os.Readlink(dest)
+	ours := lerr == nil && to == src
+	switch {
+	case !on && ours:
+		return os.Remove(dest)
+	case !on:
+		return nil
+	}
+	if _, err := os.Lstat(dest); err == nil {
+		return nil // a link made before, or the profile's own
+	}
+	if _, err := os.Stat(src); err != nil {
+		return nil
+	}
+	return os.Symlink(src, dest)
 }
 
 // clearProfile removes a profile's logins, so a claude started there

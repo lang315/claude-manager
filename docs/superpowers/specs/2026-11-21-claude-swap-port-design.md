@@ -296,8 +296,16 @@ export and import between two Macs.
   holds; then the mark is cleared.
 - Cleanup: `Store.Profiles` makes each profile's `sessions/` count as live,
   since their transcripts are in the shared `projects/`.
-- Skipped: directory-to-account mapping (`cswap map`); per-launch
-  `--no-share`/`--no-share-history`; merging a profile's own history.
+- Sharing (part 4b; claude-swap's `--no-share` / `--no-share-history`): the
+  Open in Terminal dialog has "Share settings, CLAUDE.md, skills and MCP
+  servers" and "Share chat history with the other accounts", both on. Off,
+  the profile's links of that group are removed (only links to `~/.claude`'s
+  own item; the profile's own files stay) and, for setup, `mcpServers` is not
+  spliced in again. They apply at the seed; opened again while marked, the
+  profile is left as it is.
+- Skipped: directory-to-account mapping (`cswap map`); merging a profile's
+  own history into `~/.claude`; removing an `mcpServers` mirrored earlier
+  (the app keeps no marker of what it wrote).
 
 Verified: seed, order, refusals, reopen, read-only refresh, take-back
 (grace, failed scan, running, newer, older), session-record scan, quoting

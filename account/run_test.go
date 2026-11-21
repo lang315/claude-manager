@@ -53,7 +53,7 @@ func TestRunSeedsProfile(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(r.h.Root, "CLAUDE.md"), []byte("mine"), 0o600))
 	must(t, r.v.Put(liveService(dir), "me", []byte("stale")))
 
-	must(t, r.b.Run(bob.Key(), "/work"))
+	must(t, r.b.Run(bob.Key(), "/work", both))
 	if !slices.Equal(r.launched, [][2]string{{"/work", dir}}) {
 		t.Fatalf("launched %q", r.launched)
 	}
@@ -105,7 +105,7 @@ func TestRunMarksBeforeSeeding(t *testing.T) {
 	must(t, os.MkdirAll(filepath.Dir(ProfilesDir(r.b.Dir)), 0o700))
 	must(t, os.WriteFile(ProfilesDir(r.b.Dir), nil, 0o600)) // the seed can't make its folder
 	r.b.Launch = func(string, string) error { t.Fatal("launched without a seed"); return nil }
-	if err := r.b.Run(bob.Key(), "/work"); err == nil {
+	if err := r.b.Run(bob.Key(), "/work", both); err == nil {
 		t.Fatal("ran without a profile")
 	}
 	data, _ := os.ReadFile(r.b.path())
@@ -116,15 +116,15 @@ func TestRunMarksBeforeSeeding(t *testing.T) {
 
 func TestRunRefuses(t *testing.T) {
 	r := newRunBook(t)
-	if err := r.b.Run(alice.Key(), "/work"); !errors.Is(err, errNotAdded) {
+	if err := r.b.Run(alice.Key(), "/work", both); !errors.Is(err, errNotAdded) {
 		t.Errorf("not added: %v", err)
 	}
 	r.b.Refresh(ctx, true) // alice is added by following her login
-	if err := r.b.Run(alice.Key(), "/work"); !errors.Is(err, errRunInUse) {
+	if err := r.b.Run(alice.Key(), "/work", both); !errors.Is(err, errRunInUse) {
 		t.Errorf("in use: %v", err)
 	}
 	r.b.Home = nil
-	if err := r.b.Run(bob.Key(), "/work"); !errors.Is(err, ErrCantSwitch) {
+	if err := r.b.Run(bob.Key(), "/work", both); !errors.Is(err, ErrCantSwitch) {
 		t.Errorf("no home: %v", err)
 	}
 	if len(r.launched) != 0 {
@@ -136,10 +136,10 @@ func TestRunRefuses(t *testing.T) {
 // newer than the app's.
 func TestRunAgainKeepsTheProfile(t *testing.T) {
 	r := newRunBook(t)
-	must(t, r.b.Run(bob.Key(), "/a"))
+	must(t, r.b.Run(bob.Key(), "/a", both))
 	renewed := stored(t, login("bob-at2", "bob-rt2", t0.Add(8*time.Hour)))
 	must(t, r.v.Put(liveService(r.dir()), "me", renewed))
-	must(t, r.b.Run(bob.Key(), "/b"))
+	must(t, r.b.Run(bob.Key(), "/b", both))
 	if got, _ := r.v.Get(liveService(r.dir()), "me"); string(got) != string(renewed) {
 		t.Error("the terminal's login was replaced")
 	}
@@ -150,7 +150,7 @@ func TestRunAgainKeepsTheProfile(t *testing.T) {
 
 func TestInTerminalIsNotSwitchedExportedImportedOrRemoved(t *testing.T) {
 	r := newRunBook(t)
-	must(t, r.b.Run(bob.Key(), "/work"))
+	must(t, r.b.Run(bob.Key(), "/work", both))
 	if err := r.b.Switch(ctx, bob.Key()); !errors.Is(err, errInTerminal) {
 		t.Errorf("switch: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestInTerminalIsNotSwitchedExportedImportedOrRemoved(t *testing.T) {
 
 func TestRefreshReadsTerminalLoginNeverRenews(t *testing.T) {
 	r := newRunBook(t)
-	must(t, r.b.Run(bob.Key(), "/work"))
+	must(t, r.b.Run(bob.Key(), "/work", both))
 	r.running = true
 	r.f.usage["bob-at2"] = 40
 	must(t, r.v.Put(liveService(r.dir()), "me", stored(t, login("bob-at2", "bob-rt2", t0.Add(time.Hour)))))
@@ -196,7 +196,7 @@ func TestRefreshReadsTerminalLoginNeverRenews(t *testing.T) {
 
 func TestTakeBack(t *testing.T) {
 	r := newRunBook(t)
-	must(t, r.b.Run(bob.Key(), "/work"))
+	must(t, r.b.Run(bob.Key(), "/work", both))
 	dir := r.dir()
 	renewed := login("bob-at2", "bob-rt2", t0.Add(8*time.Hour))
 	renewed.RefreshTokenExpiresAt = t0.Add(30 * 24 * time.Hour).UnixMilli()
@@ -241,7 +241,7 @@ func TestTakeBack(t *testing.T) {
 // A seed claude never renewed is older than nothing: the app's login stays.
 func TestTakeBackKeepsNewerSaved(t *testing.T) {
 	r := newRunBook(t)
-	must(t, r.b.Run(bob.Key(), "/work"))
+	must(t, r.b.Run(bob.Key(), "/work", both))
 	_, err := r.b.keep(login("bob-new", "bob-rt-new", t0.Add(5*time.Hour)).Marshal(), bob, json.RawMessage(bobAccount))
 	must(t, err)
 	if r.bob(t).Terminal.Dir == "" {
@@ -304,12 +304,12 @@ func TestRunCommandQuoting(t *testing.T) {
 // as for the first, and leaves its login be.
 func TestRunAgainWaitsForTheNewClaude(t *testing.T) {
 	r := newRunBook(t)
-	must(t, r.b.Run(bob.Key(), "/a"))
+	must(t, r.b.Run(bob.Key(), "/a", both))
 	r.running = true
 	r.b.Refresh(ctx, true)
 	r.running = false
 	r.b.Now = func() time.Time { return t0.Add(time.Hour) }
-	must(t, r.b.Run(bob.Key(), "/b"))
+	must(t, r.b.Run(bob.Key(), "/b", both))
 	r.b.Refresh(ctx, true)
 	if r.bob(t).Terminal.Dir == "" {
 		t.Fatal("taken back under the claude just opened")
@@ -322,7 +322,7 @@ func TestRunAgainWaitsForTheNewClaude(t *testing.T) {
 // Outside the default folder a marked account is still read, not a panic.
 func TestRefreshInTerminalWithoutHome(t *testing.T) {
 	r := newRunBook(t)
-	must(t, r.b.Run(bob.Key(), "/a"))
+	must(t, r.b.Run(bob.Key(), "/a", both))
 	r.b.Home = nil
 	r.f.usage["bob-at"] = 10
 	got, _ := r.b.Refresh(ctx, true)
@@ -346,12 +346,51 @@ func TestRunRefusesClaudeCodesLogin(t *testing.T) {
 				must(t, os.WriteFile(r.h.ClaudeJSON, []byte(`{"oauthAccount":`+bobAccount+`}`), 0o600))
 			}
 			must(t, r.v.Put(liveDefault, "me", l))
-			if err := r.b.Run(bob.Key(), "/a"); !errors.Is(err, errRunInUse) {
+			if err := r.b.Run(bob.Key(), "/a", both); !errors.Is(err, errRunInUse) {
 				t.Fatalf("err = %v", err)
 			}
 			if len(r.launched) != 0 || r.bob(t).Terminal.Dir != "" {
 				t.Error("seeded Claude Code's own login")
 			}
 		})
+	}
+}
+
+var both = Share{Setup: true, History: true}
+
+// claude-swap's --no-share and --no-share-history: links not wanted are
+// removed, the profile's own files and ~/.claude never touched.
+func TestRunShare(t *testing.T) {
+	r := newRunBook(t)
+	for _, name := range []string{"settings.json", "history.jsonl"} {
+		must(t, os.WriteFile(filepath.Join(r.h.Root, name), []byte("mine"), 0o600))
+	}
+	must(t, os.Mkdir(filepath.Join(r.h.Root, "projects"), 0o700))
+	must(t, os.WriteFile(r.h.ClaudeJSON, []byte(`{"oauthAccount":`+aliceAccount+`,"mcpServers":{"s":{}}}`), 0o600))
+	must(t, r.b.Run(bob.Key(), "/a", Share{Setup: true}))
+	dir := r.dir()
+	isLink := func(name string) bool { _, err := os.Readlink(filepath.Join(dir, name)); return err == nil }
+	if !isLink("settings.json") || isLink("projects") || isLink("history.jsonl") {
+		t.Fatal("history shared without asking")
+	}
+	r.b.Now = func() time.Time { return t0.Add(time.Hour) }
+	r.b.Refresh(ctx, true) // taken back
+	must(t, os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("its own"), 0o600))
+	must(t, r.b.Run(bob.Key(), "/a", Share{History: true}))
+	if isLink("settings.json") || !isLink("projects") || !isLink("history.jsonl") {
+		t.Error("setup still shared, or history not")
+	}
+	if data, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md")); string(data) != "its own" {
+		t.Error("removed the profile's own CLAUDE.md")
+	}
+	if data, _ := os.ReadFile(filepath.Join(r.h.Root, "settings.json")); string(data) != "mine" {
+		t.Error("~/.claude/settings.json changed")
+	}
+	r2 := newRunBook(t)
+	must(t, os.WriteFile(r2.h.ClaudeJSON, []byte(`{"oauthAccount":`+aliceAccount+`,"mcpServers":{"s":{}}}`), 0o600))
+	must(t, r2.b.Run(bob.Key(), "/a", Share{}))
+	conf2, _ := os.ReadFile(filepath.Join(r2.dir(), ".claude.json"))
+	if strings.Contains(string(conf2), "mcpServers") {
+		t.Errorf("MCP servers mirrored without setup shared: %s", conf2)
 	}
 }
