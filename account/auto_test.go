@@ -199,6 +199,7 @@ func TestDecideMemo(t *testing.T) {
 		{"failover lands nowhere spent", []Account{inUse(failed(acct("a", 10, 10, day), "x", 3*time.Hour)), acct("s", 100, 10, day)}, memo{failover: true}, ""},
 		{"a failing in-use account is trusted an hour", []Account{inUse(failed(acct("a", 92, 10, day), ErrUnreachable.Error(), 50*time.Minute)), acct("f", 0, 0, day)}, memo{}, "f"},
 		{"but not past it", []Account{inUse(failed(acct("a", 92, 10, day), ErrUnreachable.Error(), 70*time.Minute)), acct("f", 0, 0, day)}, memo{}, ""},
+		{"a refused certificate is out of reach too", []Account{inUse(failed(acct("a", 92, 10, day), ErrTLS.Error(), 50*time.Minute)), acct("f", 0, 0, day)}, memo{}, "f"},
 		{"a failing candidate is trusted an hour", []Account{inUse(a), failed(acct("f", 0, 0, day), "Anthropic answered 503.", 50*time.Minute)}, memo{}, "f"},
 		{"a refused login is never trusted", []Account{inUse(a), failed(acct("f", 0, 0, day), ErrUnauthorized.Error(), time.Minute)}, memo{}, ""},
 		{"nor another answer", []Account{inUse(a), failed(acct("f", 0, 0, day), "Anthropic answered 400.", time.Minute)}, memo{}, ""},

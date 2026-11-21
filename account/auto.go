@@ -172,7 +172,7 @@ func (a Account) Usable(now time.Time) bool { return usable(a, now) }
 
 // usable reports whether a's limits may be decided on at now: read in the
 // last 5 minutes, or, while reads fail for a passing reason (Anthropic out
-// of reach, asking to wait, or failing itself), the last good ones for an
+// of reach, a proxy or captive portal refusing its certificate, asking to wait, or failing itself), the last good ones for an
 // hour, two when it asked to wait. A refused, spent or lapsed login never
 // is: a switch doesn't test it.
 func usable(a Account, now time.Time) bool {
@@ -187,7 +187,7 @@ func usable(a Account, now time.Time) bool {
 		return age <= fresh
 	case a.Err == (&RateLimited{}).Error() && !a.WaitUntil.IsZero():
 		return age <= trustThrottled
-	case a.Err == ErrUnreachable.Error() || strings.HasPrefix(a.Err, "Anthropic answered 5"):
+	case a.Err == ErrUnreachable.Error() || a.Err == ErrTLS.Error() || strings.HasPrefix(a.Err, "Anthropic answered 5"):
 		return age <= trustFor
 	}
 	return false
