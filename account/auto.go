@@ -213,6 +213,13 @@ func usable(a Account, now time.Time) bool {
 	case a.Err == "":
 		return age <= fresh
 	case a.Err == (&RateLimited{}).Error() && !a.WaitUntil.IsZero():
+		// claude-swap's _rate_limited_trust_ok: past a window's reset its
+		// numbers are the last window's.
+		for _, l := range a.Limits {
+			if !l.ResetsAt.IsZero() && !now.Before(l.ResetsAt) {
+				return false
+			}
+		}
 		return age <= trustThrottled
 	case a.Err == ErrUnreachable.Error() || a.Err == ErrTLS.Error() || strings.HasPrefix(a.Err, "Anthropic answered 5"):
 		return age <= trustFor

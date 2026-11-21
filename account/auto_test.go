@@ -546,3 +546,19 @@ func TestAutoSwitchFreshensTarget(t *testing.T) {
 		}
 	}
 }
+
+// claude-swap's _rate_limited_trust_ok: a reading kept through a 429 is
+// trusted until its earliest window resets, two hours at most: past the
+// reset, its numbers are the last window's.
+func TestThrottledTrustEndsAtReset(t *testing.T) {
+	now := t0.Add(time.Hour)
+	a := Account{Limits: []Limit{{Kind: "session", Percent: 100, ResetsAt: t0.Add(30 * time.Minute)}, {Kind: "weekly_all", Percent: 40, ResetsAt: t0.Add(72 * time.Hour)}},
+		ReadAt: t0, Err: (&RateLimited{}).Error(), WaitUntil: now.Add(time.Hour)}
+	if usable(a, now) {
+		t.Error("trusted past its session's reset")
+	}
+	a.Limits[0].ResetsAt = t0.Add(4 * time.Hour)
+	if !usable(a, now) {
+		t.Error("not trusted before any reset")
+	}
+}
