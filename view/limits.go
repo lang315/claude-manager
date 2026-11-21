@@ -195,7 +195,7 @@ func limitRow(c *ui.Context, pal *palette, x account.Limit, readAt, now time.Tim
 		ui.Text(c, x.Label()).Width(150).SingleLine()
 		meter(c, pal, x.Percent).Grow(1).Label(x.Label())
 		num(c, fmt.Sprintf("%.0f%%", x.Percent)).Width(44)
-		ui.Text(c, resets(x.ResetsAt, now)).TextColor(pal.muted).Width(150).SingleLine()
+		ui.Text(c, rowNote(x, now)).TextColor(pal.muted).Width(150).SingleLine()
 		if x.Percent >= 100 {
 			ui.Text(c, "Limit reached").Bold().Width(100).SingleLine()
 			return
@@ -206,6 +206,15 @@ func limitRow(c *ui.Context, pal *palette, x account.Limit, readAt, now time.Tim
 			ui.Text(c, "").Width(100) // its slot stays, so every row's meter is as long
 		}
 	})
+}
+
+// rowNote is what follows a row's share: its reset, or, for extra usage,
+// the credits spent of the monthly cap.
+func rowNote(x account.Limit, now time.Time) string {
+	if x.Kind == "extra_usage" {
+		return fmt.Sprintf("%.2f of %.2f %s", x.Used, x.Cap, x.Currency)
+	}
+	return resets(x.ResetsAt, now)
 }
 
 // meter is a limit's bar: graphite, then MyGo's warning colour from 80%

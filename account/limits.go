@@ -16,6 +16,13 @@ type Limit struct {
 	Scope    string    `json:"scope,omitempty"`   // the model or surface a scoped limit is for
 	Percent  float64   `json:"percent"`           // used, 0 to 100
 	ResetsAt time.Time `json:"resetsAt,omitzero"` // zero where the answer gave none
+
+	// Extra usage (Kind "extra_usage"): the pay-as-you-go credits spent and
+	// the monthly cap, in Currency's units. Never a window auto-switch
+	// weighs, as claude-swap's spend.
+	Used     float64 `json:"used,omitempty"`
+	Cap      float64 `json:"cap,omitempty"`
+	Currency string  `json:"currency,omitempty"`
 }
 
 // Label names the limit as the Limits page shows it.
@@ -26,6 +33,8 @@ func (l Limit) Label() string {
 		name = "Session (5h)"
 	case "weekly_all", "seven_day", "weekly_scoped":
 		name = "Weekly"
+	case "extra_usage":
+		name = "Extra usage"
 	}
 	if l.Scope != "" {
 		name += " · " + l.Scope
@@ -92,6 +101,14 @@ func ParseUsage(body []byte) ([]Limit, error) {
 		FiveHour *window           `json:"five_hour"`
 		SevenDay *window           `json:"seven_day"`
 		Limits   []json.RawMessage `json:"limits"`
+		Extra    *struct {
+			On       bool     `json:"is_enabled"`
+			Used     *float64 `json:"used_credits"` // in cents
+			Cap      *float64 `json:"monthly_limit"`
+			Pct      *float64 `json:"utilization"`
+			Currency string   `json:"currency"`
+			ResetsAt string   `json:"resets_at"`
+		} `json:"extra_usage"`
 	}
 	if json.Unmarshal(body, &u) != nil {
 		return nil, errNoLimits
@@ -129,6 +146,16 @@ func ParseUsage(body []byte) ([]Limit, error) {
 	}
 	if len(out) == 0 {
 		return nil, errNoLimits
+	}
+	// claude-swap's spend: only with all three figures, an unlimited cap
+	// (null) showing none.
+	if e := u.Extra; e != nil && e.On && valid(e.Used) && valid(e.Cap) && valid(e.Pct) {
+		cur := e.Currency
+		if cur == "" {
+			cur = "USD"
+		}
+		out = append(out, Limit{Kind: "extra_usage", Percent: math.Min(*e.Pct, 100), ResetsAt: when(e.ResetsAt),
+			Used: *e.Used / 100, Cap: *e.Cap / 100, Currency: cur})
 	}
 	return out, nil
 }

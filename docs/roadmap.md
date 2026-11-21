@@ -47,6 +47,8 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [ ] **5. Weekly pace and per-model windows.** Mark a weekly window used
   ahead of the week's pace (`pace.py`); let auto-switch also weigh one
   model's weekly window, as `cswap auto --model Fable`.
+- [ ] **7. Extra usage.** Each account's pay-as-you-go spend of its monthly
+  cap, as claude-swap's spend line.
 - [ ] **6. Menu bar and start at login.** A menu bar item with each account's
   limits, Switch and Auto-switch, that keeps running with the window closed;
   Start at login (`menubar.py`, `launch_agent.py`, done with MyGo's tray and
@@ -54,7 +56,12 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 
 ### claude-swap features, ported or not
 
-Every feature in claude-swap's README and `src/`, and where it went.
+Every feature in claude-swap's README and `src/`, and where it went: each
+subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
+`import`, `import-usage`, `list`, `menubar`, `purge`, `remove`, `status`,
+`tui`, `update`/`upgrade`, `watch`, and the verbs `switch`, `auto`, `run`,
+`map`, `alias`, `move`, `swap`, `threshold`, `priority`, `config`,
+`unclaimed`), its flags, and the settings of `settings.py`.
 
 | Feature | Here |
 |---|---|
@@ -77,6 +84,17 @@ Every feature in claude-swap's README and `src/`, and where it went.
 | TUI, `watch` | Covered: the app itself |
 | `upgrade`, update check, `purge` | Not applicable: app updates; removing every account empties the app's keychain items |
 | Linux, Windows, WSL | Not applicable: macOS app |
+| Spend (extra usage) on each account | 7: an "Extra usage" row, and "extra N%" in the menu bar |
+| `switch` with no account: rotate, best, next-available | Covered: the window and the menu bar list every account with its windows, and a click switches to it; auto-switch picks the best |
+| `add-token`: setup-tokens, Console API keys; `usage.headerProbe` | Not ported: Anthropic's usage endpoint doesn't answer setup-tokens, and the probe spends a real request on the account each poll; API keys have no subscription limits |
+| `import-usage`, `--hold` | Not applicable: hands one Mac's readings to another over a pipe; the app reads its own |
+| `list --token-status` | Covered: each block shows its sign-in's end ("good until") and why a read failed |
+| `export --full` (a same-Mac backup of all of `~/.claude.json` and every credential) | Not ported: Claude Code's own files are outside what the app manages |
+| `import --force` | Covered: an imported login replaces one only when newer; an older one never does |
+| `run --require-session` | Covered: Open in Terminal is never offered for the account in use |
+| `auto --interval` | Not ported: polling follows 2b's policy |
+| `ui.theme` | Not applicable: the app follows macOS's appearance |
+| `--version`, `--debug`, `help` | Not applicable: CLI |
 
 ## v3 — editing configuration
 

@@ -178,6 +178,7 @@ A grey instrument with two signal colours, each bound to one meaning.
   - From 80% it takes MyGo's Warning amber, and from 95% its Danger red.
   - Amber and red mean "near a limit", and appear nowhere else.
   - The percentage is always printed beside the meter, with "Limit reached" at 100%, so colour is never the only signal.
+  - An "Extra usage" row (pay-as-you-go credits) puts "12.34 of 50.00 USD" where the reset is.
   - Below 100%, a weekly row used 15 points or more faster than its week has gone shows a muted "Ahead of pace" in that slot, with the on-pace share as its tooltip; never in a cycle's first day.
   - Green stays the lamp's.
 

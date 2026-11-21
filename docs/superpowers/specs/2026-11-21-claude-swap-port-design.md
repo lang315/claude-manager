@@ -405,6 +405,18 @@ Verified: `TestTray`, `TestTrayRows`, `TestTrayNoSwitchOutsideDefaultFolder`,
 verified: the real menu bar item, hide-on-close and Start at Login (main's
 wiring has no test).
 
+## 7. Extra usage
+
+- `extra_usage` of the usage answer (claude-swap's `oauth.py` spend): when
+  `is_enabled` and `used_credits`, `monthly_limit` and `utilization` are all
+  given (cents; a null cap is unlimited and shows nothing), it becomes a
+  limit of kind `extra_usage`: "Extra usage", its share as a meter, and
+  "12.34 of 50.00 USD" where a reset would be. "extra N%" joins the menu bar
+  row. Never weighed by auto-switch, pace, the menu bar title or polling.
+
+Verified: `TestParseUsageExtraUsage`, `TestLimitsExtraUsage`; mutation
+checks (7 of 7 caught).
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported

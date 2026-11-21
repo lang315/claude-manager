@@ -33,6 +33,7 @@ type lim struct {
 	usage          *atomic.Int32  // usage requests answered
 	weekly         *sync.Map      // a token's weekly percent, where not 100
 	weeklyReset    *atomic.Value  // string: when weekly windows reset
+	extra          *atomic.Value  // string: the answer's extra_usage
 	opened, copied *[]string
 }
 
@@ -43,6 +44,8 @@ func limitsApp(t *testing.T) *lim {
 	var weekly sync.Map
 	var weeklyReset atomic.Value
 	weeklyReset.Store("2026-11-03T02:00:00Z")
+	var extra atomic.Value
+	extra.Store("null")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		switch r.URL.Path {
@@ -58,7 +61,7 @@ func limitsApp(t *testing.T) *lim {
 			if p, ok := weekly.Load(tok); ok {
 				pct = p.(int)
 			}
-			fmt.Fprintf(w, `{"limits":[{"kind":"session","percent":62,"resets_at":"2026-10-26T15:00:00Z"},{"kind":"weekly_all","percent":%d,"resets_at":%q}]}`, pct, weeklyReset.Load())
+			fmt.Fprintf(w, `{"limits":[{"kind":"session","percent":62,"resets_at":"2026-10-26T15:00:00Z"},{"kind":"weekly_all","percent":%d,"resets_at":%q}],"extra_usage":%s}`, pct, weeklyReset.Load(), extra.Load())
 		case "/v1/oauth/token":
 			w.WriteHeader(http.StatusBadRequest)
 			io.WriteString(w, `{"error":"invalid_grant"}`)
@@ -69,7 +72,7 @@ func limitsApp(t *testing.T) *lim {
 	api.Base, api.AuthBase = srv.URL, srv.URL
 	now := fixture.Now
 	live := account.Login{AccessToken: "alice", ExpiresAt: fixture.Now.Add(time.Hour).UnixMilli(), SubscriptionType: "max"}
-	l := &lim{a: a, tt: tt, vault: account.NewMemory(), now: &now, live: &live, usage: &usage, weekly: &weekly, weeklyReset: &weeklyReset, opened: &[]string{}, copied: &[]string{}}
+	l := &lim{a: a, tt: tt, vault: account.NewMemory(), now: &now, live: &live, usage: &usage, weekly: &weekly, weeklyReset: &weeklyReset, extra: &extra, opened: &[]string{}, copied: &[]string{}}
 	l.book = &account.Book{
 		Dir: t.TempDir(), Vault: l.vault, API: api,
 		Now:  func() time.Time { return now },
@@ -477,4 +480,24 @@ func TestLimitsAheadOfPace(t *testing.T) {
 	l.weekly.Store("alice", 60)
 	must(t, l.tt.Click("Refresh"))
 	waitFor(t, l.tt, func() bool { return !l.tt.HasText("Ahead of pace") })
+}
+
+func TestLimitsExtraUsage(t *testing.T) {
+	l := limitsApp(t)
+	l.weekly.Store("alice", 10)
+	l.extra.Store(`{"is_enabled":true,"used_credits":1234,"monthly_limit":5000,"utilization":90,"currency":"USD"}`)
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Extra usage") && l.tt.HasText("12.34 of 50.00 USD") })
+	if !l.tt.HasText("90%") {
+		t.Errorf("no share in %q", l.tt.Texts())
+	}
+	var title string
+	l.tt.Update(func() { title, _ = l.a.Tray() })
+	l.tt.Frame()
+	if title != "62%" {
+		t.Errorf("title %q: extra usage is no window", title)
+	}
+	if it := trayItem(t, l, "alice@example.com"); !strings.HasSuffix(it.Label, "extra 90%") {
+		t.Errorf("tray %q", it.Label)
+	}
 }

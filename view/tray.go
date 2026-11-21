@@ -82,7 +82,8 @@ func fullest(b account.Account) (float64, bool) {
 	return p, ok
 }
 
-// windows is b's five-hour and 7-day shares, "5h 62% · 7d 100%".
+// windows is b's five-hour and 7-day shares and its extra usage, "5h 62% ·
+// 7d 100% · extra 25%".
 func windows(b account.Account) string {
 	var s []string
 	for _, x := range b.Limits {
@@ -91,6 +92,8 @@ func windows(b account.Account) string {
 			s = append(s, fmt.Sprintf("5h %.0f%%", x.Percent))
 		case "weekly_all", "seven_day":
 			s = append(s, fmt.Sprintf("7d %.0f%%", x.Percent))
+		case "extra_usage":
+			s = append(s, fmt.Sprintf("extra %.0f%%", x.Percent))
 		}
 	}
 	return strings.Join(s, " · ")
