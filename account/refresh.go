@@ -256,6 +256,9 @@ func (b *Book) nearLine(now time.Time) bool {
 // jitter and movement scaling: the account in use every 3 minutes, every
 // minute while it climbs near a line; the others every 5, every 3 near a
 // line; a spent one every 10, though a minute after its window resets.
+// claude-swap reads a spent account in use every 10 minutes too, trusting
+// its reading until then; here the account in use stays at 3, so its
+// reading stays fresh for auto-switch.
 func (b *Book) due(a *Account, active, near bool) time.Time {
 	every := 5 * time.Minute
 	switch {
@@ -265,7 +268,7 @@ func (b *Book) due(a *Account, active, near bool) time.Time {
 		every = floor
 	}
 	due := a.ReadAt.Add(every)
-	if st, ok := stand(*a, Auto{Line: 100}); ok && st.raw <= 0 {
+	if st, ok := stand(*a, Auto{Line: 100}); ok && st.raw <= 0 && !active {
 		due = a.ReadAt.Add(10 * time.Minute)
 		for _, l := range a.Limits {
 			if l.Percent >= 100 && !l.ResetsAt.IsZero() && l.ResetsAt.Add(time.Minute).Before(due) {

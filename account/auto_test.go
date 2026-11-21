@@ -193,48 +193,72 @@ func TestDecideMemo(t *testing.T) {
 		{"at the limit the bar doesn't apply", []Account{inUse(acct("a", 100, 10, day)), b, c}, bar, "b"},
 		{"failover moves off an unreadable account", []Account{inUse(failed(acct("a", 10, 10, day), "x", 3*time.Hour)), b, c}, memo{failover: true}, "b"},
 		{"failover skips the cooldown", []Account{inUse(failed(acct("a", 10, 10, day), "x", 3*time.Hour)), b}, memo{failover: true, last: t0}, "b"},
+		{"failover by priority needs no higher tier", []Account{inUse(failed(acct("a", 10, 10, day), "x", 3*time.Hour)), b}, memo{failover: true}, "b|priority"},
 		{"failover lands nowhere spent", []Account{inUse(failed(acct("a", 10, 10, day), "x", 3*time.Hour)), acct("s", 100, 10, day)}, memo{failover: true}, ""},
-		{"a failing in-use account is trusted an hour", []Account{inUse(failed(acct("a", 92, 10, day), "x", 50*time.Minute)), acct("f", 0, 0, day)}, memo{}, "f"},
-		{"but not past it", []Account{inUse(failed(acct("a", 92, 10, day), "x", 70*time.Minute)), acct("f", 0, 0, day)}, memo{}, ""},
-		{"a failing candidate is trusted an hour", []Account{inUse(a), failed(acct("f", 0, 0, day), "x", 50*time.Minute)}, memo{}, "f"},
+		{"a failing in-use account is trusted an hour", []Account{inUse(failed(acct("a", 92, 10, day), ErrUnreachable.Error(), 50*time.Minute)), acct("f", 0, 0, day)}, memo{}, "f"},
+		{"but not past it", []Account{inUse(failed(acct("a", 92, 10, day), ErrUnreachable.Error(), 70*time.Minute)), acct("f", 0, 0, day)}, memo{}, ""},
+		{"a failing candidate is trusted an hour", []Account{inUse(a), failed(acct("f", 0, 0, day), "Anthropic answered 503.", 50*time.Minute)}, memo{}, "f"},
+		{"a refused login is never trusted", []Account{inUse(a), failed(acct("f", 0, 0, day), ErrUnauthorized.Error(), time.Minute)}, memo{}, ""},
+		{"nor another answer", []Account{inUse(a), failed(acct("f", 0, 0, day), "Anthropic answered 400.", time.Minute)}, memo{}, ""},
 		{"two when Anthropic asked to wait", []Account{inUse(a), throttled}, memo{}, "t"},
 		{"a spent login is never trusted", []Account{inUse(a), failed(acct("f", 0, 0, day), ErrInvalidGrant.Error(), time.Minute)}, memo{}, ""},
 	} {
-		d := decide(t0, def, x.accts, x.m)
-		if d.To != x.want && !(x.want != "" && d.Email == x.want) {
-			t.Errorf("%s: %+v, want %q", x.name, d, x.want)
+		s, want := def, x.want
+		if w, ok := strings.CutSuffix(want, "|priority"); ok {
+			s.Strategy, want = ByPriority, w
+		}
+		d := decide(t0, s, x.accts, x.m)
+		if d.To != want && !(want != "" && d.Email == want) {
+			t.Errorf("%s: %+v, want %q", x.name, d, want)
 		}
 	}
 }
 
-// Claude Code's lapsed login holds auto-switch for 30 minutes; any other
-// unreadable account in use is left after 3 ticks.
-func TestAutoSwitchIdleHoldThenFailover(t *testing.T) {
+// Claude Code's lapsed login holds auto-switch as long as it lasts: the
+// app never renews it, and Claude Code does on the next message.
+func TestAutoSwitchHoldsOnLapsedLogin(t *testing.T) {
+	b, _, _, f := switchBook(t)
+	f.usage["alice-at"], f.usage["bob-at"] = 50, 10
+	b.Refresh(ctx, true)
+	s := DefaultAuto()
+	s.On = true
+	must(t, b.SetAuto(s))
+	f.renewed["bob-rt"] = "bob-at"
+	delete(f.usage, "alice-at")
+	for m := 120; m < 300; m += 10 {
+		b.Now = func() time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+		b.Refresh(ctx, true)
+		if d, _ := b.AutoSwitch(ctx); d.To != "" || !strings.Contains(d.Why, "holds") {
+			t.Fatalf("minute %d: %+v", m, d)
+		}
+	}
+}
+
+// Any other unreadable account in use is left after 3 minutes.
+func TestAutoSwitchFailover(t *testing.T) {
 	b, v, _, f := switchBook(t)
 	f.usage["alice-at"], f.usage["bob-at"] = 50, 10
 	b.Refresh(ctx, true)
 	s := DefaultAuto()
 	s.On = true
 	must(t, b.SetAuto(s))
-	now := t0.Add(2 * time.Hour)
-	b.Now = func() time.Time { return now }
+	must(t, v.Put(liveDefault, "me", stored(t, login("alice-at", "alice-rt", t0.Add(5*time.Hour)))))
+	f.status["alice-at"] = 500
 	f.renewed["bob-rt"] = "bob-at"
-	delete(f.usage, "alice-at")
-	for i := 0; i < 5; i++ {
+	for m := 120; m <= 123; m++ {
+		b.Now = func() time.Time { return t0.Add(time.Duration(m) * time.Minute) }
 		b.Refresh(ctx, true)
-		if d, _ := b.AutoSwitch(ctx); d.To != "" || !strings.Contains(d.Why, "holds") {
-			t.Fatalf("tick %d: %+v", i, d)
-		}
-	}
-	now = now.Add(31 * time.Minute)
-	for i := 1; i <= 3; i++ {
-		b.Refresh(ctx, true)
-		d, err := b.AutoSwitch(ctx)
-		if i < 3 && d.To != "" {
-			t.Fatalf("left after %d ticks: %+v", i, d)
-		}
-		if i == 3 && (err != nil || d.Email != "bob@example.com") {
-			t.Fatalf("no failover: %+v %v", d, err)
+		for range 3 { // a Refresh by hand is no tick: three at once don't fail over
+			d, err := b.AutoSwitch(ctx)
+			if m < 123 && d.To != "" {
+				t.Fatalf("minute %d: left early: %+v", m, d)
+			}
+			if m == 123 {
+				if err != nil || d.Email != "bob@example.com" {
+					t.Fatalf("no failover: %+v %v", d, err)
+				}
+				break
+			}
 		}
 	}
 	if l, _ := parseLogin(get(t, v, liveDefault, "me")); l.AccessToken != "bob-at" {
@@ -242,17 +266,41 @@ func TestAutoSwitchIdleHoldThenFailover(t *testing.T) {
 	}
 }
 
-func TestUnseenModels(t *testing.T) {
-	a := acct("a", 0, 0, day)
-	a.Limits = append(a.Limits, Limit{Kind: "weekly_scoped", Scope: "Fable"})
-	s := Auto{Model: "fable, Opus, all, opus"}
-	if got := s.Unseen([]Account{a, acct("b", 0, 0, day)}); !slices.Equal(got, []string{"Opus"}) {
-		t.Errorf("unseen %q", got)
+// Signed out of Claude Code, auto-switch never signs it in.
+func TestAutoSwitchNeverSignsIn(t *testing.T) {
+	b, v, _, f := switchBook(t)
+	f.usage["bob-at"] = 10
+	s := DefaultAuto()
+	s.On = true
+	must(t, b.SetAuto(s))
+	must(t, v.Delete(liveDefault, "me"))
+	for m := 0; m < 10; m++ {
+		b.Now = func() time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+		b.Refresh(ctx, true)
+		if d, _ := b.AutoSwitch(ctx); d.To != "" {
+			t.Fatalf("minute %d: %+v", m, d)
+		}
 	}
-	unread := acct("c", 0, 0, day)
-	unread.Limits = nil
-	if got := s.Unseen([]Account{a, unread}); got != nil {
-		t.Errorf("before every account was read: %q", got)
+	if _, err := v.Get(liveDefault, "me"); err == nil {
+		t.Error("signed Claude Code in")
+	}
+}
+
+// A spent account in use stays fresh: auto-switch never takes it for
+// unreadable and fails over.
+func TestAutoSwitchSpentInUseStaysFresh(t *testing.T) {
+	b, _, _, f := switchBook(t)
+	f.usage["alice-at"], f.usage["bob-at"] = 100, 100
+	b.Refresh(ctx, true)
+	s := DefaultAuto()
+	s.On = true
+	must(t, b.SetAuto(s))
+	for m := 1; m <= 12; m++ {
+		b.Now = func() time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+		b.Refresh(ctx, false)
+		if d, _ := b.AutoSwitch(ctx); d.To != "" || strings.Contains(d.Why, "can't be read") {
+			t.Fatalf("minute %d: %+v", m, d)
+		}
 	}
 }
 
@@ -285,5 +333,19 @@ func TestDecideBarMargin(t *testing.T) {
 	m.leftLH, b = 5, acct("b", 85, 10, day)
 	if d := decide(t0, s, []Account{a, b}, m); d.To != b.Key() {
 		t.Errorf("%+v", d)
+	}
+}
+
+func TestUnseenModels(t *testing.T) {
+	a := acct("a", 0, 0, day)
+	a.Limits = append(a.Limits, Limit{Kind: "weekly_scoped", Scope: "Fable"})
+	s := Auto{Model: "fable, Opus, all, opus"}
+	if got := s.Unseen([]Account{a, acct("b", 0, 0, day)}); !slices.Equal(got, []string{"Opus"}) {
+		t.Errorf("unseen %q", got)
+	}
+	unread := acct("c", 0, 0, day)
+	unread.Limits = nil
+	if got := s.Unseen([]Account{a, unread}); got != nil {
+		t.Errorf("before every account was read: %q", got)
 	}
 }

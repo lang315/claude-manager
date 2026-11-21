@@ -81,8 +81,7 @@ type Book struct {
 	lastSwitch time.Time
 	lastFailed time.Time
 	bar        memo         // the no-return bar auto-switch set
-	unhealthy  int          // ticks the account in use has been unreadable
-	idleSince  time.Time    // when Claude Code's login in use was first seen lapsed
+	unreadable time.Time    // since when the account in use can't be read
 	note       atomic.Value // string: why Pitboard's files could not be read; read without the lock
 }
 

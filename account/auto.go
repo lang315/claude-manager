@@ -116,32 +116,32 @@ type memo struct {
 }
 
 const (
-	trustFor       = time.Hour        // a reading that failed since is trusted this long (TRUST_MAX_AGE_S)
-	trustThrottled = 2 * time.Hour    // when Anthropic asked to wait (RATE_LIMIT_TRUST_MAX_AGE_S)
-	unhealthyTicks = 3                // ticks the account in use stays unreadable before failover
-	idleHold       = 30 * time.Minute // Claude Code's lapsed login holds this long (IDLE_HOLD_MAX_S)
-	recoverySlack  = 5 * time.Minute  // RECOVERY_HYSTERESIS_S
-	spentHeadroom  = 3.0              // SPENT_HEADROOM_PCT
+	trustFor       = time.Hour       // a reading that failed since is trusted this long (TRUST_MAX_AGE_S)
+	trustThrottled = 2 * time.Hour   // when Anthropic asked to wait (RATE_LIMIT_TRUST_MAX_AGE_S)
+	failoverAfter  = 3 * time.Minute // the account in use unreadable this long fails over (3 ticks of a minute)
+	recoverySlack  = 5 * time.Minute // RECOVERY_HYSTERESIS_S
+	spentHeadroom  = 3.0             // SPENT_HEADROOM_PCT
 )
 
 // usable reports whether a's limits may be decided on at now: read in the
-// last 5 minutes, or, while reads fail, the last good ones for an hour (two
-// when Anthropic asked to wait). A login that is spent or lapsed is not.
+// last 5 minutes, or, while reads fail for a passing reason (Anthropic out
+// of reach, asking to wait, or failing itself), the last good ones for an
+// hour, two when it asked to wait. A refused, spent or lapsed login never
+// is: a switch doesn't test it.
 func usable(a Account, now time.Time) bool {
 	if len(a.Limits) == 0 || a.ReadAt.IsZero() {
 		return false
 	}
 	age := now.Sub(a.ReadAt)
-	switch a.Err {
-	case "":
+	switch {
+	case a.Err == "":
 		return age <= fresh
-	case ErrInvalidGrant.Error(), LiveExpired, InTerminalExpired:
-		return false
-	}
-	if !a.WaitUntil.IsZero() {
+	case !a.WaitUntil.IsZero():
 		return age <= trustThrottled
+	case a.Err == ErrUnreachable.Error() || strings.HasPrefix(a.Err, "Anthropic answered 5"):
+		return age <= trustFor
 	}
-	return age <= trustFor
+	return false
 }
 
 // released reports whether the account barred since auto-switch left it,
@@ -293,7 +293,7 @@ func decide(now time.Time, s Auto, accts []Account, m memo) Decision {
 	if priority {
 		key := func(st standing) []float64 { return []float64{-st.priority, resetKey(st.weekly)} }
 		for _, c := range cands {
-			if c.st.over || !act.over && !active.AutoOff && slices.Compare(key(c.st), key(act)) >= 0 {
+			if c.st.over || trigger != "failover" && !act.over && !active.AutoOff && slices.Compare(key(c.st), key(act)) >= 0 {
 				continue
 			}
 			out = append(out, ranked{key(c.st), c.a})
@@ -433,25 +433,29 @@ func (b *Book) AutoSwitch(ctx context.Context) (Decision, error) {
 	accts := b.blocks()
 	m := b.bar
 	m.last = b.lastSwitch
-	if i := slices.IndexFunc(accts, func(a Account) bool { return a.InUse }); i >= 0 && !usable(accts[i], now) {
-		// claude-swap's idle hold: Claude Code renews its lapsed login on the
-		// next message, so a quiet Mac is no reason to move.
-		if accts[i].Err == LiveExpired {
-			if b.idleSince.IsZero() {
-				b.idleSince = now
-			}
-			if now.Sub(b.idleSince) <= idleHold {
-				b.unhealthy = 0
-				return Decision{Why: "Claude Code's sign-in has lapsed; it renews on your next message, so auto-switch holds."}, nil
-			}
+	i := slices.IndexFunc(accts, func(a Account) bool { return a.InUse })
+	switch {
+	case i < 0 || accts[i].AccountUUID == "":
+		// Nobody is signed in to Claude Code: nothing to move off.
+		b.unreadable = time.Time{}
+		return Decision{Why: "Waiting for a fresh reading of the account in use."}, nil
+	case usable(accts[i], now):
+		b.unreadable = time.Time{}
+	case accts[i].Err == LiveExpired:
+		// claude-swap's idle hold, without its 30-minute cap: claude-swap
+		// renews the login in use itself, so a lapse there is rare; the app
+		// never does, so on an idle Mac it is the rule, and Claude Code
+		// renews it on the next message.
+		b.unreadable = time.Time{}
+		return Decision{Why: "Claude Code's sign-in has lapsed; it renews on your next message, so auto-switch holds."}, nil
+	default:
+		if b.unreadable.IsZero() {
+			b.unreadable = now
 		}
-		b.unhealthy++
-		if b.unhealthy < unhealthyTicks {
-			return Decision{Why: fmt.Sprintf("The account in use can't be read; moving on after %d more tries.", unhealthyTicks-b.unhealthy)}, nil
+		if wait := failoverAfter - now.Sub(b.unreadable); wait > 0 {
+			return Decision{Why: fmt.Sprintf("The account in use can't be read; moving on in %s if it stays so.", wait.Round(time.Minute))}, nil
 		}
 		m.failover = true
-	} else {
-		b.unhealthy, b.idleSince = 0, time.Time{}
 	}
 	d := decide(now, b.auto, accts, m)
 	if d.To == "" {
@@ -461,7 +465,7 @@ func (b *Book) AutoSwitch(ctx context.Context) (Decision, error) {
 		b.lastFailed = now
 		return Decision{Why: fmt.Sprintf("The switch to %s failed: %v", d.Email, err)}, err
 	}
-	b.unhealthy, b.idleSince = 0, time.Time{}
+	b.unreadable = time.Time{}
 	b.bar = memo{barTo: d.To, barFrom: d.from, leftLH: d.leftLH, leftResets: d.leftResets, leftWhy: d.trigger}
 	return d, nil
 }
