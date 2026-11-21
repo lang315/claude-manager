@@ -1,6 +1,7 @@
 package view
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -139,6 +140,11 @@ func (l *limits) switchBest(a *App) {
 	a.Go(func() { // Pick waits for a refresh under way: never on the main thread
 		b, err := a.Accounts.Pick("best")
 		a.Update(func() {
+			var stay *account.Stay
+			if errors.As(err, &stay) { // nothing to gain: a notice, not a failure
+				a.notice = stay.Message
+				return
+			}
 			if err != nil {
 				l.toast(a, err)
 				return

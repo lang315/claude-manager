@@ -290,3 +290,21 @@ func TestServiceDisabled(t *testing.T) {
 		t.Error("enabled taken for disabled")
 	}
 }
+
+// switch --strategy best stays, said and not failed, when nothing has
+// more room than the account in use (cswap's already-best).
+func TestSwitchBestStays(t *testing.T) {
+	a := newApp(t)
+	a.usage["alice"], a.usage["bob"] = 10, 60
+	if code, out, errs := a.run(t, "", "switch", "--strategy", "best"); code != ok || !strings.Contains(out, "Already on the account with the most room") {
+		t.Errorf("best: %d %q %s", code, out, errs)
+	}
+	if _, out, _ := a.run(t, "", "switch", "--strategy", "best", "--json"); !strings.Contains(out, `"reason":"already-best"`) || !strings.Contains(out, `"switched":false`) {
+		t.Errorf("best --json: %s", out)
+	}
+	a = newApp(t)
+	a.usage["alice"], a.usage["bob"] = 90, 60
+	if code, out, _ := a.run(t, "", "switch", "--strategy", "best"); code != ok || !strings.Contains(out, "bob@example.com") {
+		t.Errorf("best onto more room: %d %s", code, out)
+	}
+}

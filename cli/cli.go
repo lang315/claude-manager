@@ -168,8 +168,26 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 	case "switch":
 		name := one(rest)
 		if name == "" {
+			if *model != "" { // claude-swap's switch --model: its windows count in best and next-available
+				s, _ := c.b.AutoInEffect()
+				s.Model = *model
+				if err = c.b.Override(s); err != nil {
+					break
+				}
+			}
 			var a account.Account
-			if a, err = c.pick(ctx, *strategy); err != nil {
+			a, err = c.pick(ctx, *strategy)
+			var stay *account.Stay
+			if errors.As(err, &stay) { // nothing to gain: said, not failed
+				err = nil
+				if *jsonOut {
+					err = json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "switched": false, "reason": stay.Reason, "message": stay.Message})
+				} else {
+					fmt.Fprintln(c.out, stay.Message)
+				}
+				break
+			}
+			if err != nil {
 				break
 			}
 			name = a.Key()
@@ -272,7 +290,8 @@ const usage = `claude-manager <command> [flags]
   disable | enable <account>       hold an account out of auto-switch, or put it back
   threshold [<account> <pct> | <account> --unset]   an account's own line, or list them
   priority [<account> <tier> | <account> --unset]   an account's tier, or list them
-  switch [--strategy rotate|best|next-available]    with no account: the next one
+  switch [--strategy rotate|best|next-available] [--model M]   with no account: the next one;
+                                   best only onto more room than the account in use
   auto [--once] [--threshold P] [--weekly-threshold P] [--model M] [--strategy S]
        [--interval S] [--cooldown S] [--include-api-key-accounts]  without --once: every interval until stopped
   list --token-status              where each login is and when it lapses

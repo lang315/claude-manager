@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"slices"
+	"time"
 )
 
 // Pick is claude-swap's switch with no account, and its TUI's best pick:
@@ -45,25 +46,97 @@ func (b *Book) Pick(strategy string) (Account, error) {
 			return cands[0], nil
 		}
 	case "next-available":
+		s, _ := b.AutoInEffect()
 		for _, a := range cands {
-			if p, ok := Fullest(a); a.Usable(now) && ok && p < 100 {
+			if h, ok := headroom(a, s); a.Usable(now) && ok && h > 0 {
 				return a, nil
 			}
 		}
 	case "best":
-		best, room := Account{}, -1.0
-		for _, a := range cands {
-			if p, ok := Fullest(a); a.Usable(now) && ok && 100-p > room {
-				best, room = a, 100-p
-			}
-		}
-		if room > 0 {
-			return best, nil
-		}
+		return b.best(accts, cands, now)
 	default:
 		return Account{}, errors.New("--strategy is rotate, best or next-available")
 	}
-	return Account{}, errors.New("No account to switch to.")
+	return Account{}, b.noneLeft(accts)
+}
+
+// Stay is Pick's answer when no switch would help, in claude-swap's words;
+// Reason is its JSON reason.
+type Stay struct{ Reason, Message string }
+
+func (s *Stay) Error() string { return s.Message }
+
+// best is claude-swap's _select_best_switchable: an account with strictly
+// more room than the one in use, counting --model's windows; else Stay.
+// Ties stay, as does a comparison that can't be made.
+func (b *Book) best(accts, cands []Account, now time.Time) (Account, error) {
+	if len(cands) == 0 {
+		return Account{}, b.noneLeft(accts)
+	}
+	s, _ := b.AutoInEffect()
+	cur := slices.IndexFunc(accts, func(a Account) bool { return a.InUse })
+	here := "the account in use"
+	curRoom, curKnown := 0.0, false
+	if cur >= 0 {
+		here = accts[cur].Email
+		curRoom, curKnown = headroom(accts[cur], s)
+		curKnown = curKnown && accts[cur].Usable(now)
+	}
+	if !curKnown {
+		return Account{}, &Stay{"usage-unavailable", "The account in use has no usage to compare: staying on " + here + ". claude-manager switch rotates."}
+	}
+	best, room, unknown := Account{}, -1.0, false
+	for _, a := range cands {
+		h, ok := headroom(a, s)
+		if !ok || !a.Usable(now) {
+			unknown = true
+			continue
+		}
+		if h > room {
+			best, room = a, h
+		}
+	}
+	switch {
+	case room < 0:
+		return Account{}, &Stay{"usage-unavailable", "No other account has usage to compare: staying on " + here + ". claude-manager switch rotates."}
+	case room > curRoom:
+		return best, nil
+	case unknown:
+		return Account{}, &Stay{"usage-unavailable", "No account with known usage has more room; some usage is unavailable: staying on " + here + "."}
+	case curRoom <= 0:
+		limits := "5h/7d limits"
+		if s.Model != "" {
+			limits = "usage limits"
+		}
+		return Account{}, &Stay{"candidates-exhausted", "All accounts are at their " + limits + ": staying on " + here + "."}
+	}
+	return Account{}, &Stay{"already-best", "Already on the account with the most room (" + here + ")."}
+}
+
+// noneLeft says why there is no account to switch to.
+func (b *Book) noneLeft(accts []Account) error {
+	added := 0
+	for _, a := range accts {
+		if a.Added {
+			added++
+		}
+	}
+	if added <= 1 {
+		return &Stay{"only-one-account", "Only one account is added: add more to switch between."}
+	}
+	return &Stay{"no-valid-target", "No account to switch to: the others are held out of auto-switch, open in a terminal, or can't be switched to."}
+}
+
+// headroom is the room left before a's fullest window: five-hour, 7-day,
+// and the per-model windows s.Model names (claude-swap's account_headroom).
+func headroom(a Account, s Auto) (float64, bool) {
+	p, ok := Fullest(a)
+	for _, l := range a.Limits {
+		if l.Kind == "weekly_scoped" && s.counts(l.Scope) {
+			p, ok = max(p, l.Percent), true
+		}
+	}
+	return 100 - p, ok
 }
 
 // Fullest is the highest share of a's five-hour and 7-day windows.
