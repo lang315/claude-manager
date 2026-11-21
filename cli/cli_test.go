@@ -142,7 +142,9 @@ func TestStatusAndSwitch(t *testing.T) {
 		t.Errorf("status --json: %s", out)
 	}
 	code, out, errs := a.run(t, "", "switch", "bob@example.com", "--json")
-	if code != ok || !strings.Contains(out, `"switched":true`) || !strings.Contains(out, `"to":"bob@example.com"`) {
+	// cswap's switch --json: from and to as {number, email}, reason switched.
+	if code != ok || !strings.Contains(out, `"switched":true`) || !strings.Contains(out, `"to":{"email":"bob@example.com","number":1}`) ||
+		!strings.Contains(out, `"from":{"email":"alice@example.com"`) || !strings.Contains(out, `"reason":"switched"`) {
 		t.Fatalf("switch: %d %s %s", code, out, errs)
 	}
 	live, _ := a.v.Get("Claude Code-credentials", "me")

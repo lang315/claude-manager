@@ -254,7 +254,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 	}
 	if err != nil {
 		if *jsonOut {
-			json.NewEncoder(out).Encode(map[string]any{"schemaVersion": 1, "error": map[string]string{"message": err.Error()}})
+			json.NewEncoder(out).Encode(map[string]any{"schemaVersion": 1, "error": map[string]string{"type": errType(err), "message": err.Error()}})
 		} else {
 			fmt.Fprintln(errs, err)
 		}
@@ -631,6 +631,10 @@ func (c *cmd) switchTo(ctx context.Context, name string, asJSON, force bool) err
 		return err
 	}
 	from := c.inUse()
+	var fromN any
+	if i := slices.IndexFunc(accts, func(x account.Account) bool { return x.InUse }); i >= 0 && accts[i].Slot > 0 {
+		fromN = accts[i].Slot
+	}
 	if a.InUse && !force && !asJSON {
 		fmt.Fprintf(c.out, "Already on %s. switch --force puts its saved login in use.\n", a.Email)
 		return nil
@@ -644,7 +648,16 @@ func (c *cmd) switchTo(ctx context.Context, name string, asJSON, force bool) err
 		return err
 	}
 	if asJSON {
-		return json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "switched": from != a.Email, "from": from, "to": a.Email, "reason": "asked"})
+		reason := "switched"
+		if from == a.Email {
+			reason = "already-active"
+		}
+		var toN any
+		if a.Slot > 0 {
+			toN = a.Slot
+		}
+		return json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "switched": from != a.Email, "reason": reason,
+			"from": map[string]any{"number": fromN, "email": from}, "to": map[string]any{"number": toN, "email": a.Email}})
 	}
 	if now, _ := c.b.UnclaimedLogins(); len(now) > len(kept) {
 		fmt.Fprintln(c.errs, "Claude Code's sign-in named no added account; it was kept as unclaimed (claude-manager unclaimed).")
@@ -1227,4 +1240,18 @@ func usageStatus(a account.Account) string {
 		return "keychain_unavailable"
 	}
 	return "unavailable"
+}
+
+// errType is cswap's error.type for --json: what kind of failure.
+func errType(err error) string {
+	var refused *account.Refused
+	switch {
+	case errors.Is(err, account.ErrUnreachable), errors.Is(err, account.ErrTLS):
+		return "network"
+	case errors.Is(err, account.ErrInvalidGrant), errors.Is(err, account.ErrUnauthorized), errors.As(err, &refused):
+		return "auth"
+	case errors.Is(err, account.ErrLocked), errors.Is(err, account.ErrKeychainSlow):
+		return "keychain"
+	}
+	return "error"
 }
