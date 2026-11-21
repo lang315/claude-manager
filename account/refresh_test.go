@@ -324,7 +324,8 @@ func TestPlan(t *testing.T) {
 	g.plans = map[string]string{"bob-at": "default_claude_max_5x"}
 	c.Refresh(ctx, true)
 	blocks, _ = c.Blocks()
-	if a := blockOf(t, blocks, "bob@example.com"); a.PlanTier != "" || !a.PlanAt.Equal(t0.Add(planRetry-planTTL)) {
+	// claude-swap's plan retry is its own: the plan's age stays true.
+	if a := blockOf(t, blocks, "bob@example.com"); a.PlanTier != "" || !a.PlanAt.IsZero() || !a.PlanRetry.Equal(t0.Add(planRetry)) {
 		t.Errorf("kept another account's plan, or no retry in 15 minutes: %+v", a)
 	}
 	// Within 6 hours nothing is asked, even with no answer cached.
@@ -390,5 +391,19 @@ func TestRateLimitWait(t *testing.T) {
 		if got := rateLimitWait(c.asked, c.n); got != c.want {
 			t.Errorf("asked %v, failure %d: %v, want %v", c.asked, c.n, got, c.want)
 		}
+	}
+}
+
+// The plan is read even when the usage read fails: an account whose usage
+// Anthropic won't give still shows its plan, and a lapsed one says so.
+func TestPlanReadWhenUsageFails(t *testing.T) {
+	b, _, _, f := switchBook(t)
+	f.usage["alice-at"] = 10
+	f.status["bob-at"] = 503
+	f.plans = map[string]string{"bob-at": "default_claude_max_5x"}
+	b.Refresh(ctx, true)
+	blocks, _ := b.Blocks()
+	if a := blockOf(t, blocks, "bob@example.com"); PlanLabel(a) != "Max 5x" {
+		t.Errorf("no plan with the usage failing: %+v", a)
 	}
 }

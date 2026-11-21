@@ -2,6 +2,7 @@ package account
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 )
@@ -50,15 +51,22 @@ func PlanLapsed(a Account) bool { return a.PlanStatus == "canceled" && a.PlanTie
 // only when the answer is provably a's (claude-swap's matches_slot); a
 // failed read is tried again in 15 minutes.
 func (b *Book) readPlan(ctx context.Context, a *Account, token string, now time.Time) {
-	if token == "" || a.Token || a.APIKey || now.Sub(a.PlanAt) < planTTL {
+	if token == "" || a.Token || a.APIKey || now.Sub(a.PlanAt) < planTTL || now.Before(a.PlanRetry) {
 		return
 	}
 	p, err := b.profileOf(ctx, token) // the login in use's is asked whose it is anyway
 	if err != nil || p.Tier == "" || p.AccountUUID != a.AccountUUID || a.OrgUUID != "" && p.OrgUUID != a.OrgUUID {
-		a.PlanAt = now.Add(planRetry - planTTL)
+		// claude-swap's own plan retry: 15 minutes, or as long as Anthropic
+		// asks, a day at most; PlanAt keeps the plan's true age.
+		wait := planRetry
+		var rl *RateLimited
+		if errors.As(err, &rl) {
+			wait = min(max(rl.Wait, planRetry), 24*time.Hour)
+		}
+		a.PlanRetry = now.Add(wait)
 		return
 	}
-	a.PlanTier, a.PlanOrg, a.PlanStatus, a.PlanName, a.PlanAt = p.Tier, p.OrgType, p.Status, p.PlanName, now
+	a.PlanTier, a.PlanOrg, a.PlanStatus, a.PlanName, a.PlanAt, a.PlanRetry = p.Tier, p.OrgType, p.Status, p.PlanName, now, time.Time{}
 }
 
 // StoreNote is claude-swap's store-unmirrored note: with

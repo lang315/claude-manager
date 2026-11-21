@@ -39,12 +39,13 @@ type Account struct {
 	PlanStatus string    `json:"planStatus,omitempty"`
 	PlanName   string    `json:"planName,omitempty"`
 	PlanAt     time.Time `json:"planAt,omitzero"`
-	GoodUntil  time.Time `json:"goodUntil,omitzero"` // when an added account's sign-in lapses
-	Limits     []Limit   `json:"limits,omitempty"`   // as last read
-	ReadAt     time.Time `json:"readAt,omitzero"`    // when Limits were read
-	Err        string    `json:"err,omitempty"`      // why the last ask failed; "" once one works
-	WaitUntil  time.Time `json:"waitUntil,omitzero"` // Anthropic asked to wait until then
-	HeldUntil  time.Time `json:"heldUntil,omitzero"` // read by another Mac: not read here until then
+	PlanRetry  time.Time `json:"planRetryAt,omitzero"` // when a failed plan read is tried again
+	GoodUntil  time.Time `json:"goodUntil,omitzero"`   // when an added account's sign-in lapses
+	Limits     []Limit   `json:"limits,omitempty"`     // as last read
+	ReadAt     time.Time `json:"readAt,omitzero"`      // when Limits were read
+	Err        string    `json:"err,omitempty"`        // why the last ask failed; "" once one works
+	WaitUntil  time.Time `json:"waitUntil,omitzero"`   // Anthropic asked to wait until then
+	HeldUntil  time.Time `json:"heldUntil,omitzero"`   // read by another Mac: not read here until then
 	// OAuthAccount is Claude Code's oauthAccount object from ~/.claude.json.
 	OAuthAccount json.RawMessage `json:"oauthAccount,omitempty"`
 	AutoOff      bool            `json:"autoOff,omitempty"`  // held out of auto-switch

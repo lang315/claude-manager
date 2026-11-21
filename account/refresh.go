@@ -249,6 +249,9 @@ func (b *Book) read(ctx context.Context, a *Account, token, held string, now tim
 		}
 		a.Failures++
 		a.Retry = now.Add(backoff(a.Failures))
+		if !errors.Is(err, ErrUnauthorized) && !errors.Is(err, ErrInvalidGrant) && !errors.Is(err, ErrForbidden) {
+			b.readPlan(ctx, a, used, now) // its own schedule, as claude-swap's: a plan shows with usage failing
+		}
 		return
 	}
 	a.Failures, a.Retry = 0, time.Time{}
