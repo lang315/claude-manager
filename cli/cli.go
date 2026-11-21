@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -32,7 +33,10 @@ const (
 
 // Commands are the commands Run knows; main opens the app for anything
 // else.
-var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "help"}
+var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "alias", "map", "unmap", "version", "--version", "help"}
+
+// Version is the app's, for version.
+var Version = "dev"
 
 // Run runs the command in args (without the program name) on b, writing
 // to out and errs, and returns its exit code.
@@ -53,6 +57,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 	yes := fs.Bool("yes", false, "purge: really remove every account")
 	noShare := fs.Bool("no-share", false, "run: don't share settings, CLAUDE.md, skills and MCP servers")
 	noHistory := fs.Bool("no-share-history", false, "run: don't share chat history")
+	unset := fs.Bool("unset", false, "alias: take an account's alias away")
 	if err := fs.Parse(reorder(args[1:])); err != nil {
 		return failed
 	}
@@ -62,6 +67,14 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 	switch args[0] {
 	case "help":
 		fmt.Fprintln(out, usage)
+	case "version", "--version":
+		fmt.Fprintln(out, "claude-manager", Version)
+	case "alias":
+		err = c.alias(rest, *unset)
+	case "map":
+		err = c.mapDir(rest)
+	case "unmap":
+		err = c.unmap(one(rest))
 	case "list":
 		err = c.list(ctx, *jsonOut)
 	case "status":
@@ -109,8 +122,14 @@ const usage = `claude-manager <command> [flags]
   purge --yes                      remove every added account
   export <file> [--full]           write the added accounts to a file
   import <file> [--hold SECONDS]   add an export's accounts, or take a readings file (cswap list --json)
-  run <email> [folder] [--no-share] [--no-share-history]
-                                   open Claude Code in Terminal as an account
+  run [<email>] [folder] [--no-share] [--no-share-history]
+                                   open Claude Code in Terminal as an account; with none
+                                   named, the one mapped to the folder
+  alias [<email> <name> | <email> --unset]
+                                   a short name for an account, or list them
+  map [<email> [folder]]           map a folder (and those below) to an account, or list
+  unmap [folder]                   take a folder's mapping away
+  version
 
 With no command the app opens.`
 
@@ -161,7 +180,7 @@ func find(accts []account.Account, name string) (account.Account, error) {
 	}
 	var hits []account.Account
 	for _, a := range accts {
-		if a.Email == name || a.Key() == name {
+		if a.Email == name || a.Key() == name || a.Alias != "" && strings.EqualFold(a.Alias, name) {
 			hits = append(hits, a)
 		}
 	}
@@ -472,15 +491,28 @@ func (c *cmd) importFile(path string, hold int) error {
 
 func (c *cmd) run(rest []string, share account.Share) error {
 	accts, _ := c.b.Blocks()
-	a, err := find(accts, one(rest))
+	name, folder := one(rest), "."
+	if len(rest) > 1 {
+		folder = rest[1]
+	} else if isDir(name) {
+		name, folder = "", name // run <folder>: its mapped account
+	}
+	folder, err := absPath(folder)
 	if err != nil {
 		return err
 	}
-	folder := "."
-	if len(rest) > 1 {
-		folder = rest[1]
+	if name == "" {
+		key, _, err := c.b.Mapped(folder)
+		if err != nil {
+			return err
+		}
+		if key == "" {
+			return fmt.Errorf("No account is mapped to %s: run claude there, or name an account.", folder)
+		}
+		name = key
 	}
-	if folder, err = absPath(folder); err != nil {
+	a, err := find(accts, name)
+	if err != nil {
 		return err
 	}
 	if err := c.b.Run(a.Key(), folder, share); err != nil {
@@ -491,3 +523,97 @@ func (c *cmd) run(rest []string, share account.Share) error {
 }
 
 func absPath(p string) (string, error) { return filepath.Abs(p) }
+
+func isDir(p string) bool {
+	if p == "" {
+		return false
+	}
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
+}
+
+func (c *cmd) alias(rest []string, unset bool) error {
+	accts, _ := c.b.Blocks()
+	if len(rest) == 0 {
+		for _, a := range accts {
+			if a.Alias != "" {
+				fmt.Fprintf(c.out, "%s\t%s\n", a.Alias, a.Email)
+			}
+		}
+		return nil
+	}
+	a, err := find(accts, rest[0])
+	if err != nil {
+		return err
+	}
+	name := one(rest[1:])
+	switch {
+	case unset:
+		name = ""
+	case name == "":
+		return errors.New("give the alias, or --unset")
+	}
+	if err := c.b.SetAlias(a.Key(), name); err != nil {
+		return err
+	}
+	if name == "" {
+		fmt.Fprintf(c.out, "%s has no alias.\n", a.Email)
+	} else {
+		fmt.Fprintf(c.out, "%s is %s.\n", strings.ToLower(strings.TrimSpace(name)), a.Email)
+	}
+	return nil
+}
+
+func (c *cmd) mapDir(rest []string) error {
+	accts, _ := c.b.Blocks()
+	if len(rest) == 0 {
+		m, err := c.b.Maps()
+		if err != nil {
+			return err
+		}
+		dirs := slices.Sorted(maps.Keys(m))
+		for _, d := range dirs {
+			email := m[d]
+			if i := slices.IndexFunc(accts, func(a account.Account) bool { return a.Key() == m[d] }); i >= 0 {
+				email = accts[i].Email
+			}
+			fmt.Fprintf(c.out, "%s\t%s\n", d, email)
+		}
+		return nil
+	}
+	a, err := find(accts, rest[0])
+	if err != nil {
+		return err
+	}
+	dir := "."
+	if len(rest) > 1 {
+		dir = rest[1]
+	}
+	if dir, err = absPath(dir); err != nil {
+		return err
+	}
+	if err := c.b.Map(a.Key(), dir); err != nil {
+		return err
+	}
+	fmt.Fprintf(c.out, "%s now opens as %s.\n", dir, a.Email)
+	return nil
+}
+
+func (c *cmd) unmap(dir string) error {
+	if dir == "" {
+		dir = "."
+	}
+	dir, err := absPath(dir)
+	if err != nil {
+		return err
+	}
+	ok, err := c.b.Unmap(dir)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("%s is not mapped.", dir)
+	}
+	fmt.Fprintf(c.out, "Unmapped %s.\n", dir)
+	return nil
+}

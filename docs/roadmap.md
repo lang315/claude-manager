@@ -58,6 +58,7 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **3c. Readings from another Mac** (`import-usage`, `--hold`) (#24, draft).
 - [x] **8. Setup-token accounts and the header probe** (#25, draft).
 - [x] **8b. Console API key accounts** (#26, draft).
+- [x] **9b. Aliases, folder mappings, version** on the command line (#28, draft).
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an
@@ -83,10 +84,11 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | Dead-token quarantine | 2b: a refused refresh token is never an auto-switch candidate and is not posted again until the saved login changes; Sign In Again replaces it |
 | `export` / `import` | Ported: 3; `claude-manager export|import` (9) |
 | `run` (session mode), history and setup sharing, MCP mirror | 4; `claude-manager run <email> [folder] [--no-share] [--no-share-history]` (9); `--no-share` / `--no-share-history` as the dialog's two checkboxes (4b) |
-| `map` / `unmap` (directory to account) | Not applicable: it picks the account for a bare `cswap run` typed in a folder; the app asks for the folder |
+| `map` / `unmap` (directory to account) | 9b: `claude-manager map|unmap`, and `run` with no account opens the one mapped to the folder |
 | Weekly pace marker | 5 |
 | Menu bar, LaunchAgent, Start at login | 6 (the app itself stays in the menu bar; MyGo's open-at-login, no LaunchAgent) |
-| `alias`, slot numbers, `move`, `swap` | Not ported: the app and its command line name an account by its email, or by its key when an email has two organizations; there are no slots to number, move or swap |
+| `alias` | 9b: `claude-manager alias`, usable wherever an email is; exported and imported |
+| Slot numbers, `move`, `swap` | Not applicable: there are no slots; an account is named by its email, alias or key, and the list is in the app's order |
 | `unclaimed` stash | Not needed: an unknown outgoing login becomes an added account |
 | API-key accounts | 8b: added, switched to (Claude Code's managed key), exported and imported; no limits are read |
 | `config` | Covered: Auto-Switch Settings |
@@ -107,7 +109,8 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | `auto --interval` | 2c (the setting) |
 | `ui.theme` | Not applicable: the app follows macOS's appearance |
 | `help` | 9: `claude-manager help` |
-| `--version`, `--debug` | Not applicable: the app's About shows its version; it keeps no debug log |
+| `--version` | 9b: `claude-manager version` |
+| `--debug` | Not applicable: the app keeps no debug log |
 | Setting `autoswitch.threshold`, `weeklyThreshold`, `cooldownSeconds`, `hysteresisPct`, `strategy`, `model` | Ported: Auto-Switch Settings (2, 5) |
 | Settings `autoswitch.intervalSeconds`, `unhealthyTicks` | 2c: Auto-Switch Settings, "Check every (seconds)" (15–3600, 60) and "Unreadable ticks before moving on" (1–100, 3) |
 | Setting `autoswitch.includeApiKeyAccounts` | 8b: "Fall back on an API key account when no account has room" |

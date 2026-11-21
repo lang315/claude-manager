@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -42,6 +43,7 @@ type Account struct {
 	Terminal     Terminal        `json:"terminal,omitzero"`  // open in a terminal from its own profile
 	Token        bool            `json:"token,omitempty"`    // a setup-token account: no refresh token, read by the header probe
 	APIKey       bool            `json:"apiKey,omitempty"`   // a Console API key account: no limits, nothing read
+	Alias        string          `json:"alias,omitempty"`    // a short name for it on the command line
 	InUse        bool            `json:"-"`                  // Claude Code is signed in to it
 	Added        bool            `json:"-"`                  // the app holds a login of its own for it
 	Source       string          `json:"-"`                  // "Pitboard" when Limits are Pitboard's reading
@@ -86,15 +88,17 @@ type Book struct {
 	lastSwitch time.Time
 	lastFailed time.Time
 	bar        memo                // the no-return bar auto-switch set
+	maps       map[string]string   // folder → account key
 	unreadable time.Time           // since when the account in use can't be read
 	dead       map[string][32]byte // an account's refresh token Anthropic refused: its SHA-256
 	note       atomic.Value        // string: why Pitboard's files could not be read; read without the lock
 }
 
 type saved struct {
-	Accounts []Account `json:"accounts"`
-	InUse    *Account  `json:"inUse,omitempty"`
-	Auto     *Auto     `json:"auto,omitempty"`
+	Accounts []Account         `json:"accounts"`
+	InUse    *Account          `json:"inUse,omitempty"`
+	Auto     *Auto             `json:"auto,omitempty"`
+	Maps     map[string]string `json:"maps,omitempty"` // a folder to the account claude-manager run opens there
 }
 
 func (b *Book) path() string { return filepath.Join(b.Dir, "accounts.json") }
@@ -120,6 +124,7 @@ func (b *Book) load() error {
 		return fmt.Errorf("accounts.json could not be read: %w", err)
 	}
 	b.added, b.inUse = s.Accounts, s.InUse
+	b.maps = s.Maps
 	if s.Auto != nil {
 		b.auto = s.Auto.clamped()
 	}
@@ -134,7 +139,7 @@ func (b *Book) save() error {
 	if err := os.Chmod(b.Dir, 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(saved{Accounts: b.added, InUse: b.inUse, Auto: &b.auto}, "", "  ")
+	data, err := json.MarshalIndent(saved{Accounts: b.added, InUse: b.inUse, Auto: &b.auto, Maps: b.maps}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -252,7 +257,7 @@ func (b *Book) keepLocked(blob []byte, p Profile, oauthAccount json.RawMessage) 
 	}
 	if was != nil {
 		a.Limits, a.ReadAt = was.Limits, was.ReadAt
-		a.AutoOff, a.Line, a.Priority, a.Terminal, a.Token = was.AutoOff, was.Line, was.Priority, was.Terminal, was.Token
+		a.AutoOff, a.Line, a.Priority, a.Terminal, a.Token, a.Alias = was.AutoOff, was.Line, was.Priority, was.Terminal, was.Token, was.Alias
 		if a.OAuthAccount == nil {
 			a.OAuthAccount = was.OAuthAccount
 		}
@@ -302,5 +307,6 @@ func (b *Book) Remove(key string) error {
 		return err
 	}
 	b.added = slices.DeleteFunc(b.added, func(a Account) bool { return a.Key() == key })
+	maps.DeleteFunc(b.maps, func(_, k string) bool { return k == key })
 	return b.save()
 }

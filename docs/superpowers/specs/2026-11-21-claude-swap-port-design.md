@@ -562,6 +562,23 @@ Verified: `TestListJSONIsCswapsAndImports`, `TestStatusAndSwitch`,
 `TestFindAmbiguous`, `TestListUnavailable`; mutation checks (13 of 13
 caught).
 
+## 9b. Aliases and folder mappings
+
+- `alias` (claude-swap's `normalize_alias`): lower case, a letter or digit
+  first, then letters, digits, `-`, `_`, `.`; not all digits; one account
+  per alias. `claude-manager alias [<account> <name> | <account> --unset]`;
+  an alias names the account wherever an email does. Export writes it,
+  Import takes it when free.
+- `map` (`mappings.py`): `accounts.json` `maps`, a full folder path to an
+  account key; the folder and those below it. `claude-manager map
+  [<account> [folder]]`, `unmap [folder]`; `run` with no account, or with a
+  folder alone, opens the account mapped to the nearest mapped folder, and
+  says so when none is. Removing an account removes its mappings.
+- `version`.
+
+Verified: `TestSetAlias`, `TestMaps`, `TestAliasTravels`, `TestAliasMapRun`;
+mutation checks (10 of 10 caught, after a redundant check went).
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported

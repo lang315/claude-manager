@@ -30,6 +30,7 @@ type exportEntry struct {
 	OrgName     string          `json:"organizationName"`
 	Added       string          `json:"added"`
 	Kind        string          `json:"kind,omitempty"`
+	Alias       string          `json:"alias,omitempty"`
 	Credentials json.RawMessage `json:"credentials"` // {"claudeAiOauth": …}; a string for an API key
 	Config      json.RawMessage `json:"config"`      // {"oauthAccount": …}
 }
@@ -77,7 +78,7 @@ func (b *Book) Export(path string, full bool) (n, left int, err error) {
 			}
 			creds, _ := json.Marshal(key)
 			conf, _ := json.Marshal(map[string]json.RawMessage{"oauthAccount": a.OAuthAccount})
-			f.Accounts = append(f.Accounts, exportEntry{Number: len(f.Accounts) + 1, Email: a.Email, Added: now, Kind: "api_key", Credentials: creds, Config: conf})
+			f.Accounts = append(f.Accounts, exportEntry{Number: len(f.Accounts) + 1, Email: a.Email, Added: now, Kind: "api_key", Credentials: creds, Config: conf, Alias: a.Alias})
 			continue
 		}
 		whole := full && a.Key() == inUse && live != nil
@@ -108,7 +109,7 @@ func (b *Book) Export(path string, full bool) (n, left int, err error) {
 			creds, conf = bytes.TrimSpace(blob), bytes.TrimSpace(mine)
 		}
 		f.Accounts = append(f.Accounts, exportEntry{Number: len(f.Accounts) + 1, Email: a.Email, UUID: a.AccountUUID,
-			OrgUUID: a.OrgUUID, OrgName: a.OrgName, Added: now, Credentials: creds, Config: conf})
+			OrgUUID: a.OrgUUID, OrgName: a.OrgName, Added: now, Credentials: creds, Config: conf, Alias: a.Alias})
 	}
 	if len(f.Accounts) == 0 {
 		return 0, left, errNothingToExport
@@ -179,9 +180,10 @@ func (b *Book) Import(path string) (Imported, error) {
 	}
 
 	type entry struct {
-		p    Profile
-		blob []byte
-		acct json.RawMessage
+		p     Profile
+		blob  []byte
+		acct  json.RawMessage
+		alias string
 	}
 	var in []entry
 	var keys []entry // API key accounts: the key in blob
@@ -201,7 +203,7 @@ func (b *Book) Import(path string) (Imported, error) {
 			if slices.ContainsFunc(keys, func(x entry) bool { return x.p.Email == e.Email }) {
 				return Imported{}, bad("repeats an account")
 			}
-			keys = append(keys, entry{p: Profile{Email: e.Email}, blob: []byte(strings.TrimSpace(key))})
+			keys = append(keys, entry{p: Profile{Email: e.Email}, blob: []byte(strings.TrimSpace(key)), alias: e.Alias})
 			continue
 		}
 		if e.Email == "" {
@@ -237,7 +239,7 @@ func (b *Book) Import(path string) (Imported, error) {
 		if name == "" {
 			name = ids.OrgName
 		}
-		in = append(in, entry{Profile{AccountUUID: ids.AccountUUID, Email: e.Email, OrgUUID: ids.OrgUUID, OrgName: name}, blob, acct})
+		in = append(in, entry{Profile{AccountUUID: ids.AccountUUID, Email: e.Email, OrgUUID: ids.OrgUUID, OrgName: name}, blob, acct, e.Alias})
 	}
 
 	b.mu.Lock()
@@ -297,5 +299,24 @@ func (b *Book) Import(path string) (Imported, error) {
 			got.Updated++
 		}
 	}
+	for _, e := range append(keys, in...) {
+		b.takeAlias(e.p.Key(), e.alias)
+		if e.p.AccountUUID == "" {
+			b.takeAlias(keyUUID+e.p.Email+"/", e.alias)
+		}
+	}
 	return got, b.save()
+}
+
+// takeAlias gives the added account key an imported alias when it has
+// none and no other account has it; a bad or taken one is dropped, as
+// claude-swap's import does.
+func (b *Book) takeAlias(key, name string) {
+	alias, err := normalizeAlias(name)
+	if name == "" || err != nil || slices.ContainsFunc(b.added, func(a Account) bool { return a.Alias == alias }) {
+		return
+	}
+	if i := slices.IndexFunc(b.added, func(a Account) bool { return a.Key() == key }); i >= 0 && b.added[i].Alias == "" {
+		b.added[i].Alias = alias
+	}
 }

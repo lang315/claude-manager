@@ -253,3 +253,41 @@ func TestListUnavailable(t *testing.T) {
 		t.Errorf("list %s", out)
 	}
 }
+
+func TestAliasMapRun(t *testing.T) {
+	a := newApp(t)
+	if code, out, _ := a.run(t, "", "alias", "bob@example.com", "Dev"); code != ok || !strings.Contains(out, "dev is bob@example.com") {
+		t.Fatalf("alias: %d %s", code, out)
+	}
+	if code, out, _ := a.run(t, "", "alias"); code != ok || out != "dev\tbob@example.com\n" {
+		t.Errorf("alias list: %q", out)
+	}
+	work := t.TempDir()
+	if code, out, errs := a.run(t, "", "map", "dev", work); code != ok || !strings.Contains(out, "now opens as bob@example.com") {
+		t.Fatalf("map: %d %s %s", code, out, errs)
+	}
+	var folder string
+	a.b.Launch = func(f, p string) error { folder = f; return nil }
+	a.b.Running = func(string) (bool, error) { return false, nil }
+	sub := filepath.Join(work, "src")
+	must(t, os.Mkdir(sub, 0o700))
+	if code, _, errs := a.run(t, "", "run", sub); code != ok || folder != sub {
+		t.Fatalf("run by mapping: %d %s %q", code, errs, folder)
+	}
+	if code, _, errs := a.run(t, "", "run", t.TempDir()); code != failed || !strings.Contains(errs, "No account is mapped") {
+		t.Errorf("unmapped: %d %s", code, errs)
+	}
+	if code, out, _ := a.run(t, "", "unmap", work); code != ok || !strings.Contains(out, "Unmapped") {
+		t.Errorf("unmap: %d %s", code, out)
+	}
+	if code, _, _ := a.run(t, "", "unmap", work); code != failed {
+		t.Error("unmapped twice")
+	}
+	if code, out, _ := a.run(t, "", "alias", "dev", "--unset"); code != ok || !strings.Contains(out, "no alias") {
+		t.Errorf("unset: %d %s", code, out)
+	}
+	Version = "9.9"
+	if _, out, _ := a.run(t, "", "version"); out != "claude-manager 9.9\n" {
+		t.Errorf("version %q", out)
+	}
+}

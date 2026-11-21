@@ -34,6 +34,7 @@ func main() {
 		root, claudeJSON = filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json")
 	}
 	if len(os.Args) > 1 && slices.Contains(cli.Commands, os.Args[1]) {
+		cli.Version = version
 		os.Exit(cli.Run(context.Background(), os.Args[1:], accounts(home, configDir, root), os.Stdin, os.Stdout, os.Stderr))
 	}
 	a := view.New(&store.Store{
