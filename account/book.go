@@ -58,8 +58,8 @@ type Account struct {
 	Added        bool            `json:"-"`                  // the app holds a login of its own for it
 	Source       string          `json:"-"`                  // "Pitboard" when Limits are Pitboard's reading
 	climbing     bool            // its fullest window rose a point or more at the last read
-	failures     int             // reads failed in a row
-	retryAt      time.Time       // when a failed read is tried again
+	Failures     int             `json:"failures,omitempty"` // reads failed in a row; saved, so every process backs off
+	Retry        time.Time       `json:"retryAt,omitzero"`   // when a failed read is tried again
 }
 
 // Key names the account by Anthropic's account and organisation.
@@ -209,7 +209,7 @@ func (b *Book) load() error {
 	if err != nil {
 		return fmt.Errorf("accounts.json could not be read: %w", err)
 	}
-	was := map[string]Account{} // what accounts.json never holds: a re-read keeps it
+	was := map[string]Account{} // what accounts.json never holds (climbing): a re-read keeps it
 	for _, a := range b.added {
 		was[a.Key()] = a
 	}
@@ -219,7 +219,7 @@ func (b *Book) load() error {
 	b.added, b.inUse = s.Accounts, s.InUse
 	keep := func(a *Account) {
 		if w, ok := was[a.Key()]; ok {
-			a.climbing, a.failures, a.retryAt = w.climbing, w.failures, w.retryAt
+			a.climbing = w.climbing
 		}
 	}
 	for i := range b.added {

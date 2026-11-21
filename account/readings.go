@@ -134,7 +134,7 @@ func (b *Book) ImportUsage(path string, hold time.Duration) (ReadingsImported, e
 		a := r.a
 		if r.at.After(a.ReadAt) {
 			a.Limits, a.ReadAt, a.Err, a.WaitUntil = r.limits, r.at, "", time.Time{}
-			a.failures, a.retryAt = 0, time.Time{}
+			a.Failures, a.Retry = 0, time.Time{}
 			got.Adopted++
 		} else {
 			got.Kept++

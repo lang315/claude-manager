@@ -246,11 +246,11 @@ func (b *Book) read(ctx context.Context, a *Account, token, held string, now tim
 		if errors.As(err, &rl) {
 			a.WaitUntil = now.Add(rl.Wait)
 		}
-		a.failures++
-		a.retryAt = now.Add(backoff(a.failures))
+		a.Failures++
+		a.Retry = now.Add(backoff(a.Failures))
 		return
 	}
-	a.failures, a.retryAt = 0, time.Time{}
+	a.Failures, a.Retry = 0, time.Time{}
 	b.readPlan(ctx, a, used, now)
 	before, _ := stand(*a, Auto{Line: 100})
 	a.Limits, a.ReadAt, a.Err, a.WaitUntil = limits, now, "", time.Time{}
@@ -296,7 +296,7 @@ func (b *Book) due(a *Account, active, near bool) time.Time {
 	switch {
 	case a.Err != "":
 		// A failing read waits out its backoff, not the cadence of a good one.
-		return a.retryAt
+		return a.Retry
 	case a.ReadAt.IsZero():
 		return time.Time{}
 	}
@@ -385,4 +385,4 @@ func (b *Book) renew(ctx context.Context, a *Account, blob []byte, l Login, held
 }
 
 // RetryAt is when a failed read is tried again; zero when none failed.
-func (a Account) RetryAt() time.Time { return a.retryAt }
+func (a Account) RetryAt() time.Time { return a.Retry }

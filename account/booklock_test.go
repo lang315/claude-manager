@@ -55,18 +55,37 @@ func TestTwoBooksKeepEachOthersChanges(t *testing.T) {
 	}
 }
 
-// A re-read keeps what is never saved: a failing account's back-off.
+// A re-read keeps a failing account's back-off, saved as Refresh saves it,
+// and what is never saved (climbing).
 func TestReReadKeepsBackoff(t *testing.T) {
 	app, v, _, _ := newBook(t, newAnthropic())
 	_, err := app.keep(login("bob-at", "bob-rt", t0.Add(time.Hour)).Marshal(), bob, json.RawMessage(bobAccount))
 	must(t, err)
 	retry := t0.Add(4 * time.Minute)
-	app.added[0].failures, app.added[0].retryAt, app.added[0].climbing = 3, retry, true
+	app.added[0].Failures, app.added[0].Retry, app.added[0].climbing = 3, retry, true
+	must(t, app.save())
 	cli := &Book{Dir: app.Dir, Vault: v, API: app.API, Now: app.Now}
 	must(t, cli.SetAlias(bob.Key(), "dev"))
 	got, _ := app.Blocks()
 	a := blockOf(t, got, "bob@example.com")
-	if a.Alias != "dev" || a.RetryAt() != retry || a.failures != 3 || !a.climbing {
-		t.Errorf("after a re-read: alias %q, retry %v, failures %d, climbing %v", a.Alias, a.RetryAt(), a.failures, a.climbing)
+	if a.Alias != "dev" || a.RetryAt() != retry || a.Failures != 3 || !a.climbing {
+		t.Errorf("after a re-read: alias %q, retry %v, failures %d, climbing %v", a.Alias, a.RetryAt(), a.Failures, a.climbing)
+	}
+}
+
+// claude-swap's usage store: a failing read's back-off is shared, so a
+// command line started every few seconds doesn't ask again at once.
+func TestBackoffIsShared(t *testing.T) {
+	f := newAnthropic()
+	app, v, _, _ := newBook(t, f)
+	_, err := app.keep(login("bob-at", "bob-rt", t0.Add(time.Hour)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	f.status["bob-at"] = 500
+	app.Refresh(ctx, false)
+	f.took()
+	cli := &Book{Dir: app.Dir, Vault: v, API: app.API, Now: app.Now, Live: app.Live}
+	cli.Refresh(ctx, false)
+	if calls := f.took(); len(calls) != 0 {
+		t.Errorf("another process asked again inside the back-off: %q", calls)
 	}
 }
