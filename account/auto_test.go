@@ -562,3 +562,18 @@ func TestThrottledTrustEndsAtReset(t *testing.T) {
 		t.Error("not trusted before any reset")
 	}
 }
+
+// claude-swap's truly_exhausted: "All accounts exhausted" only when every
+// account auto-switch could move to is read and spent; one it can't read
+// may have room.
+func TestBlockedOnlyWhenEverySpent(t *testing.T) {
+	spent := acct("b", 100, 50, day)
+	if d := decide(t0, DefaultAuto(), []Account{inUse(acct("a", 100, 10, day)), spent}, memo{}); !d.Blocked {
+		t.Errorf("every account spent: %+v", d)
+	}
+	unread := acct("c", 0, 0, day)
+	unread.ReadAt = time.Time{}
+	if d := decide(t0, DefaultAuto(), []Account{inUse(acct("a", 100, 10, day)), spent, unread}, memo{}); d.Blocked || d.To != "" {
+		t.Errorf("one account unread: %+v", d)
+	}
+}

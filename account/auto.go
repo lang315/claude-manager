@@ -446,6 +446,16 @@ func decide(now time.Time, s Auto, accts []Account, m memo) Decision {
 		if !act.over && !escape {
 			return Decision{Why: "No account is ahead of the one in use."}
 		}
+		// claude-swap's truly_exhausted: only when every account it could
+		// move to is read and spent; one it can't read may have room.
+		for _, a := range accts {
+			if a.InUse || !a.Added || a.AutoOff || a.APIKey || a.OAuthAccount == nil || a.Terminal.Dir != "" {
+				continue
+			}
+			if st, ok := stand(a, s); !usable(a, now) || !ok || st.raw > 0 {
+				return Decision{Why: "No account with a fresh reading has room; some readings are missing or stale."}
+			}
+		}
 		return Decision{Why: "No account has room.", Blocked: true}
 	}
 	to := out[0].a
