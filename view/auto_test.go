@@ -92,12 +92,12 @@ func TestAutoSwitchSettings(t *testing.T) {
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("Weekly line (%)") })
 	l.tt.Update(func() {
 		u := &l.a.limits.auto
-		u.draft.Model, u.interval, u.ticks = "Fable", 30, 5
+		u.draft.Model, u.interval, u.ticks, u.draft.Keys = "Fable", 30, 5, true
 	})
 	must(t, l.tt.Click("Save"))
 	waitFor(t, l.tt, func() bool {
 		s, _ := l.book.AutoSettings()
-		return s.WeeklyLine == 90 && s.Model == "Fable" && s.Interval == 30 && s.Ticks == 5
+		return s.WeeklyLine == 90 && s.Model == "Fable" && s.Interval == 30 && s.Ticks == 5 && s.Keys
 	})
 }
 

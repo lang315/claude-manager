@@ -214,8 +214,11 @@ func TestImportClaudeSwapExport(t *testing.T) {
 	))
 	got, err := b.Import(path)
 	must(t, err)
-	if got != (Imported{Added: 1, Skipped: 1}) {
+	if got != (Imported{Added: 2}) {
 		t.Fatalf("imported %+v", got)
+	}
+	if k := get(t, v, ParkService, keyUUID+"key@example.com/"); string(k) != "sk-ant-api03-x" {
+		t.Errorf("the API key saved as %q", k)
 	}
 	saved := get(t, v, ParkService, carol.Key())
 	if strings.Contains(string(saved), "mcpOAuth") {

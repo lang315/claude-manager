@@ -41,6 +41,7 @@ type Account struct {
 	Priority     int             `json:"priority,omitempty"` // its tier for priority-consume-first
 	Terminal     Terminal        `json:"terminal,omitzero"`  // open in a terminal from its own profile
 	Token        bool            `json:"token,omitempty"`    // a setup-token account: no refresh token, read by the header probe
+	APIKey       bool            `json:"apiKey,omitempty"`   // a Console API key account: no limits, nothing read
 	InUse        bool            `json:"-"`                  // Claude Code is signed in to it
 	Added        bool            `json:"-"`                  // the app holds a login of its own for it
 	Source       string          `json:"-"`                  // "Pitboard" when Limits are Pitboard's reading

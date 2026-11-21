@@ -174,6 +174,7 @@ func (l *limits) autoDialogs(c *ui.Context, a *App) {
 			field("Margin (points)", func() { ui.NumberInput(c, &u.draft.Margin, 0, 50, 1) })
 			field("Check every (seconds)", func() { ui.NumberInput(c, &u.interval, 15, 3600, 15) })
 			field("Unreadable ticks before moving on", func() { ui.NumberInput(c, &u.ticks, 1, 100, 1) })
+			ui.Checkbox(c, &u.draft.Keys, "Fall back on an API key account when no account has room")
 			field("Strategy", func() { ui.Select(c, &u.strategy, strategyLabels) })
 			field("Model windows", func() { ui.TextInput(c, &u.draft.Model).Placeholder("None; e.g. Fable, or all").Grow(1) })
 			ui.Text(c, "Their weekly windows count too, on the weekly line: the names on the Weekly rows, comma separated.").FontSize(12).Wrap()

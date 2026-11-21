@@ -8,10 +8,10 @@ func TestLimitsAddToken(t *testing.T) {
 	l.open(t)
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
 	must(t, l.tt.Click("Add Token…"))
-	waitFor(t, l.tt, func() bool { return l.tt.HasText("Add Setup Token") })
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Add a Token or API Key") })
 	if err := l.tt.Click("Add"); err == nil {
 		l.tt.Frame()
-		if l.tt.HasText("Added the setup-token.") {
+		if l.tt.HasText("Added.") {
 			t.Fatal("added without a token")
 		}
 	}
@@ -30,6 +30,27 @@ func TestLimitsAddToken(t *testing.T) {
 	for _, item := range []string{"Sign In Again", "Open in Terminal…"} {
 		if err := l.tt.ChooseMenuItem(item); err == nil {
 			t.Errorf("%s offered for a setup-token", item)
+		}
+	}
+}
+
+func TestLimitsAddAPIKey(t *testing.T) {
+	l := limitsApp(t)
+	canSwitch(t, l)
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
+	must(t, l.tt.Click("Add Token…"))
+	l.tt.Frame()
+	l.tt.Update(func() { l.a.limits.token.token = "sk-ant-api03-viewviewviewviewview" })
+	l.tt.Frame()
+	must(t, l.tt.Click("Add"))
+	waitFor(t, l.tt, func() bool {
+		return l.tt.HasText("api-key-1@token.local") && l.tt.HasText("API key · no subscription limits")
+	})
+	clickMenu(t, l.tt, "api-key-1@token.local")
+	for _, item := range []string{"Sign In Again", "Open in Terminal…"} {
+		if err := l.tt.ChooseMenuItem(item); err == nil {
+			t.Errorf("%s offered for an API key", item)
 		}
 	}
 }

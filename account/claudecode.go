@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -275,6 +276,42 @@ func spliceKey(doc []byte, key string, val json.RawMessage) ([]byte, error) {
 		entry = append([]byte{','}, entry...)
 	}
 	return bytes.Join([][]byte{doc[:brace], entry, doc[brace:]}, nil), nil
+}
+
+// dropKey is doc without its top-level key, every other byte kept; doc
+// itself when it has none.
+func dropKey(doc []byte, key string) ([]byte, error) {
+	bad := fmt.Errorf("%s is not a JSON object.", "~/.claude.json")
+	dec := json.NewDecoder(bytes.NewReader(doc))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil, bad
+	}
+	for first := true; dec.More(); first = false {
+		before := int(dec.InputOffset())
+		t, err := dec.Token()
+		if err != nil {
+			return nil, bad
+		}
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return nil, bad
+		}
+		if t != key {
+			continue
+		}
+		end := int(dec.InputOffset())
+		if first { // no comma before it: from the key itself through the comma after, and the space after that
+			before += len(doc[before:]) - len(bytes.TrimLeft(doc[before:], " \t\r\n"))
+			if rest := bytes.TrimLeft(doc[end:], " \t\r\n"); len(rest) > 0 && rest[0] == ',' {
+				rest = bytes.TrimLeft(rest[1:], " \t\r\n")
+				if len(rest) > 0 && rest[0] != '}' {
+					end = len(doc) - len(rest)
+				}
+			}
+		}
+		return append(slices.Clip(doc[:before]), doc[end:]...), nil
+	}
+	return doc, nil
 }
 
 var rename = os.Rename

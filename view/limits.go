@@ -433,11 +433,11 @@ func (l *limits) menu(c *ui.Context, a *App, b account.Account) {
 		if switchable && m.Item("Switch to This Account").Disabled(l.switching != "").Chosen() {
 			l.startSwitch(a, b)
 		}
-		if a.Accounts.CanSwitch() && !b.InUse && !b.Token && m.Item("Open in Terminal…").Chosen() {
+		if a.Accounts.CanSwitch() && !b.InUse && !b.Token && !b.APIKey && m.Item("Open in Terminal…").Chosen() {
 			l.startRun(a, b)
 		}
 		l.autoMenu(m, a, b)
-		if !inTerminal && !b.Token && m.Item("Sign In Again").Chosen() {
+		if !inTerminal && !b.Token && !b.APIKey && m.Item("Sign In Again").Chosen() {
 			l.startAdd(a)
 		}
 		if !(b.InUse && a.Accounts.CanSwitch()) && !inTerminal && m.Item("Remove…").Destructive(true).Chosen() {

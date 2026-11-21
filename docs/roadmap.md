@@ -79,7 +79,7 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | Menu bar, LaunchAgent, Start at login | 6 (the app itself stays in the menu bar; MyGo's open-at-login, no LaunchAgent) |
 | `alias`, slot numbers, `move`, `swap` | Not applicable: accounts are named by email in a GUI |
 | `unclaimed` stash | Not needed: an unknown outgoing login becomes an added account |
-| API-key accounts | Not ported: Claude Manager reads subscription limits, which API keys have none of; Import leaves them out |
+| API-key accounts | 8b: added, switched to (Claude Code's managed key), exported and imported; no limits are read |
 | `config` | Covered: Auto-Switch Settings |
 | TUI, `watch` | Covered: the app itself |
 | `upgrade`, update check, `purge` | Not applicable: app updates; removing every account empties the app's keychain items |
@@ -87,7 +87,7 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | Spend (extra usage) on each account | 7: an "Extra usage" row, and "extra N%" in the menu bar |
 | `switch` with no account: rotate, best, next-available | Covered: the window and the menu bar list every account with its windows, and a click switches to it; auto-switch picks the best |
 | `add-token` with a setup-token; `usage.headerProbe` | 8: Add Token…, and "Read setup-token usage" |
-| `add-token` with a Console API key | 8b |
+| `add-token` with a Console API key | 8b: Add Token… takes either kind |
 | `import-usage`, `--hold` | 3c: Import takes a `cswap list --json` file too, with "Don't read those accounts here for N minutes" |
 | `list --token-status` | Covered: each block shows its sign-in's end ("good until") and why a read failed |
 | `export --full` (a same-Mac backup) | 3b: the Export dialog's "Full backup for this Mac" |
@@ -98,7 +98,7 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | `--version`, `--debug`, `help` | Not applicable: CLI |
 | Setting `autoswitch.threshold`, `weeklyThreshold`, `cooldownSeconds`, `hysteresisPct`, `strategy`, `model` | Ported: Auto-Switch Settings (2, 5) |
 | Settings `autoswitch.intervalSeconds`, `unhealthyTicks` | 2c: Auto-Switch Settings, "Check every (seconds)" (15–3600, 60) and "Unreadable ticks before moving on" (1–100, 3) |
-| Setting `autoswitch.includeApiKeyAccounts` | Not applicable: no API-key accounts |
+| Setting `autoswitch.includeApiKeyAccounts` | 8b: "Fall back on an API key account when no account has room" |
 | Setting `run.shareHistory` | Covered: the Open in Terminal dialog's history checkbox (4b), asked each time |
 | Setting `updates.check`, `ui.theme` | Not applicable: app updates; macOS appearance |
 | Setting `usage.headerProbe` | 8: "Read setup-token usage" in Add Token |

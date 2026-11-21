@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"slices"
+	"strings"
 )
 
 // exportFile is claude-swap's export (transfer.py, FORMAT_VERSION 1): the
@@ -67,6 +68,17 @@ func (b *Book) Export(path string, full bool) (n, left int, err error) {
 		blob, err := b.Vault.Get(ParkService, a.Key())
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return 0, 0, err
+		}
+		if a.APIKey { // claude-swap's kind api_key: the key as a string
+			key := strings.TrimSpace(string(blob))
+			if !IsAPIKey(key) {
+				left++
+				continue
+			}
+			creds, _ := json.Marshal(key)
+			conf, _ := json.Marshal(map[string]json.RawMessage{"oauthAccount": a.OAuthAccount})
+			f.Accounts = append(f.Accounts, exportEntry{Number: len(f.Accounts) + 1, Email: a.Email, Added: now, Kind: "api_key", Credentials: creds, Config: conf})
+			continue
 		}
 		whole := full && a.Key() == inUse && live != nil
 		if a.Key() == inUse && live != nil && (whole || newer(live, blob)) {
@@ -172,13 +184,24 @@ func (b *Book) Import(path string) (Imported, error) {
 		acct json.RawMessage
 	}
 	var in []entry
+	var keys []entry // API key accounts: the key in blob
 	var got Imported
 	for i, e := range f.Accounts {
 		bad := func(why string) error {
 			return fmt.Errorf("Account %d in this file %s, so nothing was imported.", i+1, why)
 		}
 		if e.Kind == "api_key" || bytes.HasPrefix(bytes.TrimSpace(e.Credentials), []byte(`"`)) {
-			got.Skipped++ // the app holds subscription logins only
+			var key string
+			if json.Unmarshal(e.Credentials, &key) != nil || !IsAPIKey(strings.TrimSpace(key)) {
+				return Imported{}, bad("has an API key that isn't one")
+			}
+			if e.Email == "" {
+				return Imported{}, bad("has no email")
+			}
+			if slices.ContainsFunc(keys, func(x entry) bool { return x.p.Email == e.Email }) {
+				return Imported{}, bad("repeats an account")
+			}
+			keys = append(keys, entry{p: Profile{Email: e.Email}, blob: []byte(strings.TrimSpace(key))})
 			continue
 		}
 		if e.Email == "" {
@@ -227,6 +250,22 @@ func (b *Book) Import(path string) (Imported, error) {
 		inUse = b.Home.accountKey()
 		if lb, err := b.Home.readLive(b.Vault); err == nil {
 			liveKey = keyOf(oauthOf(lb.data))
+		}
+	}
+	for _, e := range keys {
+		k := keyUUID + e.p.Email + "/"
+		if saved, err := b.Vault.Get(ParkService, k); err == nil && string(saved) == string(e.blob) {
+			got.Skipped++
+			continue
+		}
+		added := !slices.ContainsFunc(b.added, func(a Account) bool { return a.Key() == k })
+		if _, err := b.addKeyLocked(string(e.blob), e.p.Email); err != nil {
+			return got, errors.Join(err, b.save())
+		}
+		if added {
+			got.Added++
+		} else {
+			got.Updated++
 		}
 	}
 	for _, e := range in {

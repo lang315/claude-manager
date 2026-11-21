@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 )
 
 var (
@@ -54,8 +55,11 @@ func (b *Book) switchLocked(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
+	tgt := b.added[ti]
 	oauth := oauthOf(parked)
-	if oauth == nil {
+	apiKey := strings.TrimSpace(string(parked))
+	switch {
+	case tgt.APIKey && !IsAPIKey(apiKey), !tgt.APIKey && oauth == nil:
 		return ErrInvalidGrant
 	}
 
@@ -67,7 +71,7 @@ func (b *Book) switchLocked(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	if who != nil && who.Key() == key {
+	if who != nil && who.Key() == key || tgt.APIKey && b.keyInUse() == key {
 		return nil
 	}
 
@@ -87,11 +91,34 @@ func (b *Book) switchLocked(ctx context.Context, key string) error {
 	if err != nil {
 		return fmt.Errorf("~/.claude.json could not be read: %w", err)
 	}
-	newConf, err := spliceKey(conf, "oauthAccount", b.added[ti].OAuthAccount)
+	// One way in at a time, as Claude Code's saveApiKey and removeApiKey: an
+	// OAuth login clears the managed key, a key clears the OAuth login (its
+	// MCP sign-ins kept). A managed key the app doesn't hold is added first.
+	prevKey, err := b.managedKey(conf)
 	if err != nil {
 		return err
 	}
-	newLive, err := withOAuth(was.data, oauth)
+	prevItem, perr := b.Vault.Get(managedService, h.User)
+	if perr != nil && !errors.Is(perr, ErrNotFound) {
+		return perr
+	}
+	if prevKey != "" && b.keyOwner(conf) == "" {
+		if _, err := b.addKeyLocked(prevKey, ""); err != nil {
+			return fmt.Errorf("The API key in use could not be saved, so nothing was switched: %w", err)
+		}
+	}
+	newConf, err := spliceKey(conf, "oauthAccount", tgt.OAuthAccount)
+	if err == nil {
+		newConf, err = dropKey(newConf, "primaryApiKey")
+	}
+	var newLive []byte
+	if err == nil && tgt.APIKey {
+		if newConf, err = approveKey(newConf, apiKey); err == nil {
+			newLive, err = withoutOAuth(was.data)
+		}
+	} else if err == nil {
+		newLive, err = withOAuth(was.data, oauth)
+	}
 	if err != nil {
 		return err
 	}
@@ -116,11 +143,22 @@ func (b *Book) switchLocked(ctx context.Context, key string) error {
 		}
 	}
 	err = h.writeLive(b.Vault, was, newLive)
+	if err == nil && tgt.APIKey {
+		err = b.Vault.Put(managedService, h.User, []byte(apiKey))
+	} else if err == nil {
+		err = b.Vault.Delete(managedService, h.User)
+	}
 	if err == nil {
 		err = writeAtomic(h.ClaudeJSON, newConf, 0o600)
 	}
 	if err != nil {
-		if h.restoreLive(b.Vault, was) != nil {
+		rerr := h.restoreLive(b.Vault, was)
+		if perr == nil {
+			rerr = errors.Join(rerr, b.Vault.Put(managedService, h.User, prevItem))
+		} else {
+			rerr = errors.Join(rerr, b.Vault.Delete(managedService, h.User))
+		}
+		if rerr != nil {
 			return errRestore
 		}
 		return fmt.Errorf("The switch failed; Claude Code still uses its earlier account: %w", err)

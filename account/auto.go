@@ -38,6 +38,10 @@ type Auto struct {
 	// Probe reads setup-token accounts' limits with 1-token requests
 	// (usage.headerProbe): each is a real request on the account.
 	Probe bool `json:"headerProbe,omitempty"`
+	// Keys lets auto-switch fall back on an API key account when no account
+	// with a subscription has room, at the limit or on a failover
+	// (autoswitch.includeApiKeyAccounts).
+	Keys bool `json:"includeApiKeyAccounts,omitempty"`
 }
 
 // Every is the time between auto-switch's ticks.
@@ -384,6 +388,15 @@ func decide(now time.Time, s Auto, accts []Account, m memo) Decision {
 		}
 	}
 	slices.SortStableFunc(out, func(x, y ranked) int { return slices.Compare(x.key, y.key) })
+	if len(out) == 0 && escape && s.Keys {
+		// claude-swap's last resort: a key has no limits, and costs per token.
+		for _, a := range accts {
+			if a.APIKey && !a.InUse && !a.AutoOff {
+				return Decision{To: a.Key(), Email: a.Email, Why: "no account with a subscription has room; it is an API key",
+					trigger: trigger, from: active.Key(), leftLH: act.lh, leftResets: act.resets}
+			}
+		}
+	}
 	if len(out) == 0 {
 		if !act.over && !escape {
 			return Decision{Why: "No account is ahead of the one in use."}
@@ -475,6 +488,9 @@ func (b *Book) AutoSwitch(ctx context.Context) (Decision, error) {
 		return Decision{Why: "Waiting for a fresh reading of the account in use."}, nil
 	case usable(accts[i], now):
 		b.unreadable = time.Time{}
+	case accts[i].APIKey:
+		b.unreadable = time.Time{}
+		return Decision{Why: errKeyInUse.Error()}, nil
 	case accts[i].Err == ErrNotSignedIn.Error():
 		b.unreadable = time.Time{}
 		return Decision{Why: "Not signed in to Claude Code."}, nil

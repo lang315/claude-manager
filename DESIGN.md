@@ -282,7 +282,7 @@ The reader is padded 16 by 24. It shows the title (Heading), then the meta line:
 MyGo's native data table, with the File column filling the width. Its footer matches Cleanup's: a muted "Selected", the bold tabular "N files · size", and the orange "Move to Trash…" at the right.
 
 ### Add Token
-"Add Token…" on the Limits toolbar, after "Add Account…": a modal with the token (a password field), an optional email, "Read setup-token usage" with its cost in a 12px note, Cancel and Add (off until a token is typed). A setup-token account's plan reads "Setup-token".
+"Add Token…" on the Limits toolbar, after "Add Account…": a modal with the token (a password field), an optional email, "Read setup-token usage" with its cost in a 12px note, Cancel and Add (off until a token is typed). A setup-token account's plan reads "Setup-token"; an API key account's "API key · no subscription limits". The same modal takes either: its title is "Add a Token or API Key".
 
 ### Export and Import
 On the Limits page's toolbar, after Refresh: "Export…" opens a modal (the warnings, a "Full backup for this Mac" checkbox, Cancel and "Choose File…"), then a save panel on the Desktop ("Claude accounts.json", JSON) and "Import…" a modal (what an accounts file and a readings file each do, "Don't read those accounts here for N minutes", Cancel and "Choose File…"), then an open panel (JSON, or all files: claude-swap's exports go by any name), both off while a switch runs. The save panel's message is both warnings (the file holds sign-ins, unencrypted; one Mac per account), the open panel's the second, and the toast after repeats them with what was done: "Exported 2 accounts. Left out 1: sign in again to it first.", "Imported: added 1 account, updated 1, left 1 as they were."

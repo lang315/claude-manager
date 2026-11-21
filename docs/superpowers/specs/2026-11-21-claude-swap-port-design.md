@@ -507,6 +507,35 @@ Verified: `TestAddToken`, `TestProbe`, `TestRefreshSetupToken`,
 `TestSwitchSetupTokens`, `TestSwitchUnknownTokenlessLogin`,
 `TestLimitsAddToken`; mutation checks (21 of 21 caught).
 
+## 8b. Console API key accounts
+
+- Add Token… takes a Console API key too (`sk-ant-…`, not `sk-ant-oat…`, as
+  claude-swap's `looks_like_api_key`): saved raw in its park item, keyed
+  `apikey:<email>/`, labelled by the email given or `api-key-N@token.local`.
+  Nothing is read for it: it has no subscription limits.
+- Switching to it (claude-swap's `_write_managed_credentials`): the key goes
+  in Claude Code's keychain item "Claude Code"; `~/.claude.json` gets its
+  last 20 characters in `customApiKeyResponses.approved`, the synthesized
+  `oauthAccount`, and loses `primaryApiKey`; the login item loses
+  `claudeAiOauth`. Unlike claude-swap, which deletes the whole login item,
+  its MCP sign-ins are kept. Switching to an OAuth account clears the
+  managed key (`removeApiKey`): the item deleted, `primaryApiKey` dropped. A
+  managed key the app doesn't hold is added as an account before it is
+  cleared. On a failed write the login item, the key item and
+  `~/.claude.json` are put back.
+- In use: the key item (else `primaryApiKey`) equal to an API key account's
+  key. Auto-switch holds on it ("it has no limits"); with "Fall back on an
+  API key account when no account has room" (`includeApiKeyAccounts`) it
+  lands on one at the limit or on a failover when no subscription account
+  has room.
+- Export writes it as claude-swap does (`kind: api_key`, the key as a
+  string); Import adds it, or leaves it when the same key is there.
+
+Verified: `TestAddAPIKey`, `TestSwitchAPIKey`, `TestAPIKeyInUseByPrimaryApiKey`,
+`TestSwitchAPIKeyRestores`, `TestDecideAPIKeyLastResort`,
+`TestExportImportAPIKey`, `TestDropKey`, `TestLimitsAddAPIKey`; mutation
+checks (21 of 21 caught).
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported

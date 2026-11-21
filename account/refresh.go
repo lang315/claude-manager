@@ -47,10 +47,13 @@ func (b *Book) Refresh(ctx context.Context, force bool) ([]Account, error) {
 	// is: that account's saved login shares Claude Code's refresh chain, so
 	// it is not read with it, nor renewed.
 	inUse, held := "", false
-	if who != nil {
+	switch {
+	case who != nil:
 		inUse = who.Key()
-	} else if b.Home != nil {
-		inUse = b.Home.accountKey()
+	case b.Home != nil:
+		if inUse = b.keyInUse(); inUse == "" {
+			inUse = b.Home.accountKey()
+		}
 	}
 	var jobs []job
 	var backErr error
@@ -62,6 +65,9 @@ func (b *Book) Refresh(ctx context.Context, force bool) ([]Account, error) {
 		}
 		token := ""
 		switch {
+		case a.APIKey: // no limits to read
+			a.Err, held = "", held || a.InUse
+			continue
 		case a.Terminal.Dir != "":
 			// The terminal renews this login: read with its token, never renew.
 			blob, err := b.profileLogin(a.Terminal.Dir)
