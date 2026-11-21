@@ -1,6 +1,7 @@
 package account
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,8 +15,13 @@ import (
 	"time"
 )
 
-// ParkService names the keychain items that hold added accounts' logins.
-const ParkService = "claude-manager-park"
+// ParkService names the keychain items that hold added accounts' logins;
+// ParkPrev keeps the login each one held before a sign-in or switch
+// replaced it.
+const (
+	ParkService = "claude-manager-park"
+	ParkPrev    = "claude-manager-park-prev"
+)
 
 // Account is an account the Limits page shows, with its last reading. It
 // holds no secret: the book saves it as is.
@@ -30,10 +36,12 @@ type Account struct {
 	ReadAt        time.Time `json:"readAt,omitzero"`    // when Limits were read
 	Err           string    `json:"err,omitempty"`      // why the last ask failed; "" once one works
 	WaitUntil     time.Time `json:"waitUntil,omitzero"` // Anthropic asked to wait until then
-	InUse         bool      `json:"-"`                  // Claude Code is signed in to it
-	Added         bool      `json:"-"`                  // the app holds a login of its own for it
-	Source        string    `json:"-"`                  // "Pitboard" when Limits are Pitboard's reading
-	PitboardLabel string    `json:"-"`                  // Pitboard's label, when it holds a parked login for the account
+	// OAuthAccount is the account's oauthAccount object of .claude.json,
+	// which a switch puts in ~/.claude.json. It holds no secret.
+	OAuthAccount json.RawMessage `json:"oauthAccount,omitempty"`
+	InUse        bool            `json:"-"` // Claude Code is signed in to it
+	Added        bool            `json:"-"` // the app holds a login of its own for it
+	Source       string          `json:"-"` // "Pitboard" when Limits are Pitboard's reading
 }
 
 // Key names the account by Anthropic's account and organisation.
@@ -54,12 +62,9 @@ type Book struct {
 	SignInTimeout time.Duration
 	// Pitboard reads the accounts Pitboard follows; nil reads none.
 	Pitboard func() ([]Account, error)
-	// PitboardCLI finds Pitboard's command, which switches accounts.
-	PitboardCLI   func() (string, error)
-	SwitchTimeout time.Duration // how long a switch may take; 0 means 60 s
-
-	cliMu sync.Mutex
-	cli   string // Pitboard's command, once found
+	// Home is what a switch writes; nil when Claude Code runs from another
+	// folder than its default one, where the app doesn't switch.
+	Home *Home
 
 	mu     sync.Mutex
 	loaded bool
@@ -175,7 +180,6 @@ func (b *Book) blocks() []Account {
 			out = append(out, p)
 			continue
 		}
-		out[i].PitboardLabel = p.PitboardLabel
 		if len(p.Limits) > 0 && p.ReadAt.After(out[i].ReadAt) {
 			out[i].Limits, out[i].ReadAt, out[i].Source = p.Limits, p.ReadAt, p.Source
 		}
@@ -195,29 +199,74 @@ func (b *Book) blocks() []Account {
 	return out
 }
 
-// keep saves l as the login of the account p names, replacing any it had,
-// and lists the account. A sign-in again keeps its last numbers.
-func (b *Book) keep(l Login, p Profile) (Account, error) {
+// keep saves blob's login, as Claude Code stores one, as the login of the
+// account p names, and lists the account. oauthAccount is its
+// .claude.json object, or nil when unknown. A sign-in again keeps its last
+// numbers.
+func (b *Book) keep(blob []byte, p Profile, oauthAccount json.RawMessage) (Account, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if err := b.load(); err != nil {
 		return Account{}, err
 	}
-	if err := b.Vault.Put(ParkService, p.Key(), l.Marshal()); err != nil {
+	a, err := b.keepLocked(blob, p, oauthAccount)
+	if err != nil {
 		return Account{}, err
 	}
-	a := Account{AccountUUID: p.AccountUUID, OrgUUID: p.OrgUUID, Email: p.Email, OrgName: p.OrgName, Plan: l.SubscriptionType}
+	return a, b.save()
+}
+
+// keepLocked is keep, under b.mu, without saving accounts.json.
+func (b *Book) keepLocked(blob []byte, p Profile, oauthAccount json.RawMessage) (Account, error) {
+	l, err := parseLogin(blob)
+	if err != nil {
+		return Account{}, err
+	}
+	if err := b.park(p.Key(), blob); err != nil {
+		return Account{}, err
+	}
+	a := Account{AccountUUID: p.AccountUUID, OrgUUID: p.OrgUUID, Email: p.Email, OrgName: p.OrgName, Plan: l.SubscriptionType, OAuthAccount: oauthAccount}
 	if l.RefreshTokenExpiresAt > 0 {
 		a.GoodUntil = time.UnixMilli(l.RefreshTokenExpiresAt)
 	}
+	var was *Account
 	if i := slices.IndexFunc(b.added, func(x Account) bool { return x.Key() == a.Key() }); i >= 0 {
-		a.Limits, a.ReadAt = b.added[i].Limits, b.added[i].ReadAt
+		was = &b.added[i]
+	} else if b.inUse != nil && b.inUse.Key() == a.Key() {
+		was = b.inUse
+	}
+	if was != nil {
+		a.Limits, a.ReadAt = was.Limits, was.ReadAt
+		if a.OAuthAccount == nil {
+			a.OAuthAccount = was.OAuthAccount
+		}
+	}
+	if i := slices.IndexFunc(b.added, func(x Account) bool { return x.Key() == a.Key() }); i >= 0 {
 		b.added[i] = a
 	} else {
 		b.added = append(b.added, a)
 	}
 	a.Added = true
-	return a, b.save()
+	return a, nil
+}
+
+// park saves blob's claudeAiOauth as the login of the account key names,
+// keeping the one it replaces under ParkPrev.
+func (b *Book) park(key string, blob []byte) error {
+	o := oauthOf(blob)
+	if o == nil {
+		return errNoToken
+	}
+	data, err := withOAuth(nil, o)
+	if err != nil {
+		return err
+	}
+	if old, err := b.Vault.Get(ParkService, key); err == nil && !bytes.Equal(old, data) {
+		if err := b.Vault.Put(ParkPrev, key, old); err != nil {
+			return err
+		}
+	}
+	return b.Vault.Put(ParkService, key, data)
 }
 
 // Remove deletes an added account's login from the keychain and drops the
@@ -230,6 +279,9 @@ func (b *Book) Remove(key string) error {
 		return err
 	}
 	if err := b.Vault.Delete(ParkService, key); err != nil {
+		return err
+	}
+	if err := b.Vault.Delete(ParkPrev, key); err != nil {
 		return err
 	}
 	b.added = slices.DeleteFunc(b.added, func(a Account) bool { return a.Key() == key })

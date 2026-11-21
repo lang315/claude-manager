@@ -139,28 +139,3 @@ func TestPitboardErrorIsANote(t *testing.T) {
 		t.Fatalf("note %q after Pitboard read again", b.Note())
 	}
 }
-
-func TestReadPitboardLabel(t *testing.T) {
-	got, err := ReadPitboard(writePitboard(t, pitboardState, ""))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got[0].PitboardLabel != "work" {
-		t.Errorf("bob's label = %q, want work: Pitboard parks his login", got[0].PitboardLabel)
-	}
-	if got[1].PitboardLabel != "" {
-		t.Errorf("dan's label = %q, want none: nothing is parked", got[1].PitboardLabel)
-	}
-}
-
-func TestPitboardLabelSurvivesMerge(t *testing.T) {
-	b, _, _, _ := aliceInUse(t) // alice at 62%, read at t0
-	b.Pitboard = func() ([]Account, error) {
-		return []Account{{AccountUUID: "alice", OrgUUID: "org-a", Email: "alice@example.com", Source: "Pitboard",
-			ReadAt: t0.Add(-time.Minute), PitboardLabel: "home"}}, nil
-	}
-	got, _ := b.Refresh(ctx, false)
-	if a := got[0]; a.PitboardLabel != "home" || a.Source != "" {
-		t.Fatalf("alice = %+v: our numbers stay, Pitboard's label joins them", a)
-	}
-}

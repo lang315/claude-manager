@@ -5,118 +5,173 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os/exec"
-	"syscall"
-	"time"
+	"fmt"
+	"os"
+	"slices"
 )
 
 var (
-	ErrNoPitboard  = errors.New("Pitboard not found.")
-	ErrLiveRefused = errors.New("Claude Code's sign-in no longer works.")
-	errNoAnswer    = errors.New("Pitboard gave no answer.")
-	errSwitchSlow  = errors.New("Pitboard took too long.")
+	// ErrCantSwitch says Claude Code runs from another folder than its
+	// default one, where the app doesn't switch.
+	ErrCantSwitch = errors.New("Switching works with Claude Code's default folder only.")
+	errNotAdded   = errors.New("Add this account here to switch to it.")
+	errLiveMoved  = errors.New("Claude Code renewed its sign-in during the switch. Try again.")
+	errLiveWhose  = errors.New("Claude Code's sign-in has expired, so the app can't tell whose it is to keep it. Open Claude Code to renew it, then switch.")
+	errRestore    = errors.New("The switch failed, and Claude Code's sign-in could not be put back. Run claude and /login.")
 )
 
-// SwitchError is Pitboard's refusal: its code, and its words for a person.
-type SwitchError struct{ Code, Message string }
+// CanSwitch says whether the app can switch Claude Code's account.
+func (b *Book) CanSwitch() bool { return b.Home != nil }
 
-func (e *SwitchError) Error() string { return e.Message }
-
-// Switched is what a switch did. Follow is how long sessions already
-// running take to follow; 0 means only once they're started again.
-type Switched struct {
-	To      string
-	Changed bool
-	Follow  time.Duration
-}
-
-// FindPitboard finds Pitboard's command line, which its app bundle holds.
-func FindPitboard() (string, error) {
-	p, err := findTool("pitboard", ErrNoPitboard.Error(), "/opt/homebrew/bin/pitboard", "/usr/local/bin/pitboard",
-		"/Applications/Pitboard.app/Contents/Helpers/pitboard")
+// Switch puts Claude Code on the added account key names: it saves the
+// login in use as its account's, adding that account when it is not
+// added, then writes key's login where Claude Code reads it and its
+// oauthAccount in ~/.claude.json. Nothing is written until the login in
+// use is saved; a failed write puts the earlier login back. Claude Code's
+// own locks are held while it reads and writes, so a running Claude Code
+// can't renew the old login over the new one.
+func (b *Book) Switch(ctx context.Context, key string) error {
+	h := b.Home
+	if h == nil {
+		return ErrCantSwitch
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if err := b.load(); err != nil {
+		return err
+	}
+	ti := slices.IndexFunc(b.added, func(a Account) bool { return a.Key() == key })
+	if ti < 0 {
+		return errNotAdded
+	}
+	parked, err := b.Vault.Get(ParkService, key)
+	if errors.Is(err, ErrNotFound) {
+		return ErrInvalidGrant
+	}
 	if err != nil {
-		return "", ErrNoPitboard
+		return err
 	}
-	return p, nil
-}
+	oauth := oauthOf(parked)
+	if oauth == nil {
+		return ErrInvalidGrant
+	}
 
-// CanSwitch says whether Pitboard's command is here. It may run a login
-// shell: call it off the main thread.
-func (b *Book) CanSwitch() bool {
-	_, err := b.pitboard()
-	return err == nil
-}
+	// Whose the login in use is may need Anthropic: asked before the locks.
+	was, err := h.readLive(b.Vault)
+	if err != nil {
+		return err
+	}
+	who, err := b.whose(ctx, was.data)
+	if err != nil {
+		return err
+	}
+	if who != nil && who.Key() == key {
+		return nil
+	}
 
-// pitboard is Pitboard's command, looked for until it is found once.
-func (b *Book) pitboard() (string, error) {
-	b.cliMu.Lock()
-	defer b.cliMu.Unlock()
-	if b.cli != "" {
-		return b.cli, nil
+	free, err := h.lockAll(ctx)
+	if err != nil {
+		return err
 	}
-	if b.PitboardCLI == nil {
-		return "", ErrNoPitboard
+	defer free()
+	again, err := h.readLive(b.Vault)
+	if err != nil {
+		return err
 	}
-	p, err := b.PitboardCLI()
+	if !bytes.Equal(again.data, was.data) || !bytes.Equal(again.fileData, was.fileData) {
+		return errLiveMoved
+	}
+	conf, err := os.ReadFile(h.ClaudeJSON)
+	if err != nil {
+		return fmt.Errorf("~/.claude.json could not be read: %w", err)
+	}
+	acct := b.added[ti].OAuthAccount
+	if acct == nil {
+		acct = minimalOAuthAccount(b.added[ti])
+	}
+	newConf, err := spliceKey(conf, "oauthAccount", acct)
+	if err != nil {
+		return err
+	}
+	newLive, err := withOAuth(was.data, oauth)
+	if err != nil {
+		return err
+	}
+
+	// The login in use is saved first: once overwritten, it is gone.
+	if who != nil {
+		mine := oauthAccountOf(conf)
+		if keyOf(mine) != who.Key() {
+			mine = nil
+		}
+		if _, err := b.keepLocked(was.data, *who, mine); err != nil {
+			return fmt.Errorf("The login in use could not be saved, so nothing was switched: %w", err)
+		}
+	}
+	err = h.writeLive(b.Vault, was, newLive)
 	if err == nil {
-		b.cli = p
+		err = writeAtomic(h.ClaudeJSON, newConf, 0o600) // atomic: a failure leaves it as it was
 	}
-	return p, err
+	if err != nil {
+		if h.restoreLive(b.Vault, was) != nil {
+			return errRestore
+		}
+		return fmt.Errorf("The switch failed; Claude Code still uses its earlier account: %w", err)
+	}
+	b.inUse = nil
+	return b.save()
 }
 
-// Switch puts Claude Code on the account Pitboard parks under label, by
-// running pitboard use. replace answers yes to Pitboard's one question:
-// whether to replace a sign-in Anthropic refuses for good. Pitboard does
-// every write; the app reads its JSON answer, and never its stderr.
-func (b *Book) Switch(ctx context.Context, label string, replace bool) (Switched, error) {
-	bin, err := b.pitboard()
+// whose says whose login blob is: Anthropic says while its access token
+// is good; after, an added account whose saved login has the same refresh
+// token is its owner. nil means no login to keep.
+func (b *Book) whose(ctx context.Context, blob []byte) (*Profile, error) {
+	l, err := parseLogin(blob)
 	if err != nil {
-		return Switched{}, err
+		return nil, nil
 	}
-	limit := b.SwitchTimeout
-	if limit == 0 {
-		limit = time.Minute
+	if !l.expiresBy(b.Now()) {
+		p, err := b.profileOf(ctx, l.AccessToken)
+		if err == nil {
+			return &p, nil
+		}
+		if !errors.Is(err, ErrUnauthorized) {
+			return nil, err
+		}
 	}
-	ctx, cancel := context.WithTimeout(ctx, limit)
-	defer cancel()
-	args := []string{"use", "claude/" + label, "--json"}
-	if replace {
-		args = append(args, "--yes")
+	for _, a := range b.added {
+		saved, err := b.Vault.Get(ParkService, a.Key())
+		if err != nil {
+			continue
+		}
+		if s, err := parseLogin(saved); err == nil && s.RefreshToken == l.RefreshToken {
+			return &Profile{AccountUUID: a.AccountUUID, Email: a.Email, OrgUUID: a.OrgUUID, OrgName: a.OrgName}, nil
+		}
 	}
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	cmd.WaitDelay = time.Second
-	out, _ := cmd.Output() // the exit status says less than the envelope
-	if ctx.Err() == context.DeadlineExceeded {
-		return Switched{}, errSwitchSlow
+	return nil, errLiveWhose
+}
+
+// keyOf is the account key an oauthAccount object names, or "".
+func keyOf(oauthAccount json.RawMessage) string {
+	var o struct {
+		AccountUUID string `json:"accountUuid"`
+		OrgUUID     string `json:"organizationUuid"`
 	}
-	var env struct {
-		OK   *bool `json:"ok"`
-		Data *struct {
-			To      string   `json:"to"`
-			Changed bool     `json:"changed"`
-			Follow  *float64 `json:"adoption_ceiling_seconds"`
-		} `json:"data"`
-		Error *struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
+	if json.Unmarshal(oauthAccount, &o) != nil || o.AccountUUID == "" {
+		return ""
 	}
-	if json.Unmarshal(bytes.TrimSpace(out), &env) != nil || env.OK == nil {
-		return Switched{}, errNoAnswer
-	}
-	switch {
-	case !*env.OK && env.Error != nil && env.Error.Code == "live_login_refused":
-		return Switched{}, ErrLiveRefused
-	case !*env.OK && env.Error != nil:
-		return Switched{}, &SwitchError{Code: env.Error.Code, Message: env.Error.Message}
-	case !*env.OK || env.Data == nil:
-		return Switched{}, errNoAnswer
-	}
-	s := Switched{To: env.Data.To, Changed: env.Data.Changed}
-	if f := env.Data.Follow; f != nil && *f > 0 {
-		s.Follow = time.Duration(*f * float64(time.Second))
-	}
-	return s, nil
+	return o.AccountUUID + "/" + o.OrgUUID
+}
+
+// minimalOAuthAccount is an oauthAccount object from what the app knows of
+// a.
+// shortcut: accounts added before the app kept oauthAccount get these
+// four fields only; Sign In Again stores the whole object. Claude Code's
+// other fields (display name, role, billing) stay unset until then.
+func minimalOAuthAccount(a Account) json.RawMessage {
+	b, _ := json.Marshal(map[string]string{
+		"accountUuid": a.AccountUUID, "emailAddress": a.Email,
+		"organizationUuid": a.OrgUUID, "organizationName": a.OrgName,
+	})
+	return b
 }

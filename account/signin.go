@@ -186,7 +186,8 @@ func signInEnv(dir, bin string) []string {
 }
 
 // adopt keeps the login claude left for dir: in the keychain item it named
-// after dir, or in dir's .credentials.json.
+// after dir, or in dir's .credentials.json; and the oauthAccount claude
+// wrote in dir's .claude.json.
 func (b *Book) adopt(dir string) (Account, error) {
 	var blob []byte
 	err := ErrNotFound
@@ -209,7 +210,12 @@ func (b *Book) adopt(dir string) (Account, error) {
 	if err != nil {
 		return Account{}, err
 	}
-	return b.keep(l, p)
+	conf, _ := os.ReadFile(filepath.Join(dir, ".claude.json"))
+	acct := oauthAccountOf(conf)
+	if keyOf(acct) != p.Key() {
+		acct = nil
+	}
+	return b.keep(blob, p, acct)
 }
 
 // services are the names claude may give dir's keychain item: from the

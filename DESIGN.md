@@ -281,7 +281,7 @@ MyGo's native data table, with the File column filling the width. Its footer mat
 
 ### Account Block
 A face per account on the Limits page, padded 14 by 16.
-- **Header:** the email in bold, the plan in muted (with the organisation for a team plan), a small bold muted "In use" on the account Claude Code is signed in to, and a "⋯" menu: Switch to This Account for an account Pitboard parks, while Pitboard is installed, and Sign In Again and Remove… for an added account.
+- **Header:** the email in bold, the plan in muted (with the organisation for a team plan), a small bold muted "In use" on the account Claude Code is signed in to, and a "⋯" menu on an added account: Switch to This Account (when it is not in use, and Claude Code runs from its default folder), Sign In Again and Remove….
 - **Rows:** one per limit:
   - the name (150);
   - the meter, filling the width;

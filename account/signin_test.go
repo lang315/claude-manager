@@ -15,7 +15,8 @@ const signLink = "https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a
 // fakeClaude stands in for `claude auth login --claudeai`. It prints the
 // link wrapped in the terminal's escapes (bold, and an OSC 8 hyperlink)
 // and asks for a code with no newline. On "good" it copies loginFile, if
-// any, to its config folder, as claude falls back to .credentials.json.
+// any, to its config folder, as claude falls back to .credentials.json,
+// and writes bob's oauthAccount in the folder's .claude.json.
 func fakeClaude(t *testing.T, loginFile string) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "claude")
@@ -27,6 +28,7 @@ printf 'Paste code here if prompted > '
 read code
 [ "$code" = "good" ] || { echo "Invalid code" >&2; exit 1; }
 if [ -n '` + loginFile + `' ]; then cp '` + loginFile + `' "$CLAUDE_CONFIG_DIR/.credentials.json"; fi
+echo '{"oauthAccount":` + bobAccount + `}' > "$CLAUDE_CONFIG_DIR/.claude.json"
 echo "Login successful."
 `
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
@@ -109,6 +111,9 @@ func TestSignInAddsTheAccount(t *testing.T) {
 	e := next()
 	if !e.Done || e.Err != nil || e.Account.Email != "bob@example.com" || !e.Account.Added {
 		t.Fatalf("got %+v", e)
+	}
+	if string(e.Account.OAuthAccount) != bobAccount {
+		t.Fatalf("oauthAccount = %s", e.Account.OAuthAccount)
 	}
 	if _, err := v.Get(ParkService, "bob/org-b"); err != nil {
 		t.Fatalf("bob's login was not kept: %v", err)

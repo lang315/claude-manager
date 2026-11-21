@@ -93,14 +93,17 @@ func TestLimitsScreenshot(t *testing.T) {
 		}
 		f.Close()
 	}
-	// A switch under way, with carol parked by Pitboard.
+	// A switch under way, while Claude Code holds its config lock.
 	l := limitsApp(t)
-	carolOnPitboard(t, l, "sleep 5\n"+pitboardOK)
+	h := canSwitch(t, l)
 	tt := ui.NewTester(l.a.View, 1100, 720)
 	l.a.Update, l.tt = tt.Update, tt
 	l.open(t)
-	waitFor(t, tt, func() bool { return tt.HasText("carol@example.com") })
+	waitFor(t, tt, func() bool { return tt.HasText("bob@example.com") })
 	l.a.Go = func(f func()) { go f() }
+	held := h.ClaudeJSON + ".lock"
+	must(t, os.Mkdir(held, 0o755))
+	defer os.Remove(held)
 	must(t, tt.Click("⋯"))
 	must(t, tt.ChooseMenuItem("Switch to This Account"))
 	waitFor(t, tt, func() bool { return tt.HasText("Switching…") })

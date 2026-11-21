@@ -12,7 +12,7 @@ func TestBookKeepSavesNoSecret(t *testing.T) {
 	b, v, _, _ := newBook(t, newAnthropic())
 	l := login("bob-at", "bob-rt", t0.Add(time.Hour))
 	l.RefreshTokenExpiresAt = t0.Add(30 * 24 * time.Hour).UnixMilli()
-	a, err := b.keep(l, bob)
+	a, err := b.keep(l.Marshal(), bob, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestBookKeepSavesNoSecret(t *testing.T) {
 
 func TestBookReadsWhatItSaved(t *testing.T) {
 	b, v, _, _ := newBook(t, newAnthropic())
-	if _, err := b.keep(login("bob-at", "bob-rt", t0), bob); err != nil {
+	if _, err := b.keep(login("bob-at", "bob-rt", t0).Marshal(), bob, nil); err != nil {
 		t.Fatal(err)
 	}
 	again := &Book{Dir: b.Dir, Vault: v}
@@ -53,7 +53,7 @@ func TestBookReadsWhatItSaved(t *testing.T) {
 func TestBookKeepReplacesTheSameAccount(t *testing.T) {
 	b, v, _, _ := newBook(t, newAnthropic())
 	for _, at := range []string{"at-1", "at-2"} {
-		if _, err := b.keep(login(at, "rt", t0), bob); err != nil {
+		if _, err := b.keep(login(at, "rt", t0).Marshal(), bob, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -68,7 +68,7 @@ func TestBookKeepReplacesTheSameAccount(t *testing.T) {
 
 func TestBookRemove(t *testing.T) {
 	b, v, _, _ := newBook(t, newAnthropic())
-	if _, err := b.keep(login("bob-at", "bob-rt", t0), bob); err != nil {
+	if _, err := b.keep(login("bob-at", "bob-rt", t0).Marshal(), bob, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.Remove("bob/org-b"); err != nil {

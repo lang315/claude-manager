@@ -18,6 +18,24 @@ Each item gets its own design before it is built.
 - [x] Limits of each Claude Code account: the five-hour, weekly and per-model weekly limits, for the account in use and accounts added through Claude Code's own sign-in (after [Pitboard](https://github.com/datlechin/pitboard)'s approach), and, read-only, the accounts Pitboard itself follows.
 - [ ] Export a session to Markdown.
 
+## claude-swap port — account switching without Pitboard
+
+Claude-swap's macOS features (github.com/realiti4/claude-swap, MIT), rewritten
+in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-design.md`.
+
+- [ ] **1. Native switch.** Switch to an added account from the Limits page;
+  the login in use is saved first, under Claude Code's own locks. Replaces the
+  `pitboard use` path. Owed: a real switch A → B → A on this Mac, together
+  with the real Add Account check from PR #9.
+- [ ] **2. Auto-switch.** Switch before the account in use reaches its
+  five-hour or weekly line, while the app is open; strategies, cooldown,
+  margin, per-account off / line / priority.
+- [ ] **3. Export / import.** Move added accounts to another Mac in one
+  private (0600, unencrypted) JSON file.
+- [ ] **4. Run as account.** Open Claude Code in Terminal as one account
+  (its own `CLAUDE_CONFIG_DIR`), the rest of the Mac staying on the default;
+  its renewed login is taken back once it exits.
+
 ## v3 — editing configuration
 
 - [ ] Edit `settings.json` safely (backup first, validate JSON, show a diff before saving).

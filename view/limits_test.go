@@ -355,29 +355,29 @@ func TestLimitsNotesUnreadablePitboard(t *testing.T) {
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("Pitboard's files could not be read.") })
 }
 
-// carolOnPitboard lists carol as an account Pitboard parks under "Lãng",
-// with pitboard the given script.
-func carolOnPitboard(t *testing.T, l *lim, body string) (args string) {
+// canSwitch gives the book Claude Code's default folder, in a temp home,
+// signed in to alice through the keychain, with bob added.
+func canSwitch(t *testing.T, l *lim) *account.Home {
 	t.Helper()
-	dir := t.TempDir()
-	bin, args := filepath.Join(dir, "pitboard"), filepath.Join(dir, "args")
-	must(t, os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" >> '"+args+"'\n"+body+"\n"), 0o755))
-	l.book.PitboardCLI = func() (string, error) { return bin, nil }
-	l.book.Pitboard = func() ([]account.Account, error) {
-		return []account.Account{{AccountUUID: "carol", OrgUUID: "org", Email: "carol@example.com",
-			Source: "Pitboard", PitboardLabel: "Lãng"}}, nil
-	}
-	return args
+	home := t.TempDir()
+	h := &account.Home{Root: filepath.Join(home, ".claude"), ClaudeJSON: filepath.Join(home, ".claude.json"), User: "me"}
+	must(t, os.Mkdir(h.Root, 0o700))
+	must(t, os.WriteFile(h.ClaudeJSON, []byte(`{"oauthAccount":{"accountUuid":"alice","organizationUuid":"org"}}`), 0o600))
+	must(t, l.vault.Put("Claude Code-credentials", "me", l.live.Marshal()))
+	l.book.Home = h
+	l.book.Live = func() (account.Login, error) { return account.ReadLive(l.vault, "", h.Root) }
+	seedBob(t, l, "bob")
+	return h
 }
-
-const pitboardOK = `echo '{"v":1,"command":"use","ok":true,"data":{"to":"Lãng","changed":true,"adoption_ceiling_seconds":33},"warnings":[],"error":null}'`
 
 func TestLimitsSwitch(t *testing.T) {
 	l := limitsApp(t)
-	args := carolOnPitboard(t, l, "sleep 0.3\n"+pitboardOK)
+	h := canSwitch(t, l)
 	l.open(t)
-	waitFor(t, l.tt, func() bool { return l.tt.HasText("carol@example.com") })
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
 	l.a.Go = func(f func()) { go f() } // so the switch is seen under way
+	held := h.ClaudeJSON + ".lock"     // Claude Code holds its config lock a moment
+	must(t, os.Mkdir(held, 0o755))
 	must(t, l.tt.Click("⋯"))
 	must(t, l.tt.ChooseMenuItem("Switch to This Account"))
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("Switching…") })
@@ -385,81 +385,44 @@ func TestLimitsSwitch(t *testing.T) {
 	if err := l.tt.ChooseMenuItem("Switch to This Account"); err == nil {
 		t.Error("a second switch started while one runs")
 	}
-	waitFor(t, l.tt, func() bool {
-		return l.tt.HasText("Switched to carol@example.com. Running sessions follow within 33 seconds.")
-	})
-	got, _ := os.ReadFile(args)
-	if string(got) != "use\nclaude/Lãng\n--json\n" {
-		t.Errorf("pitboard ran with %q", got)
+	must(t, os.Remove(held))
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Switched to bob@example.com.") })
+	conf, _ := os.ReadFile(h.ClaudeJSON)
+	if !strings.Contains(string(conf), `"accountUuid":"bob"`) {
+		t.Errorf("~/.claude.json = %s", conf)
 	}
+	// alice, put away, is now an added account with a menu of her own.
+	waitFor(t, l.tt, func() bool {
+		n := 0
+		for _, s := range l.tt.Texts() {
+			if s == "⋯" {
+				n++
+			}
+		}
+		return n == 2
+	})
 }
 
 func TestLimitsSwitchNotOffered(t *testing.T) {
 	l := limitsApp(t)
-	carolOnPitboard(t, l, pitboardOK)
-	l.book.PitboardCLI = func() (string, error) { return "", account.ErrNoPitboard }
+	canSwitch(t, l)
+	l.book.Home = nil // Claude Code runs from another folder
 	l.open(t)
-	waitFor(t, l.tt, func() bool { return l.tt.HasText("carol@example.com") })
-	if l.tt.HasText("⋯") {
-		t.Error("a menu without Pitboard's command")
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
+	must(t, l.tt.Click("⋯"))
+	if slices.Contains(l.tt.Menu(), "Switch to This Account") {
+		t.Errorf("a switch offered outside Claude Code's default folder: %q", l.tt.Menu())
 	}
 }
 
 func TestLimitsSwitchError(t *testing.T) {
 	l := limitsApp(t)
-	carolOnPitboard(t, l, `echo '{"v":1,"command":"use","ok":false,"data":null,"warnings":[],"error":{"code":"parked_login_refused","message":"Its saved sign-in no longer works."}}'; exit 1`)
+	canSwitch(t, l)
 	l.open(t)
-	waitFor(t, l.tt, func() bool { return l.tt.HasText("carol@example.com") })
-	must(t, l.tt.Click("⋯"))
-	must(t, l.tt.ChooseMenuItem("Switch to This Account"))
-	waitFor(t, l.tt, func() bool { return l.tt.HasText("Its saved sign-in no longer works.") })
-	waitFor(t, l.tt, func() bool { return !l.tt.HasText("Switching…") })
-}
-
-func TestLimitsSwitchReplaces(t *testing.T) {
-	l := limitsApp(t)
-	args := carolOnPitboard(t, l, `case "$*" in *--yes*) `+pitboardOK+`;;
-*) echo '{"v":1,"command":"use","ok":false,"data":null,"warnings":[],"error":{"code":"live_login_refused","message":"x"}}'; exit 1;; esac`)
-	l.open(t)
-	waitFor(t, l.tt, func() bool { return l.tt.HasText("carol@example.com") })
-	must(t, l.tt.Click("⋯"))
-	must(t, l.tt.ChooseMenuItem("Switch to This Account"))
-	waitFor(t, l.tt, func() bool { return l.tt.HasText("Replace Claude Code's sign-in?") })
-	must(t, l.tt.Click("Replace"))
-	waitFor(t, l.tt, func() bool {
-		return l.tt.HasText("Switched to carol@example.com. Running sessions follow within 33 seconds.")
-	})
-	got, _ := os.ReadFile(args)
-	if string(got) != "use\nclaude/Lãng\n--json\nuse\nclaude/Lãng\n--json\n--yes\n" {
-		t.Errorf("pitboard ran with %q", got)
-	}
-}
-
-func TestSwitchedText(t *testing.T) {
-	for _, c := range []struct {
-		s    account.Switched
-		want string
-	}{
-		{account.Switched{Changed: true, Follow: 33 * time.Second}, "Switched to c@x. Running sessions follow within 33 seconds."},
-		{account.Switched{Changed: true}, "Switched to c@x. Running sessions keep the old account until they're started again."},
-		{account.Switched{}, "c@x is already in use."},
-	} {
-		if got := switchedText("c@x", c.s); got != c.want {
-			t.Errorf("%+v: %q", c.s, got)
-		}
-	}
-}
-
-func TestLimitsSavedShowBeforePitboardIsFound(t *testing.T) {
-	l := limitsApp(t)
-	seedBob(t, l, "bob")
-	l.book.PitboardCLI = func() (string, error) { time.Sleep(2 * time.Second); return "", account.ErrNoPitboard }
-	l.book.Live = func() (account.Login, error) { time.Sleep(3 * time.Second); return *l.live, nil }
-	l.a.Go = func(f func()) { go f() }
-	start := time.Now()
-	must(t, l.tt.Click("Limits"))
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
-	if d := time.Since(start); d > time.Second {
-		t.Fatalf("saved figures took %v: they wait for the pitboard lookup", d)
-	}
+	must(t, l.vault.Delete(account.ParkService, "bob/org")) // bob's saved login is gone
+	must(t, l.tt.Click("⋯"))
+	must(t, l.tt.ChooseMenuItem("Switch to This Account"))
+	waitFor(t, l.tt, func() bool { return l.tt.HasText(account.ErrInvalidGrant.Error()) })
+	waitFor(t, l.tt, func() bool { return !l.tt.HasText("Switching…") })
 }

@@ -42,15 +42,30 @@ func (k Keychain) Get(service, acct string) ([]byte, error) {
 	return bytes.TrimSuffix(out, []byte("\n")), nil
 }
 
+// stdinLimit is the longest line security -i reads whole.
+const stdinLimit = 4096 - 64
+
 // Put sends its command to security -i on stdin, so the secret is on no
-// argument line another process could read.
+// argument line another process could read. A secret too long for one
+// line goes on the argument line, hex-encoded, as claude-swap does: the
+// alternative is a cut-off login.
 func (k Keychain) Put(service, acct string, secret []byte) error {
-	if strings.ContainsAny(service+acct, " \t\n\"'") {
+	if strings.ContainsAny(service+acct, "\n\r") {
 		return fmt.Errorf("The keychain item %q %q can't be written.", service, acct)
 	}
-	cmd := fmt.Sprintf("add-generic-password -U -s %s -a %s -X %s\n", service, acct, hex.EncodeToString(secret))
+	hexed := hex.EncodeToString(secret)
+	cmd := fmt.Sprintf("add-generic-password -U -s %s -a %s -X %s\n", quote(service), quote(acct), hexed)
+	if len(cmd) > stdinLimit {
+		_, err := k.run("the write", "", "add-generic-password", "-U", "-s", service, "-a", acct, "-X", hexed)
+		return err
+	}
 	_, err := k.run("the write", cmd, "-i")
 	return err
+}
+
+// quote quotes s for a security -i line, which is split as a shell would.
+func quote(s string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
 }
 
 func (k Keychain) Delete(service, acct string) error {

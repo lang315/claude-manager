@@ -6,6 +6,7 @@ import (
 	"context"
 	"log"
 	"os"
+	osuser "os/user"
 	"path/filepath"
 	"time"
 
@@ -63,9 +64,21 @@ func main() {
 }
 
 // accounts is the Limits page's book, in the app's folder, with logins in
-// the login keychain.
+// the login keychain. It switches Claude Code's account only in Claude
+// Code's default folder.
 func accounts(home, configDir, root string) *account.Book {
 	vault := account.Keychain{}
+	var h *account.Home
+	if configDir == "" {
+		user := os.Getenv("USER")
+		if user == "" {
+			user = "claude-code-user" // claude-swap's last fallback, after the OS name
+			if u, err := osuser.Current(); err == nil {
+				user = u.Username
+			}
+		}
+		h = &account.Home{Root: root, ClaudeJSON: filepath.Join(home, ".claude.json"), User: user}
+	}
 	return &account.Book{
 		Dir:           filepath.Join(home, "Library", "Application Support", "Claude Manager"),
 		Vault:         vault,
@@ -74,7 +87,7 @@ func accounts(home, configDir, root string) *account.Book {
 		Now:           time.Now,
 		Claude:        account.FindClaude,
 		SignInTimeout: 10 * time.Minute,
-		PitboardCLI:   account.FindPitboard,
 		Pitboard:      func() ([]account.Account, error) { return account.ReadPitboard(filepath.Join(home, ".pitboard")) },
+		Home:          h,
 	}
 }

@@ -25,8 +25,6 @@ func ReadPitboard(dir string) ([]Account, error) {
 			Plan        string          `json:"plan"`
 			AccountUUID string          `json:"account_uuid"`
 			OrgUUID     string          `json:"organization_uuid"`
-			Label       string          `json:"label"`
-			Parked      json.RawMessage `json:"parked"`
 		} `json:"accounts"`
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "state.json"))
@@ -58,9 +56,6 @@ func ReadPitboard(dir string) ([]Account, error) {
 			continue
 		}
 		a := Account{AccountUUID: p.AccountUUID, OrgUUID: p.OrgUUID, Email: p.Email, Plan: p.Plan, Source: "Pitboard"}
-		if len(p.Parked) > 0 && string(p.Parked) != "null" {
-			a.PitboardLabel = p.Label
-		}
 		u := usage[p.ID]
 		for _, raw := range u.Windows {
 			var w struct {

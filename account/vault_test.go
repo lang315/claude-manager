@@ -102,7 +102,7 @@ func TestKeychainPutUsesStdin(t *testing.T) {
 	if args := readFile(t, dir+"/args"); args != "-i\n" {
 		t.Fatalf("args = %q: the secret must not be on the command line", args)
 	}
-	want := "add-generic-password -U -s claude-manager-park -a acc/org -X 736563726574\n"
+	want := "add-generic-password -U -s \"claude-manager-park\" -a \"acc/org\" -X 736563726574\n"
 	if in := readFile(t, dir+"/stdin"); in != want {
 		t.Fatalf("stdin = %q, want %q", in, want)
 	}
@@ -120,9 +120,31 @@ func TestKeychainPutFailsOnStderr(t *testing.T) {
 	}
 }
 
-func TestKeychainPutRefusesSpaces(t *testing.T) {
-	k, _ := fakeSecurity(t, ":")
-	if err := k.Put("two words", "a", []byte("x")); err == nil {
-		t.Fatal("Put took a service with a space")
+// Claude Code's own item has a space in its service: security -i splits
+// its line as a shell would, so names are quoted.
+func TestKeychainPutQuotes(t *testing.T) {
+	k, dir := fakeSecurity(t, ":")
+	if err := k.Put("Claude Code-credentials", `me"\`, []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	want := `add-generic-password -U -s "Claude Code-credentials" -a "me\"\\" -X 78` + "\n"
+	if in := readFile(t, dir+"/stdin"); in != want {
+		t.Fatalf("stdin = %q, want %q", in, want)
+	}
+	if err := k.Put("a\nb", "a", []byte("x")); err == nil {
+		t.Fatal("Put took a service with a newline")
+	}
+}
+
+// A secret too long for one security -i line goes on the argument line.
+func TestKeychainPutLong(t *testing.T) {
+	k, dir := fakeSecurity(t, ":")
+	secret := strings.Repeat("x", 3000)
+	if err := k.Put("Claude Code-credentials", "me", []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	args := readFile(t, dir+"/args")
+	if !strings.HasPrefix(args, "add-generic-password\n-U\n-s\nClaude Code-credentials\n-a\nme\n-X\n") {
+		t.Fatalf("args = %.80q", args)
 	}
 }

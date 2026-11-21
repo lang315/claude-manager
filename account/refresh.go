@@ -38,18 +38,33 @@ func (b *Book) Refresh(ctx context.Context, force bool) ([]Account, error) {
 		acct  *Account
 		token string // the login in use's; "" for an added account's own login
 	}
+	// With the login in use unknown, ~/.claude.json still says whose it
+	// is: that account's saved login shares Claude Code's refresh chain, so
+	// it is not read with it, nor renewed.
+	inUse, held := "", false
+	if who != nil {
+		inUse = who.Key()
+	} else if b.Home != nil {
+		inUse = b.Home.accountKey()
+	}
 	var jobs []job
 	for i := range b.added {
 		a := &b.added[i]
-		a.InUse = who != nil && a.Key() == who.Key()
+		a.InUse = inUse != "" && a.Key() == inUse
 		token := ""
-		if a.InUse {
+		switch {
+		case a.InUse && who == nil:
+			a.Err, held = liveErr.Error(), true
+			continue
+		case a.InUse:
 			token = live.AccessToken
 		}
 		jobs = append(jobs, job{a, token})
 	}
 	b.nobody = nil
 	switch {
+	case held:
+		b.inUse = nil
 	case who == nil && b.inUse != nil:
 		b.inUse.Err = liveErr.Error()
 	case who == nil:
@@ -90,22 +105,31 @@ func (b *Book) identify(ctx context.Context, now time.Time) (Login, *Profile, er
 	if l.expiresBy(now) {
 		return l, nil, errLiveExpired
 	}
-	k := sha256.Sum256([]byte(l.AccessToken))
-	if p, ok := b.who[k]; ok {
-		return l, &p, nil
-	}
-	p, err := b.API.Profile(ctx, l.AccessToken)
+	p, err := b.profileOf(ctx, l.AccessToken)
 	if errors.Is(err, ErrUnauthorized) {
 		err = errLiveExpired
 	}
 	if err != nil {
 		return l, nil, err
 	}
+	return l, &p, nil
+}
+
+// profileOf asks whose token is, once per token.
+func (b *Book) profileOf(ctx context.Context, token string) (Profile, error) {
+	k := sha256.Sum256([]byte(token))
+	if p, ok := b.who[k]; ok {
+		return p, nil
+	}
+	p, err := b.API.Profile(ctx, token)
+	if err != nil {
+		return p, err
+	}
 	if b.who == nil {
 		b.who = map[[32]byte]Profile{}
 	}
 	b.who[k] = p
-	return l, &p, nil
+	return p, nil
 }
 
 // read asks for one account's limits: with token, the login in use's, or
@@ -147,13 +171,13 @@ func (b *Book) readOwn(ctx context.Context, a *Account, now time.Time) ([]Limit,
 		return nil, ErrInvalidGrant
 	}
 	if l.expiresBy(now.Add(renewAhead)) {
-		if l, err = b.renew(ctx, a, l, now); err != nil {
+		if l, err = b.renew(ctx, a, blob, l, now); err != nil {
 			return nil, err
 		}
 	}
 	limits, err := b.API.Usage(ctx, l.AccessToken)
 	if errors.Is(err, ErrUnauthorized) {
-		if l, err = b.renew(ctx, a, l, now); err != nil {
+		if l, err = b.renew(ctx, a, blob, l, now); err != nil {
 			return nil, err
 		}
 		limits, err = b.API.Usage(ctx, l.AccessToken)
@@ -161,14 +185,15 @@ func (b *Book) readOwn(ctx context.Context, a *Account, now time.Time) ([]Limit,
 	return limits, err
 }
 
-// renew renews an added account's login and saves it before it is used. A
-// save that fails loses the login: the old refresh token may be spent.
-func (b *Book) renew(ctx context.Context, a *Account, l Login, now time.Time) (Login, error) {
+// renew renews an added account's login, saved as blob, and saves it,
+// every other field kept, before it is used. A save that fails loses the
+// login: the old refresh token may be spent.
+func (b *Book) renew(ctx context.Context, a *Account, blob []byte, l Login, now time.Time) (Login, error) {
 	fresh, err := b.API.Renew(ctx, l, now)
 	if err != nil {
 		return l, err
 	}
-	if err := b.Vault.Put(ParkService, a.Key(), fresh.Marshal()); err != nil {
+	if err := b.Vault.Put(ParkService, a.Key(), withTokens(blob, fresh)); err != nil {
 		return l, ErrInvalidGrant
 	}
 	if fresh.RefreshTokenExpiresAt > 0 {

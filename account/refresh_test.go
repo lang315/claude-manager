@@ -96,7 +96,7 @@ func TestRefreshRenewsAnAddedLoginFirst(t *testing.T) {
 	f := newAnthropic()
 	f.usage["bob-2"], f.renewed["bob-rt"] = 30, "bob-2"
 	b, v, _, _ := newBook(t, f)
-	if _, err := b.keep(login("bob-1", "bob-rt", t0.Add(time.Minute)), bob); err != nil { // lapses within 5 minutes
+	if _, err := b.keep(login("bob-1", "bob-rt", t0.Add(time.Minute)).Marshal(), bob, nil); err != nil { // lapses within 5 minutes
 		t.Fatal(err)
 	}
 	got, _ := b.Refresh(ctx, false)
@@ -118,7 +118,7 @@ func TestRefreshLosesALoginItCannotSave(t *testing.T) {
 	f := newAnthropic()
 	f.usage["bob-2"], f.renewed["bob-rt"] = 30, "bob-2"
 	b, v, _, _ := newBook(t, f)
-	if _, err := b.keep(login("bob-1", "bob-rt", t0.Add(time.Minute)), bob); err != nil {
+	if _, err := b.keep(login("bob-1", "bob-rt", t0.Add(time.Minute)).Marshal(), bob, nil); err != nil {
 		t.Fatal(err)
 	}
 	v.Fail = errors.New("the keychain is locked")
@@ -133,7 +133,7 @@ func TestRefreshLosesALoginItCannotSave(t *testing.T) {
 
 func TestRefreshSignInExpired(t *testing.T) {
 	b, _, _, _ := newBook(t, newAnthropic())
-	if _, err := b.keep(login("bob-1", "bob-rt", t0), bob); err != nil {
+	if _, err := b.keep(login("bob-1", "bob-rt", t0).Marshal(), bob, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := b.Refresh(ctx, false)
@@ -146,7 +146,7 @@ func TestRefreshRenewsOnceWhenRefused(t *testing.T) {
 	f := newAnthropic()
 	f.usage["bob-2"], f.renewed["bob-rt"] = 30, "bob-2" // bob-1 is refused
 	b, _, _, _ := newBook(t, f)
-	if _, err := b.keep(login("bob-1", "bob-rt", t0.Add(time.Hour)), bob); err != nil {
+	if _, err := b.keep(login("bob-1", "bob-rt", t0.Add(time.Hour)).Marshal(), bob, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := b.Refresh(ctx, false)
@@ -161,7 +161,7 @@ func TestRefreshRenewsOnceWhenRefused(t *testing.T) {
 func TestRefreshShowsAnAddedAccountInUseOnce(t *testing.T) {
 	b, f, _, _ := aliceInUse(t)
 	f.usage["alice-own"] = 1
-	if _, err := b.keep(login("alice-own", "alice-rt", t0.Add(time.Hour)), alice); err != nil {
+	if _, err := b.keep(login("alice-own", "alice-rt", t0.Add(time.Hour)).Marshal(), alice, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := b.Refresh(ctx, false)
@@ -228,7 +228,7 @@ func TestRefreshOrder(t *testing.T) {
 	b, f, _, _ := aliceInUse(t)
 	for _, p := range []Profile{carol, bob} {
 		f.usage[p.AccountUUID] = 1
-		if _, err := b.keep(login(p.AccountUUID, "rt", t0.Add(time.Hour)), p); err != nil {
+		if _, err := b.keep(login(p.AccountUUID, "rt", t0.Add(time.Hour)).Marshal(), p, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
