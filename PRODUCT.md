@@ -32,6 +32,8 @@ user turns it on, writes Claude Code's login and the `oauthAccount` key of
 `~/.claude.json`, after saving the login it replaces. The app also keeps its own
 copy of the login in use, in its own keychain item. Export writes the added
 accounts' logins, unencrypted, to a file the user names, readable by the user only.
+Open in Terminal writes a per-account profile folder under the app's own folder,
+whose links point into `~/.claude`; it never writes into `~/.claude`.
 
 ## Operating Context
 

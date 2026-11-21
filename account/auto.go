@@ -158,7 +158,7 @@ func decide(now time.Time, s Auto, accts []Account, last time.Time) Decision {
 	}
 	var cands []cand
 	for _, a := range accts {
-		if a.InUse || !a.Added || a.AutoOff || a.OAuthAccount == nil || a.Err != "" || now.Sub(a.ReadAt) > fresh {
+		if a.InUse || !a.Added || a.AutoOff || a.OAuthAccount == nil || a.Terminal.Dir != "" || a.Err != "" || now.Sub(a.ReadAt) > fresh {
 			continue
 		}
 		if st, ok := stand(a, s); ok && st.raw > 0 {

@@ -31,6 +31,8 @@ func TestDecide(t *testing.T) {
 	stale.ReadAt = t0.Add(-10 * time.Minute)
 	noAcct := acct("noacct", 0, 0, day)
 	noAcct.OAuthAccount = nil
+	inTerm := acct("interm", 0, 0, day)
+	inTerm.Terminal.Dir = "/p"
 	ownLine := inUse(acct("own", 82, 10, day))
 	ownLine.Line = 80
 	tier := func(a Account, p int) Account { a.Priority = p; return a }
@@ -62,6 +64,7 @@ func TestDecide(t *testing.T) {
 		{"cooldown holds a proactive move", def, []Account{inUse(acct("a", 92, 10, day)), acct("b", 0, 0, day)}, t0.Add(-time.Minute), ""},
 		{"at the limit skips the cooldown", def, []Account{inUse(acct("a", 100, 10, day)), acct("b", 0, 0, day)}, t0.Add(-time.Minute), "b"},
 		{"held out, stale, or without oauthAccount: none is a landing", def, []Account{inUse(acct("a", 95, 10, day)), held, stale, noAcct}, time.Time{}, ""},
+		{"one open in a terminal is no landing", def, []Account{inUse(acct("a", 95, 10, day)), inTerm}, time.Time{}, ""},
 		{"weekly-first takes the sooner weekly reset", with(func(s *Auto) { s.Strategy = WeeklyFirst }), []Account{inUse(acct("a", 92, 10, day)), acct("b", 0, 0, 5*day), acct("c", 40, 40, 2*day)}, time.Time{}, "c"},
 		{"best takes the most room there", def, []Account{inUse(acct("a", 92, 10, day)), acct("b", 0, 0, 5*day), acct("c", 40, 40, 2*day)}, time.Time{}, "b"},
 		{"consume-first moves early to a sooner reset", with(func(s *Auto) { s.Strategy = ConsumeFirst }), []Account{inUse(acct("a", 10, 10, 5*day)), acct("b", 20, 20, 2*day)}, time.Time{}, "b"},

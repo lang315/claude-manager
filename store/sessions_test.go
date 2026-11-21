@@ -274,3 +274,20 @@ func TestProjectsRetriesFailedHead(t *testing.T) {
 		t.Errorf("after the file can be read: err %q, first prompt %q", x.Err, x.FirstPrompt)
 	}
 }
+
+// A session run from a Claude Manager profile writes its transcript to the
+// shared projects/, so it is live too.
+func TestLiveIDsInProfiles(t *testing.T) {
+	s, _, _ := newStore(t)
+	s.Profiles = t.TempDir()
+	dir := filepath.Join(s.Profiles, "abc", "sessions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "4242.json"), []byte(`{"pid":4242,"sessionId":"other"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.LiveIDs(); !got["other"] || !got[fixture.Live] {
+		t.Errorf("LiveIDs %v", got)
+	}
+}

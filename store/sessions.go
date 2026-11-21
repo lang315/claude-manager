@@ -107,7 +107,7 @@ var aiTitle = []byte(`"ai-title"`)
 var userType = []byte(`"type":"user"`)
 
 // LiveIDs returns the ids of the sessions whose process runs, from
-// sessions/<pid>.json.
+// sessions/<pid>.json in Root and in each profile.
 func (s *Store) LiveIDs() map[string]bool {
 	ids, _ := s.live()
 	return ids
@@ -118,7 +118,14 @@ func (s *Store) LiveIDs() map[string]bool {
 func (s *Store) live() (ids map[string]bool, since time.Time) {
 	ids = map[string]bool{}
 	unknown := false
-	for _, f := range listFiles(filepath.Join(s.Root, "sessions"), ".json") {
+	files := listFiles(filepath.Join(s.Root, "sessions"), ".json")
+	if s.Profiles != "" {
+		ps, _ := os.ReadDir(s.Profiles)
+		for _, p := range ps {
+			files = append(files, listFiles(filepath.Join(s.Profiles, p.Name(), "sessions"), ".json")...)
+		}
+	}
+	for _, f := range files {
 		var r struct {
 			PID       int    `json:"pid"`
 			SessionID string `json:"sessionId"`

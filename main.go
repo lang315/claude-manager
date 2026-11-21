@@ -36,6 +36,7 @@ func main() {
 		Trash:      mygo.Shell.TrashItem,
 		Now:        time.Now,
 		Alive:      store.PIDAlive,
+		Profiles:   account.ProfilesDir(appDir(home)),
 	})
 	a.Accounts = accounts(home, configDir, root)
 	a.OpenURL, a.CopyText = mygo.Shell.OpenExternal, mygo.Clipboard.WriteText
@@ -47,6 +48,13 @@ func main() {
 	a.OpenFile = func(message string) (string, error) {
 		// claude-swap's exports go by any name.
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Import Accounts", Message: message, Filters: append(jsonFiles, mygo.FileFilter{Name: "All Files", Extensions: []string{"*"}})})
+		if err != nil || len(paths) == 0 {
+			return "", err
+		}
+		return paths[0], nil
+	}
+	a.ChooseFolder = func(message string) (string, error) {
+		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Open in Terminal", Message: message, Directory: true, CreateDirectories: true, DefaultPath: home})
 		if err != nil || len(paths) == 0 {
 			return "", err
 		}
@@ -84,6 +92,11 @@ func main() {
 
 // accounts is the Limits page's book, in the app's folder, with logins in
 // the login keychain.
+// appDir is the app's folder: accounts.json, sign-in folders and profiles.
+func appDir(home string) string {
+	return filepath.Join(home, "Library", "Application Support", "Claude Manager")
+}
+
 func accounts(home, configDir, root string) *account.Book {
 	vault := account.Keychain{}
 	var h *account.Home
@@ -98,7 +111,7 @@ func accounts(home, configDir, root string) *account.Book {
 		h = &account.Home{Root: root, ClaudeJSON: filepath.Join(home, ".claude.json"), User: user}
 	}
 	return &account.Book{
-		Dir:           filepath.Join(home, "Library", "Application Support", "Claude Manager"),
+		Dir:           appDir(home),
 		Vault:         vault,
 		API:           account.NewAPI(version),
 		Live:          func() (account.Login, error) { return account.ReadLive(vault, configDir, root) },
@@ -107,5 +120,7 @@ func accounts(home, configDir, root string) *account.Book {
 		SignInTimeout: 10 * time.Minute,
 		Pitboard:      func() ([]account.Account, error) { return account.ReadPitboard(filepath.Join(home, ".pitboard")) },
 		Home:          h,
+		Launch:        account.LaunchInTerminal,
+		Running:       account.ClaudeRunning,
 	}
 }

@@ -259,39 +259,55 @@ export and import between two Macs.
 
 ## 4. Run as account
 
-- "Open in Terminal as this account" on an added account not in use asks for
-  a folder, then runs in Terminal.app (`osascript`):
-  `cd <folder> && CLAUDE_CONFIG_DIR=<profile> claude`.
-- Profile: `~/Library/Application Support/Claude Manager/profiles/<email
-  slug>/`, 0700. The app seeds `<profile>/.credentials.json` (0600) from the
-  park item and `<profile>/.claude.json` with `oauthAccount`,
-  `hasCompletedOnboarding: true`, and the user's `mcpServers` from
-  `~/.claude.json`. It deletes a stale `Claude Code-credentials-<hash>` item
-  for the profile first; it never writes one.
-- Shared by symlink from `~/.claude`: `settings.json`, `keybindings.json`,
+- "Open in Terminal…" in the "⋯" menu of an added account not in use (Claude
+  Code's default folder only) asks for a folder, then runs in Terminal.app
+  `cd <folder> && CLAUDE_CONFIG_DIR=<profile> exec claude`. The command goes
+  to `osascript` as an argument, so only the shell's single quotes apply.
+- Profile: `~/Library/Application Support/Claude Manager/profiles/<first 12
+  hex of SHA-256 of the account key>/`, 0700: no email in a path, since an
+  imported file's emails are not checked for one.
+- Order: the "in a terminal" mark is saved first; then the profile's
+  `Claude Code-credentials-<hash>` item is deleted (it would shadow the
+  seed); `.credentials.json` (0600, `claudeAiOauth` only) is written from the
+  saved login; `.claude.json` gets `oauthAccount`, `hasCompletedOnboarding`
+  and the user's `mcpServers` spliced in (an earlier one is kept otherwise);
+  then the launch. A failed seed removes the profile's logins and leaves the
+  mark for take-back to clear.
+- Shared by symlink from `~/.claude`, only where it exists and the profile
+  has nothing of that name: `settings.json`, `keybindings.json`,
   `CLAUDE.md`, `skills`, `commands`, `agents`, `rules`, `projects`,
-  `history.jsonl`. Never shared: `plugins`, `sessions`, `ide`,
-  `.claude.json`, `.credentials.json`.
-- Renewer handover: from the seed on, the profile's Claude Code owns that
-  account's refresh chain. The account is marked "in a terminal"; Refresh
-  reads its limits with the profile's token and never renews its park item.
-  Switching to it is refused while marked.
-- Capture back: on each Refresh, if no `claude` process has the profile as
-  `CLAUDE_CONFIG_DIR` (`ps -E` scan, as claude-swap's `process_detection`)
-  and the profile's login (hashed item, else `.credentials.json`) expires
-  later than the park copy, it is saved to the park item and the mark is
-  cleared.
-- Skipped: directory-to-account mapping (`cswap map`). It serves a CLI that
-  runs `cswap run` in a folder; the app asks for the folder each time.
+  `history.jsonl`. Nothing is written into `~/.claude`.
+- While marked: Refresh reads its limits with the profile's login (its
+  keychain item, else `.credentials.json`) and never renews; a refused token
+  shows "Its sign-in in the terminal has lapsed…". Switch, Remove, Sign In
+  Again, Export (left out, counted) and Import (left alone) refuse it, and
+  auto-switch never lands on it. Opening it again launches the profile as it
+  is, without a new seed.
+- Take back, on each Refresh: a claude runs on the profile when one of its
+  `sessions/<pid>.json` has a live pid (claude-swap's `process_detection`);
+  an unreadable folder or record keeps the mark. Not before 2 minutes from
+  the launch unless a claude was seen. Once none runs: the profile's login,
+  when complete and newer than the saved one, is saved and read back; then
+  the profile's `.credentials.json` and keychain item are removed, so a
+  claude run there later from shell history can't renew a login the app
+  holds; then the mark is cleared.
+- Cleanup: `Store.Profiles` makes each profile's `sessions/` count as live,
+  since their transcripts are in the shared `projects/`.
+- Skipped: directory-to-account mapping (`cswap map`); per-launch
+  `--no-share`/`--no-share-history`; merging a profile's own history.
 
-Verify: seed test in a temp home; capture-back test; a real run by the user.
+Verified: seed, order, refusals, reopen, read-only refresh, take-back
+(grace, failed scan, running, newer, older), session-record scan, quoting
+through `sh` with `'`, `"`, `$` and spaces; mutation checks (21 account,
+5 view, all caught). Not verified: a real Terminal launch and a real claude
+on a profile; that Claude Code reads the seeded `.credentials.json` on this
+Mac (claude-swap relies on it).
 
 ## Not ported
 
-CLI, TUI, menu bar, launch agent, update check, Linux/Windows paths,
-API-key accounts, aliases and slot numbers, `swap`/`move`, the
-`unclaimed` stash (the outgoing unknown login becomes an added account
-instead), usage store polling policy beyond the 3-minute floor.
+Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported
+or not"): the menu bar, start at login, pace and per-model windows moved to
+parts 5 and 6.
 
 ## Open before PR 1
 

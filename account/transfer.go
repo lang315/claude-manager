@@ -67,7 +67,7 @@ func (b *Book) Export(path string) (n, left int, err error) {
 		if a.Key() == inUse && live != nil && newer(live, blob) {
 			blob = live
 		}
-		if _, ok := complete(blob); !ok || keyOf(a.OAuthAccount) == "" {
+		if _, ok := complete(blob); !ok || keyOf(a.OAuthAccount) == "" || a.Terminal.Dir != "" {
 			left++
 			continue
 		}
@@ -217,6 +217,10 @@ func (b *Book) Import(path string) (Imported, error) {
 		k := e.p.Key()
 		if k == inUse || k == liveKey { // follow keeps Claude Code's login; a file's copy would be a second renewer
 			got.Skipped++
+			continue
+		}
+		if slices.ContainsFunc(b.added, func(a Account) bool { return a.Key() == k && a.Terminal.Dir != "" }) {
+			got.Skipped++ // the terminal renews it
 			continue
 		}
 		saved, err := b.Vault.Get(ParkService, k)

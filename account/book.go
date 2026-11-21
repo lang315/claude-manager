@@ -38,6 +38,7 @@ type Account struct {
 	AutoOff      bool            `json:"autoOff,omitempty"`  // held out of auto-switch
 	Line         float64         `json:"line,omitempty"`     // its own five-hour line; 0 for the global one
 	Priority     int             `json:"priority,omitempty"` // its tier for priority-consume-first
+	Terminal     Terminal        `json:"terminal,omitzero"`  // open in a terminal from its own profile
 	InUse        bool            `json:"-"`                  // Claude Code is signed in to it
 	Added        bool            `json:"-"`                  // the app holds a login of its own for it
 	Source       string          `json:"-"`                  // "Pitboard" when Limits are Pitboard's reading
@@ -62,6 +63,11 @@ type Book struct {
 	// Pitboard reads the accounts Pitboard follows; nil reads none.
 	Pitboard func() ([]Account, error)
 	Home     *Home
+	// Launch opens a terminal at folder running claude on configDir:
+	// LaunchInTerminal in the app. Running says whether a claude runs on a
+	// profile: ClaudeRunning in the app.
+	Launch  func(folder, configDir string) error
+	Running func(configDir string) (bool, error)
 
 	mu         sync.Mutex
 	loaded     bool
@@ -237,7 +243,7 @@ func (b *Book) keepLocked(blob []byte, p Profile, oauthAccount json.RawMessage) 
 	}
 	if was != nil {
 		a.Limits, a.ReadAt = was.Limits, was.ReadAt
-		a.AutoOff, a.Line, a.Priority = was.AutoOff, was.Line, was.Priority
+		a.AutoOff, a.Line, a.Priority, a.Terminal = was.AutoOff, was.Line, was.Priority, was.Terminal
 		if a.OAuthAccount == nil {
 			a.OAuthAccount = was.OAuthAccount
 		}
@@ -276,6 +282,9 @@ func (b *Book) Remove(key string) error {
 	defer b.mu.Unlock()
 	if err := b.load(); err != nil {
 		return err
+	}
+	if slices.ContainsFunc(b.added, func(a Account) bool { return a.Key() == key && a.Terminal.Dir != "" }) {
+		return errInTerminal
 	}
 	if err := b.Vault.Delete(ParkService, key); err != nil {
 		return err

@@ -28,6 +28,8 @@ type App struct {
 	// block until then, so they run off the main thread.
 	SaveFile func(name, message string) (string, error)
 	OpenFile func(message string) (string, error)
+	// ChooseFolder asks for a folder, as OpenFile does.
+	ChooseFolder func(message string) (string, error)
 
 	root   string // Store.Root as shown, with ~ for the home directory
 	page   string

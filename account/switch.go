@@ -44,6 +44,9 @@ func (b *Book) switchLocked(ctx context.Context, key string) error {
 	if b.added[ti].OAuthAccount == nil {
 		return errNoAccount
 	}
+	if b.added[ti].Terminal.Dir != "" {
+		return errInTerminal
+	}
 	parked, err := b.Vault.Get(ParkService, key)
 	if errors.Is(err, ErrNotFound) {
 		return ErrInvalidGrant

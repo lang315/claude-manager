@@ -53,11 +53,24 @@ func (b *Book) Refresh(ctx context.Context, force bool) ([]Account, error) {
 		inUse = b.Home.accountKey()
 	}
 	var jobs []job
+	var backErr error
 	for i := range b.added {
 		a := &b.added[i]
 		a.InUse = inUse != "" && a.Key() == inUse
+		if a.Terminal.Dir != "" && b.Home != nil && b.Running != nil {
+			backErr = errors.Join(backErr, b.takeBack(a, now))
+		}
 		token := ""
 		switch {
+		case a.Terminal.Dir != "":
+			// The terminal renews this login: read with its token, never renew.
+			blob, err := b.profileLogin(a.Terminal.Dir)
+			l, perr := parseLogin(blob)
+			if err != nil || perr != nil {
+				a.Err = errTerminalExpired.Error()
+				continue
+			}
+			token = l.AccessToken
 		case a.InUse && who == nil:
 			a.Err, held = liveErr.Error(), true
 			continue
@@ -98,7 +111,7 @@ func (b *Book) Refresh(ctx context.Context, force bool) ([]Account, error) {
 		}()
 	}
 	wg.Wait()
-	return b.blocks(), errors.Join(followErr, b.save())
+	return b.blocks(), errors.Join(followErr, backErr, b.save())
 }
 
 // follow keeps the saved login of the account in use in step with Claude
@@ -188,7 +201,11 @@ func (b *Book) read(ctx context.Context, a *Account, token, held string, now tim
 	var err error
 	if token != "" {
 		limits, err = b.API.Usage(ctx, token)
-		if errors.Is(err, ErrUnauthorized) {
+		switch {
+		case !errors.Is(err, ErrUnauthorized):
+		case a.Terminal.Dir != "":
+			err = errTerminalExpired
+		default:
 			err = errLiveExpired // Claude Code's to renew, never the app's
 		}
 	} else {

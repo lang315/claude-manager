@@ -157,6 +157,9 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 			if b.InUse {
 				ui.Text(c, "In use").FontSize(11).Bold().TextColor(pal.muted)
 			}
+			if b.Terminal.Dir != "" {
+				ui.Text(c, "In a terminal").FontSize(11).Bold().TextColor(pal.muted)
+			}
 			ui.Spacer(c)
 			l.menu(c, a, b)
 		})
@@ -411,19 +414,42 @@ func (l *limits) menu(c *ui.Context, a *App, b account.Account) {
 	if !b.Added {
 		return
 	}
-	switchable := a.Accounts.CanSwitch() && !b.InUse
+	inTerminal := b.Terminal.Dir != ""
+	switchable := a.Accounts.CanSwitch() && !b.InUse && !inTerminal
 	ui.MenuButton(c, "⋯", func(m *ui.Menu) {
 		if switchable && m.Item("Switch to This Account").Disabled(l.switching != "").Chosen() {
 			l.startSwitch(a, b)
 		}
+		if a.Accounts.CanSwitch() && !b.InUse && m.Item("Open in Terminal…").Chosen() {
+			l.startRun(a, b)
+		}
 		l.autoMenu(m, a, b)
-		if m.Item("Sign In Again").Chosen() {
+		if !inTerminal && m.Item("Sign In Again").Chosen() {
 			l.startAdd(a)
 		}
-		if !(b.InUse && a.Accounts.CanSwitch()) && m.Item("Remove…").Destructive(true).Chosen() {
+		if !(b.InUse && a.Accounts.CanSwitch()) && !inTerminal && m.Item("Remove…").Destructive(true).Chosen() {
 			l.removing, l.asking = b, true
 		}
 	}).Tooltip("Actions for " + b.Email)
+}
+
+// startRun asks for a folder, then opens Claude Code there in Terminal as b.
+func (l *limits) startRun(a *App, b account.Account) {
+	a.Go(func() {
+		folder, err := a.ChooseFolder("Open Claude Code in this folder as " + b.Email + ". Until it quits there, its sign-in renews in that terminal.")
+		if err != nil || folder == "" {
+			a.Update(func() { l.toast(a, err) })
+			return
+		}
+		err = a.Accounts.Run(b.Key(), folder)
+		a.Update(func() {
+			if err == nil {
+				a.notice = "Opened Claude Code in Terminal as " + b.Email + "."
+			}
+			l.toast(a, err)
+			l.load(a, true)
+		})
+	})
 }
 
 func (l *limits) startSwitch(a *App, b account.Account) {

@@ -15,6 +15,10 @@ type Store struct {
 	Trash      func(path string) error // moves a path to the Trash: mygo.Shell.TrashItem in the app
 	Now        func() time.Time
 	Alive      func(pid int) bool // PIDAlive in the app
+	// Profiles holds Claude Manager's per-account profiles, each a
+	// CLAUDE_CONFIG_DIR sharing projects/ with Root: their sessions are
+	// live too. "" for none.
+	Profiles string
 }
 
 // recent is how long after its last write a file counts as in use.

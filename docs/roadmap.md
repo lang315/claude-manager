@@ -41,6 +41,39 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [ ] **4. Run as account.** Open Claude Code in Terminal as one account
   (its own `CLAUDE_CONFIG_DIR`), the rest of the Mac staying on the default;
   its renewed login is taken back once it exits.
+- [ ] **5. Weekly pace and per-model windows.** Mark a weekly window used
+  ahead of the week's pace (`pace.py`); let auto-switch also weigh one
+  model's weekly window, as `cswap auto --model Fable`.
+- [ ] **6. Menu bar and start at login.** A menu bar item with each account's
+  limits, Switch and Auto-switch, that keeps running with the window closed;
+  Start at login (`menubar.py`, `launch_agent.py`, done with MyGo's tray and
+  open-at-login instead of a LaunchAgent).
+
+### claude-swap features, ported or not
+
+Every feature in claude-swap's README and `src/`, and where it went.
+
+| Feature | Here |
+|---|---|
+| `add` (capture the live login), `remove`, `list`, `status` | Ported: Add Account, follow (1b), Remove, the Limits page |
+| `switch` | Ported: 1 |
+| `auto`: strategies, lines, weekly line, cooldown, margin, `disable`/`enable`, `threshold`, `priority` | Ported: 2 |
+| `auto --model` per-model windows | 5 |
+| `auto`: no-return bar, failover on failed reads, idle hold, adaptive polling | Not ported: the app reads every 5 minutes (1 while auto-switch is on) and only acts on readings under 5 minutes old, so it holds instead of failing over |
+| `auto --once`, `--dry-run`, `--json`, exit codes | Not applicable: CLI and cron only |
+| Dead-token quarantine | Covered: a refused login shows its error and is never an auto-switch candidate; Sign In Again replaces it |
+| `export` / `import` | Ported: 3 |
+| `run` (session mode), history and setup sharing, MCP mirror | 4 |
+| `map` / `unmap` (directory to account) | Not applicable: it picks the account for a bare `cswap run` typed in a folder; the app asks for the folder |
+| Weekly pace marker | 5 |
+| Menu bar, LaunchAgent, Start at login | 6 |
+| `alias`, slot numbers, `move`, `swap` | Not applicable: accounts are named by email in a GUI |
+| `unclaimed` stash | Not needed: an unknown outgoing login becomes an added account |
+| API-key accounts | Not ported: Claude Manager reads subscription limits, which API keys have none of; Import leaves them out |
+| `config` | Covered: Auto-Switch Settings |
+| TUI, `watch` | Covered: the app itself |
+| `upgrade`, update check, `purge` | Not applicable: app updates; removing every account empties the app's keychain items |
+| Linux, Windows, WSL | Not applicable: macOS app |
 
 ## v3 — editing configuration
 
