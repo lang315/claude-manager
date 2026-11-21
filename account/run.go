@@ -106,6 +106,11 @@ func (b *Book) readyRun(key string, share Share) (string, error) {
 	if a.OAuthAccount == nil {
 		return "", errNoAccount
 	}
+	if b.Claude != nil { // claude-swap's check: the terminal would open on "command not found"
+		if _, err := b.Claude(); err != nil {
+			return "", err
+		}
+	}
 	if _, ok := b.unsaved[key]; ok {
 		return "", errUnsaved
 	}

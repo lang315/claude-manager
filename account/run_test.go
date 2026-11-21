@@ -530,3 +530,17 @@ func TestPurge(t *testing.T) {
 		t.Error("an added account left")
 	}
 }
+
+// claude-swap refuses before launching when claude isn't installed: the
+// terminal would open on "command not found", the login seeded for
+// nothing.
+func TestRunNeedsClaude(t *testing.T) {
+	r := newRunBook(t)
+	r.b.Claude = func() (string, error) { return "", errors.New("Claude Code not found.") }
+	if err := r.b.Run(bob.Key(), "/a", both); err == nil || err.Error() != "Claude Code not found." {
+		t.Fatalf("err = %v", err)
+	}
+	if len(r.launched) != 0 || r.bob(t).Terminal.Dir != "" {
+		t.Error("launched or marked without claude")
+	}
+}
