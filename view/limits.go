@@ -35,6 +35,7 @@ type limits struct {
 
 	switching string
 	run       runUI
+	export    exportUI
 
 	auto autoUI
 }
@@ -345,6 +346,7 @@ func (l *limits) stopSignIn() {
 // dialogs are the Add Account dialog, the Remove confirmation and the Replace confirmation.
 func (l *limits) dialogs(c *ui.Context, a *App, pal *palette) {
 	l.runDialog(c, a)
+	l.exportDialog(c, a)
 	was := l.adding
 	ui.Modal(c, &l.adding, func() {
 		ui.Column(c).Gap(12).Padding(20).Width(440).Children(func() {

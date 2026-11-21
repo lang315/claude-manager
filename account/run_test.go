@@ -157,7 +157,7 @@ func TestInTerminalIsNotSwitchedExportedImportedOrRemoved(t *testing.T) {
 	if err := r.b.Remove(bob.Key()); !errors.Is(err, errInTerminal) {
 		t.Errorf("remove: %v", err)
 	}
-	if _, _, err := r.b.Export(filepath.Join(t.TempDir(), "out.json")); !errors.Is(err, errNothingToExport) {
+	if _, _, err := r.b.Export(filepath.Join(t.TempDir(), "out.json"), false); !errors.Is(err, errNothingToExport) {
 		t.Errorf("export: %v", err)
 	}
 	path := writeExport(t, claudeSwap(t,

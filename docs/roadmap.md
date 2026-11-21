@@ -89,7 +89,7 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | `add-token`: setup-tokens, Console API keys; `usage.headerProbe` | Not ported: Anthropic's usage endpoint doesn't answer setup-tokens, and the probe spends a real request on the account each poll; API keys have no subscription limits |
 | `import-usage`, `--hold` | Not applicable: hands one Mac's readings to another over a pipe; the app reads its own |
 | `list --token-status` | Covered: each block shows its sign-in's end ("good until") and why a read failed |
-| `export --full` (a same-Mac backup of all of `~/.claude.json` and every credential) | Not ported: Claude Code's own files are outside what the app manages |
+| `export --full` (a same-Mac backup) | 3b: the Export dialog's "Full backup for this Mac" |
 | `import --force` | Covered: an imported login replaces one only when newer; an older one never does |
 | `run --require-session` | Covered: Open in Terminal is never offered for the account in use |
 | `auto --interval` | 2c (the setting) |

@@ -45,7 +45,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	b, _, _, _ := switchBook(t)
 	must(t, b.SetAccountAuto(bob.Key(), true, 0, 0))
 	path := filepath.Join(t.TempDir(), "out.json")
-	n, left, err := b.Export(path)
+	n, left, err := b.Export(path, false)
 	must(t, err)
 	if n != 1 || left != 0 {
 		t.Fatalf("exported %d, left out %d; want bob only", n, left)
@@ -84,7 +84,7 @@ func TestExportTakesNewerLiveLogin(t *testing.T) {
 	b.Refresh(ctx, true)
 	must(t, v.Put(liveDefault, "me", withUUIDs(t, stored(t, login("alice-at2", "alice-rt2", t0.Add(5*time.Hour))), alice)))
 	path := filepath.Join(t.TempDir(), "out.json")
-	_, _, err := b.Export(path)
+	_, _, err := b.Export(path, false)
 	must(t, err)
 	e := entryOf(t, exportOf(t, path), "alice@example.com")
 	if l, _ := parseLogin(e.Credentials); l.RefreshToken != "alice-rt2" {
@@ -100,7 +100,7 @@ func TestExportLiveLoginOnlyWhenItsOwn(t *testing.T) {
 	b.Refresh(ctx, true)
 	must(t, v.Put(liveDefault, "me", withUUIDs(t, stored(t, login("x-at", "x-rt", t0.Add(5*time.Hour))), carol)))
 	path := filepath.Join(t.TempDir(), "out.json")
-	_, _, err := b.Export(path)
+	_, _, err := b.Export(path, false)
 	must(t, err)
 	if l, _ := parseLogin(entryOf(t, exportOf(t, path), "alice@example.com").Credentials); l.RefreshToken != "alice-rt" {
 		t.Errorf("alice exported with %q", l.RefreshToken)
@@ -113,7 +113,7 @@ func TestExportKeepsNewerSavedLogin(t *testing.T) {
 	_, err := b.keep(login("alice-new", "alice-rt-new", t0.Add(5*time.Hour)).Marshal(), alice, json.RawMessage(aliceAccount))
 	must(t, err)
 	path := filepath.Join(t.TempDir(), "out.json")
-	_, _, err = b.Export(path)
+	_, _, err = b.Export(path, false)
 	must(t, err)
 	if l, _ := parseLogin(entryOf(t, exportOf(t, path), "alice@example.com").Credentials); l.RefreshToken != "alice-rt-new" {
 		t.Errorf("alice exported with %q", l.RefreshToken)
@@ -127,7 +127,7 @@ func TestExportSkipsAccountWithoutOAuthAccount(t *testing.T) {
 	_, err := b.keep(login("carol-at", "carol-rt", t0.Add(time.Hour)).Marshal(), carol, nil)
 	must(t, err)
 	path := filepath.Join(t.TempDir(), "out.json")
-	n, left, err := b.Export(path)
+	n, left, err := b.Export(path, false)
 	must(t, err)
 	if n != 1 || left != 1 || exportOf(t, path).Accounts[0].Email != "bob@example.com" {
 		t.Errorf("exported %d, left out %d: %+v", n, left, exportOf(t, path).Accounts)
@@ -140,7 +140,7 @@ func TestExportLeavesOutIncompleteLogin(t *testing.T) {
 	_, err := b.keep(login("carol-at", "", t0.Add(time.Hour)).Marshal(), carol, json.RawMessage(carolAccount))
 	must(t, err)
 	path := filepath.Join(t.TempDir(), "out.json")
-	n, left, err := b.Export(path)
+	n, left, err := b.Export(path, false)
 	must(t, err)
 	if n != 1 || left != 1 {
 		t.Fatalf("exported %d, left out %d", n, left)
@@ -155,7 +155,7 @@ func TestExportMakesReplacedFilePrivate(t *testing.T) {
 	b, _, _, _ := switchBook(t)
 	path := filepath.Join(t.TempDir(), "out.json")
 	must(t, os.WriteFile(path, []byte("old"), 0o644))
-	_, _, err := b.Export(path)
+	_, _, err := b.Export(path, false)
 	must(t, err)
 	fi, err := os.Stat(path)
 	must(t, err)
@@ -171,7 +171,7 @@ func TestExportRefusesLink(t *testing.T) {
 	must(t, os.WriteFile(target, []byte("keep"), 0o644))
 	link := filepath.Join(dir, "out.json")
 	must(t, os.Symlink(target, link))
-	if _, _, err := b.Export(link); err == nil {
+	if _, _, err := b.Export(link, false); err == nil {
 		t.Fatal("exported through a link")
 	}
 	if data, _ := os.ReadFile(target); string(data) != "keep" {
@@ -182,7 +182,7 @@ func TestExportRefusesLink(t *testing.T) {
 func TestExportSkipsAccountWithoutLogin(t *testing.T) {
 	b, v, _, _ := switchBook(t)
 	must(t, v.Delete(ParkService, bob.Key()))
-	if _, _, err := b.Export(filepath.Join(t.TempDir(), "out.json")); !errors.Is(err, errNothingToExport) {
+	if _, _, err := b.Export(filepath.Join(t.TempDir(), "out.json"), false); !errors.Is(err, errNothingToExport) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -346,5 +346,41 @@ func TestImportOtherJSONIsNotAnExport(t *testing.T) {
 	b, _, _, _ := switchBook(t)
 	if _, err := b.Import(writeExport(t, map[string]any{"name": "x"})); !errors.Is(err, errNotExport) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// claude-swap's --full: the account in use with Claude Code's whole login
+// and ~/.claude.json; read back, only its login and oauthAccount are kept.
+func TestExportFull(t *testing.T) {
+	b, v, _, _ := switchBook(t)
+	b.Refresh(ctx, true)
+	must(t, v.Put(liveDefault, "me", withUUIDs(t, stored(t, login("alice-at", "alice-rt", t0.Add(time.Hour))), alice)))
+	path := filepath.Join(t.TempDir(), "out.json")
+	_, _, err := b.Export(path, true)
+	must(t, err)
+	f := exportOf(t, path)
+	e := entryOf(t, f, "alice@example.com")
+	if !strings.Contains(string(e.Credentials), "mcpOAuth") || !strings.Contains(string(e.Config), "numStartups") {
+		t.Fatalf("alice not whole: %s %s", e.Credentials, e.Config)
+	}
+	if bobs := entryOf(t, f, "bob@example.com"); strings.Contains(string(bobs.Config), "numStartups") {
+		t.Error("bob took the whole ~/.claude.json")
+	}
+	_, _, err = b.Export(path, false)
+	must(t, err)
+	if e := entryOf(t, exportOf(t, path), "alice@example.com"); strings.Contains(string(e.Credentials), "mcpOAuth") {
+		t.Error("MCP sign-ins without --full")
+	}
+	_, _, err = b.Export(path, true)
+	must(t, err)
+	c, v2, _, _ := switchBook(t)
+	must(t, os.WriteFile(c.Home.ClaudeJSON, []byte(`{"oauthAccount":`+carolAccount+`}`), 0o600))
+	got, err := c.Import(path)
+	must(t, err)
+	if got.Added != 1 {
+		t.Fatalf("imported %+v", got)
+	}
+	if strings.Contains(string(get(t, v2, ParkService, alice.Key())), "mcpOAuth") {
+		t.Error("kept the backup's MCP sign-ins")
 	}
 }

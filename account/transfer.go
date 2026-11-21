@@ -43,7 +43,11 @@ var (
 // those without an oauthAccount or a complete saved login, which Import
 // would refuse. The account in use goes with Claude Code's login when that
 // is newer than its saved one.
-func (b *Book) Export(path string) (n, left int, err error) {
+//
+// full is claude-swap's --full, a backup for this Mac: the account in use
+// goes with Claude Code's whole login (its MCP sign-ins too) and the whole
+// of ~/.claude.json. Import still takes only the login and oauthAccount.
+func (b *Book) Export(path string, full bool) (n, left int, err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if err := b.load(); err != nil {
@@ -64,7 +68,8 @@ func (b *Book) Export(path string) (n, left int, err error) {
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return 0, 0, err
 		}
-		if a.Key() == inUse && live != nil && newer(live, blob) {
+		whole := full && a.Key() == inUse && live != nil
+		if a.Key() == inUse && live != nil && (whole || newer(live, blob)) {
 			blob = live
 		}
 		if _, ok := complete(blob); !ok || keyOf(a.OAuthAccount) == "" || a.Terminal.Dir != "" {
@@ -78,6 +83,17 @@ func (b *Book) Export(path string) (n, left int, err error) {
 		conf, err := json.Marshal(map[string]json.RawMessage{"oauthAccount": a.OAuthAccount})
 		if err != nil {
 			return 0, 0, err
+		}
+		if whole {
+			mine, err := os.ReadFile(b.Home.ClaudeJSON)
+			if err != nil {
+				return 0, 0, err
+			}
+			var m map[string]json.RawMessage
+			if json.Unmarshal(mine, &m) != nil || json.Unmarshal(blob, &m) != nil {
+				return 0, 0, errors.New("~/.claude.json or Claude Code's login is not a JSON object.")
+			}
+			creds, conf = bytes.TrimSpace(blob), bytes.TrimSpace(mine)
 		}
 		f.Accounts = append(f.Accounts, exportEntry{Number: len(f.Accounts) + 1, Email: a.Email, UUID: a.AccountUUID,
 			OrgUUID: a.OrgUUID, OrgName: a.OrgName, Added: now, Credentials: creds, Config: conf})

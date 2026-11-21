@@ -330,6 +330,19 @@ rejection writes nothing and shows no token; mutation checks on every guard
 ours (checked against its `_validate_imported_account` only), and a real
 export and import between two Macs.
 
+## 3b. Full backup (`export --full`)
+
+- Export opens a dialog first: the warnings, "Full backup for this Mac",
+  Cancel and "Choose File…". Ticked, the account in use goes with Claude
+  Code's whole login (its `mcpOAuth` too) and the whole of `~/.claude.json`,
+  as claude-swap's `--full` does for its active account; the other accounts
+  stay as they are, since the app keeps only their login and
+  `oauthAccount`. Import takes only `claudeAiOauth` and `oauthAccount`
+  either way, as before.
+
+Verified: `TestExportFull`, `TestLimitsExportFull`; mutation checks (5 of 5
+caught).
+
 ## 4. Run as account
 
 - "Open in Terminal…" in the "⋯" menu of an added account not in use (Claude
