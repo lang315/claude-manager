@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,7 +34,7 @@ const (
 
 // Commands are the commands Run knows; main opens the app for anything
 // else.
-var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "alias", "map", "unmap", "config", "upgrade", "version", "--version", "help"}
+var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "alias", "map", "unmap", "move", "swap", "config", "upgrade", "version", "--version", "help"}
 
 // Upgrade installs a newer version of the app, if there is one, and says
 // what it did; main sets it.
@@ -88,6 +89,8 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 		err = c.unmap(one(rest))
 	case "config":
 		err = c.config(rest)
+	case "move", "swap":
+		err = c.reslot(args[0], rest)
 	case "upgrade":
 		var said string
 		if said, err = Upgrade(ctx); err == nil {
@@ -154,6 +157,7 @@ const usage = `claude-manager <command> [flags]
   config [list | get <key> | set <key> <value> | unset <key>]
                                    settings, by claude-swap's names
   upgrade                          install a newer version of the app
+  move <from> <to> | swap <a> <b>  renumber accounts (move swaps when <to> is taken)
   version
   --debug                          with any command: print each request made to Anthropic
 
@@ -206,7 +210,7 @@ func find(accts []account.Account, name string) (account.Account, error) {
 	}
 	var hits []account.Account
 	for _, a := range accts {
-		if a.Email == name || a.Key() == name || a.Alias != "" && strings.EqualFold(a.Alias, name) {
+		if a.Email == name || a.Key() == name || a.Alias != "" && strings.EqualFold(a.Alias, name) || a.Slot != 0 && strconv.Itoa(a.Slot) == name {
 			hits = append(hits, a)
 		}
 	}
@@ -266,8 +270,8 @@ func stamp(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-func toRow(n int, a account.Account, now time.Time) row {
-	r := row{Number: n, Email: a.Email, OrgUUID: a.OrgUUID, Key: a.Key(), Active: a.InUse, Added: a.Added,
+func toRow(a account.Account, now time.Time) row {
+	r := row{Number: a.Slot, Email: a.Email, OrgUUID: a.OrgUUID, Key: a.Key(), Active: a.InUse, Added: a.Added,
 		Disabled: a.AutoOff, Threshold: a.Line, LoginExpiry: stamp(a.GoodUntil), Status: "unavailable", Error: a.Err}
 	if !a.Usable(now) {
 		return r
@@ -294,8 +298,12 @@ func toRow(n int, a account.Account, now time.Time) row {
 	return r
 }
 
+// read refreshes the readings and lists the accounts by slot, as cswap's
+// list; the account in use when not added comes first, numberless.
 func (c *cmd) read(ctx context.Context) ([]account.Account, error) {
-	return c.b.Refresh(ctx, false)
+	accts, err := c.b.Refresh(ctx, false)
+	slices.SortStableFunc(accts, func(x, y account.Account) int { return x.Slot - y.Slot })
+	return accts, err
 }
 
 func (c *cmd) list(ctx context.Context, asJSON bool) error {
@@ -307,9 +315,9 @@ func (c *cmd) list(ctx context.Context, asJSON bool) error {
 	if asJSON {
 		doc := map[string]any{"schemaVersion": 1, "activeAccountNumber": nil}
 		var rows []row
-		for i, a := range accts {
-			r := toRow(i+1, a, now)
-			if r.Active {
+		for _, a := range accts {
+			r := toRow(a, now)
+			if r.Active && r.Number > 0 {
 				doc["activeAccountNumber"] = r.Number
 			}
 			rows = append(rows, r)
@@ -324,7 +332,7 @@ func (c *cmd) list(ctx context.Context, asJSON bool) error {
 		if a.InUse {
 			mark = "*"
 		}
-		fmt.Fprintf(w, "%s %s\n", mark, a.Email)
+		fmt.Fprintf(w, "%s %2s %s\n", mark, slotOf(a), a.Email)
 		for _, l := range a.Limits {
 			fmt.Fprintf(w, "    %-22s %5.0f%%\n", l.Label(), l.Percent)
 		}
@@ -344,7 +352,7 @@ func (c *cmd) status(ctx context.Context, asJSON bool) error {
 	if asJSON {
 		doc := map[string]any{"schemaVersion": 1, "active": nil}
 		if i >= 0 {
-			doc["active"] = toRow(i+1, accts[i], c.b.Now())
+			doc["active"] = toRow(accts[i], c.b.Now())
 		}
 		return json.NewEncoder(c.out).Encode(doc)
 	}
@@ -692,4 +700,34 @@ func (c *cmd) config(rest []string) error {
 		return errors.New("config list, get, set or unset")
 	}
 	return nil
+}
+
+func slotOf(a account.Account) string {
+	if a.Slot == 0 {
+		return "-"
+	}
+	return strconv.Itoa(a.Slot)
+}
+
+func (c *cmd) reslot(verb string, rest []string) error {
+	if len(rest) != 2 {
+		return fmt.Errorf("%s takes two slot numbers", verb)
+	}
+	x, err1 := strconv.Atoi(rest[0])
+	y, err2 := strconv.Atoi(rest[1])
+	if err1 != nil || err2 != nil {
+		return fmt.Errorf("%s takes two slot numbers", verb)
+	}
+	if verb == "move" {
+		err := c.b.Move(x, y)
+		if err == nil {
+			fmt.Fprintf(c.out, "Moved slot %d to %d.\n", x, y)
+		}
+		return err
+	}
+	err := c.b.Swap(x, y)
+	if err == nil {
+		fmt.Fprintf(c.out, "Swapped slots %d and %d.\n", x, y)
+	}
+	return err
 }

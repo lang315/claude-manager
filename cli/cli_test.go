@@ -105,8 +105,9 @@ func TestListJSONIsCswapsAndImports(t *testing.T) {
 		} `json:"accounts"`
 	}
 	must(t, json.Unmarshal([]byte(out), &doc))
-	if doc.Schema != 1 || doc.Active != 1 || len(doc.Accounts) != 2 || doc.Accounts[0].Email != "alice@example.com" ||
-		doc.Accounts[0].Status != "ok" || doc.Accounts[0].Usage.FiveHour.Pct != 50 || doc.Accounts[1].Usage.FiveHour.Pct != 10 {
+	// By slot, as cswap's: bob was added first; alice, followed, second.
+	if doc.Schema != 1 || doc.Active != 2 || len(doc.Accounts) != 2 || doc.Accounts[1].Email != "alice@example.com" ||
+		doc.Accounts[1].Status != "ok" || doc.Accounts[1].Usage.FiveHour.Pct != 50 || doc.Accounts[0].Usage.FiveHour.Pct != 10 {
 		t.Fatalf("list %s", out)
 	}
 	// Another Mac takes it as readings, as cswap import-usage does.
@@ -328,5 +329,35 @@ func TestConfigDebugUpgrade(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(profile, "projects")); err == nil {
 		t.Error("history shared with run.shareHistory false")
+	}
+}
+
+func TestSlots(t *testing.T) {
+	a := newApp(t)
+	a.run(t, "", "list") // alice is added second
+	if code, out, _ := a.run(t, "", "switch", "1"); code != ok || !strings.Contains(out, "bob@example.com") {
+		t.Fatalf("switch by slot: %d %s", code, out)
+	}
+	if code, out, _ := a.run(t, "", "move", "1", "5"); code != ok || !strings.Contains(out, "Moved slot 1 to 5") {
+		t.Fatalf("move: %d %s", code, out)
+	}
+	if code, out, _ := a.run(t, "", "swap", "2", "5"); code != ok || !strings.Contains(out, "Swapped") {
+		t.Fatalf("swap: %d %s", code, out)
+	}
+	_, out, _ := a.run(t, "", "list")
+	if !strings.Contains(out, " 2 bob@example.com") || !strings.Contains(out, " 5 alice@example.com") {
+		t.Errorf("after: %s", out)
+	}
+	if code, out, _ := a.run(t, "", "move", "2", "5"); code != ok || !strings.Contains(out, "Moved") {
+		t.Errorf("move onto a taken slot: %d %s", code, out)
+	}
+	_, out, _ = a.run(t, "", "list")
+	if !strings.Contains(out, " 5 bob@example.com") || !strings.Contains(out, " 2 alice@example.com") {
+		t.Errorf("a move onto a taken slot swaps: %s", out)
+	}
+	for _, bad := range [][]string{{"swap", "2", "9"}, {"move", "9", "1"}, {"move", "2", "0"}, {"move", "x", "1"}} {
+		if code, _, _ := a.run(t, "", bad...); code != failed {
+			t.Errorf("%v taken", bad)
+		}
 	}
 }

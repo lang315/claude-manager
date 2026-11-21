@@ -78,7 +78,7 @@ func (b *Book) Export(path string, full bool) (n, left int, err error) {
 			}
 			creds, _ := json.Marshal(key)
 			conf, _ := json.Marshal(map[string]json.RawMessage{"oauthAccount": a.OAuthAccount})
-			f.Accounts = append(f.Accounts, exportEntry{Number: len(f.Accounts) + 1, Email: a.Email, Added: now, Kind: "api_key", Credentials: creds, Config: conf, Alias: a.Alias})
+			f.Accounts = append(f.Accounts, exportEntry{Number: max(a.Slot, 1), Email: a.Email, Added: now, Kind: "api_key", Credentials: creds, Config: conf, Alias: a.Alias})
 			continue
 		}
 		whole := full && a.Key() == inUse && live != nil
@@ -108,7 +108,7 @@ func (b *Book) Export(path string, full bool) (n, left int, err error) {
 			}
 			creds, conf = bytes.TrimSpace(blob), bytes.TrimSpace(mine)
 		}
-		f.Accounts = append(f.Accounts, exportEntry{Number: len(f.Accounts) + 1, Email: a.Email, UUID: a.AccountUUID,
+		f.Accounts = append(f.Accounts, exportEntry{Number: max(a.Slot, 1), Email: a.Email, UUID: a.AccountUUID,
 			OrgUUID: a.OrgUUID, OrgName: a.OrgName, Added: now, Credentials: creds, Config: conf, Alias: a.Alias})
 	}
 	if len(f.Accounts) == 0 {
@@ -184,6 +184,7 @@ func (b *Book) Import(path string) (Imported, error) {
 		blob  []byte
 		acct  json.RawMessage
 		alias string
+		slot  int
 	}
 	var in []entry
 	var keys []entry // API key accounts: the key in blob
@@ -203,7 +204,7 @@ func (b *Book) Import(path string) (Imported, error) {
 			if slices.ContainsFunc(keys, func(x entry) bool { return x.p.Email == e.Email }) {
 				return Imported{}, bad("repeats an account")
 			}
-			keys = append(keys, entry{p: Profile{Email: e.Email}, blob: []byte(strings.TrimSpace(key)), alias: e.Alias})
+			keys = append(keys, entry{p: Profile{Email: e.Email}, blob: []byte(strings.TrimSpace(key)), alias: e.Alias, slot: e.Number})
 			continue
 		}
 		if e.Email == "" {
@@ -239,7 +240,7 @@ func (b *Book) Import(path string) (Imported, error) {
 		if name == "" {
 			name = ids.OrgName
 		}
-		in = append(in, entry{Profile{AccountUUID: ids.AccountUUID, Email: e.Email, OrgUUID: ids.OrgUUID, OrgName: name}, blob, acct, e.Alias})
+		in = append(in, entry{Profile{AccountUUID: ids.AccountUUID, Email: e.Email, OrgUUID: ids.OrgUUID, OrgName: name}, blob, acct, e.Alias, e.Number})
 	}
 
 	b.mu.Lock()
@@ -300,10 +301,12 @@ func (b *Book) Import(path string) (Imported, error) {
 		}
 	}
 	for _, e := range append(keys, in...) {
-		b.takeAlias(e.p.Key(), e.alias)
+		k := e.p.Key()
 		if e.p.AccountUUID == "" {
-			b.takeAlias(keyUUID+e.p.Email+"/", e.alias)
+			k = keyUUID + e.p.Email + "/"
 		}
+		b.takeAlias(k, e.alias)
+		b.takeSlot(k, e.slot)
 	}
 	return got, b.save()
 }
@@ -319,4 +322,14 @@ func (b *Book) takeAlias(key, name string) {
 	if i := slices.IndexFunc(b.added, func(a Account) bool { return a.Key() == key }); i >= 0 && b.added[i].Alias == "" {
 		b.added[i].Alias = alias
 	}
+}
+
+// takeSlot gives a newly imported account its exported slot when that is
+// free, as claude-swap's import does; otherwise it keeps the next free one.
+func (b *Book) takeSlot(key string, n int) {
+	i := slices.IndexFunc(b.added, func(a Account) bool { return a.Key() == key })
+	if n < 1 || i < 0 || b.added[i].Slot != 0 || b.atSlot(n) >= 0 {
+		return
+	}
+	b.added[i].Slot = n
 }

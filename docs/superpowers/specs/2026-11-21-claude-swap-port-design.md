@@ -579,6 +579,18 @@ caught).
 Verified: `TestSetAlias`, `TestMaps`, `TestAliasTravels`, `TestAliasMapRun`;
 mutation checks (10 of 10 caught, after a redundant check went).
 
+## 11. Slot numbers
+
+- Each added account has `slot`, the smallest number free from 1, given when
+  it is added (and to accounts saved before slots). Saving its login again
+  keeps it. `claude-manager list` goes by slot, and `--json`'s `number` is
+  it; an account is named by its number too. `move <from> <to>` (an account
+  in `<to>` takes `<from>`), `swap <a> <b>`. Export writes it as `number`;
+  Import keeps an imported account's number when it is free.
+
+Verified: `TestSlots`, `TestSlotsTravel`, `TestSlotKeptBySwitches`; mutation
+checks (9 of 9 caught).
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported

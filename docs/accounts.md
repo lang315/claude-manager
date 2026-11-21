@@ -43,7 +43,9 @@ claude-manager alias | map | unmap | config | upgrade | version
 claude-manager <command> --debug                each request made to Anthropic, never a token
 ```
 
-An account is named by its email, its alias, or its key.
+An account is named by its slot number, its email, its alias, or its key.
+`claude-manager move <from> <to>` renumbers one (swapping when `<to>` is
+taken); `swap <a> <b>` exchanges two.
 
 ## Settings
 

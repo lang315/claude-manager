@@ -44,6 +44,7 @@ type Account struct {
 	Token        bool            `json:"token,omitempty"`    // a setup-token account: no refresh token, read by the header probe
 	APIKey       bool            `json:"apiKey,omitempty"`   // a Console API key account: no limits, nothing read
 	Alias        string          `json:"alias,omitempty"`    // a short name for it on the command line
+	Slot         int             `json:"slot,omitempty"`     // its number from 1, as claude-swap's slots
 	InUse        bool            `json:"-"`                  // Claude Code is signed in to it
 	Added        bool            `json:"-"`                  // the app holds a login of its own for it
 	Source       string          `json:"-"`                  // "Pitboard" when Limits are Pitboard's reading
@@ -126,6 +127,7 @@ func (b *Book) load() error {
 		return fmt.Errorf("accounts.json could not be read: %w", err)
 	}
 	b.added, b.inUse = s.Accounts, s.InUse
+	b.ensureSlots()
 	b.maps = s.Maps
 	if s.Prefs != nil {
 		b.prefs = *s.Prefs
@@ -138,6 +140,7 @@ func (b *Book) load() error {
 
 // save writes accounts.json atomically, private to the user.
 func (b *Book) save() error {
+	b.ensureSlots()
 	if err := os.MkdirAll(b.Dir, 0o700); err != nil {
 		return err
 	}
@@ -188,6 +191,7 @@ func (b *Book) Note() string {
 // blocks reads Pitboard's accounts again, then merges them into the
 // accounts as last read.
 func (b *Book) blocks() []Account {
+	b.ensureSlots()
 	b.readPitboard()
 	var out []Account
 	switch {
@@ -262,7 +266,7 @@ func (b *Book) keepLocked(blob []byte, p Profile, oauthAccount json.RawMessage) 
 	}
 	if was != nil {
 		a.Limits, a.ReadAt = was.Limits, was.ReadAt
-		a.AutoOff, a.Line, a.Priority, a.Terminal, a.Token, a.Alias = was.AutoOff, was.Line, was.Priority, was.Terminal, was.Token, was.Alias
+		a.AutoOff, a.Line, a.Priority, a.Terminal, a.Token, a.Alias, a.Slot = was.AutoOff, was.Line, was.Priority, was.Terminal, was.Token, was.Alias, was.Slot
 		if a.OAuthAccount == nil {
 			a.OAuthAccount = was.OAuthAccount
 		}

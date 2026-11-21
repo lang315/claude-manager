@@ -72,7 +72,7 @@ func (b *Book) addKeyLocked(key, email string) (Account, error) {
 	}
 	if i := slices.IndexFunc(b.added, func(x Account) bool { return x.Key() == a.Key() }); i >= 0 {
 		was := b.added[i]
-		a.AutoOff, a.Line, a.Priority, a.Alias = was.AutoOff, was.Line, was.Priority, was.Alias
+		a.AutoOff, a.Line, a.Priority, a.Alias, a.Slot = was.AutoOff, was.Line, was.Priority, was.Alias, was.Slot
 		b.added[i] = a
 	} else {
 		b.added = append(b.added, a)

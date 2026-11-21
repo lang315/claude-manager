@@ -68,3 +68,34 @@ func TestAliasTravels(t *testing.T) {
 		t.Errorf("alias lost: %+v", blocks)
 	}
 }
+
+func TestSlotsTravel(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	must(t, b.Move(1, 4))
+	path := filepath.Join(t.TempDir(), "out.json")
+	_, _, err := b.Export(path, false)
+	must(t, err)
+	if e := entryOf(t, exportOf(t, path), "bob@example.com"); e.Number != 4 {
+		t.Errorf("exported number %d", e.Number)
+	}
+	c, _, _, _ := switchBook(t)
+	must(t, c.Remove(bob.Key()))
+	_, err = c.Import(path)
+	must(t, err)
+	blocks, _ := c.Blocks()
+	if a := blockOf(t, blocks, "bob@example.com"); a.Slot != 4 {
+		t.Errorf("slot %d", a.Slot)
+	}
+}
+
+// Saving an account's login again (switching off it) keeps its slot.
+func TestSlotKeptBySwitches(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	must(t, b.Move(1, 4))
+	must(t, b.Switch(ctx, bob.Key()))
+	must(t, b.Switch(ctx, alice.Key()))
+	blocks, _ := b.Blocks()
+	if a := blockOf(t, blocks, "bob@example.com"); a.Slot != 4 {
+		t.Errorf("bob moved to slot %d", a.Slot)
+	}
+}
