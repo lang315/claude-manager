@@ -108,7 +108,7 @@ func (b *Book) Refresh(ctx context.Context, force bool) ([]Account, error) {
 			if (a == b.inUse || a.InUse) != active {
 				continue
 			}
-			if now.Before(a.WaitUntil) || !force && now.Before(b.due(a, active, near)) {
+			if now.Before(a.WaitUntil) || now.Before(a.HeldUntil) || !force && now.Before(b.due(a, active, near)) {
 				continue
 			}
 			wg.Add(1)

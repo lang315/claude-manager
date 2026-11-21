@@ -163,6 +163,8 @@ func usable(a Account, now time.Time) bool {
 	}
 	age := now.Sub(a.ReadAt)
 	switch {
+	case a.Err == "" && now.Before(a.HeldUntil): // another Mac's reading, held
+		return true
 	case a.Err == "":
 		return age <= fresh
 	case a.Err == (&RateLimited{}).Error() && !a.WaitUntil.IsZero():

@@ -343,6 +343,31 @@ export and import between two Macs.
 Verified: `TestExportFull`, `TestLimitsExportFull`; mutation checks (5 of 5
 caught).
 
+## 3c. Readings from another Mac (`import-usage`, `--hold`)
+
+- Import opens a dialog: what each kind of file does, "Don't read those
+  accounts here for N minutes" (off; 1–60, 10), Cancel, "Choose File…". A
+  file with `schemaVersion` is a readings file (`cswap list --json`, schema
+  1); otherwise it is an accounts export, as before.
+- Readings (`json_output.usage_from_json`, `UsageStore.adopt`): the whole
+  file is checked first (email and `organizationUuid` on every row; on an
+  "ok" row a non-negative `usageAgeSeconds` and a usage with a window, each
+  share valid, each reset a time, a spend with amounts and currency; no
+  account twice). Rows not "ok" or for an account not here are skipped. A
+  row's reading, taken `usageAgeSeconds` ago, replaces the account's when it
+  is newer: `fiveHour`, `sevenDay`, `scoped` and `spend` become its session,
+  weekly, model and extra usage limits.
+- Hold: `HeldUntil` (saved) is the hold asked for, never past an hour after
+  the reading nor its earliest reset still ahead. Until then Refresh, even
+  by hand, doesn't read the account, and auto-switch trusts the reading.
+  Unticked, holds stay as they are; claude-swap's `--hold 0` (lift) is not
+  offered.
+
+Verified: `TestImportUsage`, `TestImportUsageHold`,
+`TestImportUsageHoldEndsAtReset`, `TestImportUsageRejectsWritingNothing`
+(12 cases), `TestIsReadings`, `TestLimitsImportReadings`; mutation checks
+(14 of 14 caught).
+
 ## 4. Run as account
 
 - "Open in Terminal…" in the "⋯" menu of an added account not in use (Claude

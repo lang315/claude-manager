@@ -2,9 +2,12 @@ package view
 
 import (
 	"fmt"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/lang315/claude-manager/account"
 )
 
 const (
@@ -63,12 +66,65 @@ func (l *limits) exportTo(a *App, full bool) {
 	})
 }
 
-// startImport asks for an exported file, then adds its accounts.
-func (l *limits) startImport(a *App) {
+// importUI is the Import dialog: whether readings from another Mac are
+// held, and for how many minutes.
+type importUI struct {
+	open, hold bool
+	minutes    float64
+}
+
+// startImport opens the Import dialog.
+func (l *limits) startImport(a *App) { l.importing = importUI{open: true, minutes: 10} }
+
+func (l *limits) importDialog(c *ui.Context, a *App) {
+	u := &l.importing
+	ui.Modal(c, &u.open, func() {
+		ui.Column(c).Gap(12).Padding(20).Width(480).Children(func() {
+			ui.Text(c, "Import").FontSize(17).Bold()
+			ui.Text(c, "An accounts file exported by Claude Manager or claude-swap adds its accounts. "+twoMacs).Wrap()
+			ui.Text(c, "A readings file from another Mac (cswap list --json) takes its limits where they are newer, so the two Macs don't both ask Anthropic.").Wrap()
+			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+				ui.Checkbox(c, &u.hold, "Don't read those accounts here for")
+				ui.NumberInput(c, &u.minutes, 1, 60, 1).Disabled(!u.hold)
+				ui.Text(c, "minutes")
+			})
+			ui.Row(c).Gap(8).Children(func() {
+				ui.Spacer(c)
+				if ui.Button(c, "Cancel").Clicked() {
+					u.open = false
+				}
+				if ui.PrimaryButton(c, "Choose File…").Clicked() {
+					u.open = false
+					hold := time.Duration(-1)
+					if u.hold {
+						hold = time.Duration(u.minutes) * time.Minute
+					}
+					l.importFrom(a, hold)
+				}
+			})
+		})
+	})
+}
+
+// importFrom asks for a file, then adds its accounts or takes its readings.
+func (l *limits) importFrom(a *App, hold time.Duration) {
 	a.Go(func() {
 		path, err := a.OpenFile(twoMacs)
 		if err != nil || path == "" {
 			a.Update(func() { l.toast(a, err) })
+			return
+		}
+		if data, err := os.ReadFile(path); err == nil && account.IsReadings(data) {
+			got, err := a.Accounts.ImportUsage(path, hold)
+			a.Update(func() {
+				if err == nil {
+					a.notice = fmt.Sprintf("Readings: %d taken, %d kept (newer here), %d skipped.", got.Adopted, got.Kept, got.Skipped)
+				}
+				l.toast(a, err)
+				if got.Adopted > 0 {
+					l.blocks, _ = a.Accounts.Blocks()
+				}
+			})
 			return
 		}
 		got, err := a.Accounts.Import(path)

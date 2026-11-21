@@ -33,6 +33,7 @@ type Account struct {
 	ReadAt      time.Time `json:"readAt,omitzero"`    // when Limits were read
 	Err         string    `json:"err,omitempty"`      // why the last ask failed; "" once one works
 	WaitUntil   time.Time `json:"waitUntil,omitzero"` // Anthropic asked to wait until then
+	HeldUntil   time.Time `json:"heldUntil,omitzero"` // read by another Mac: not read here until then
 	// OAuthAccount is Claude Code's oauthAccount object from ~/.claude.json.
 	OAuthAccount json.RawMessage `json:"oauthAccount,omitempty"`
 	AutoOff      bool            `json:"autoOff,omitempty"`  // held out of auto-switch

@@ -87,7 +87,7 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | Spend (extra usage) on each account | 7: an "Extra usage" row, and "extra N%" in the menu bar |
 | `switch` with no account: rotate, best, next-available | Covered: the window and the menu bar list every account with its windows, and a click switches to it; auto-switch picks the best |
 | `add-token`: setup-tokens, Console API keys; `usage.headerProbe` | Not ported: Anthropic's usage endpoint doesn't answer setup-tokens, and the probe spends a real request on the account each poll; API keys have no subscription limits |
-| `import-usage`, `--hold` | Not applicable: hands one Mac's readings to another over a pipe; the app reads its own |
+| `import-usage`, `--hold` | 3c: Import takes a `cswap list --json` file too, with "Don't read those accounts here for N minutes" |
 | `list --token-status` | Covered: each block shows its sign-in's end ("good until") and why a read failed |
 | `export --full` (a same-Mac backup) | 3b: the Export dialog's "Full backup for this Mac" |
 | `import --force` | Covered: an imported login replaces one only when newer; an older one never does |

@@ -36,6 +36,7 @@ type limits struct {
 	switching string
 	run       runUI
 	export    exportUI
+	importing importUI
 
 	auto autoUI
 }
@@ -347,6 +348,7 @@ func (l *limits) stopSignIn() {
 func (l *limits) dialogs(c *ui.Context, a *App, pal *palette) {
 	l.runDialog(c, a)
 	l.exportDialog(c, a)
+	l.importDialog(c, a)
 	was := l.adding
 	ui.Modal(c, &l.adding, func() {
 		ui.Column(c).Gap(12).Padding(20).Width(440).Children(func() {

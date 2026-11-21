@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLimitsExportImport(t *testing.T) {
@@ -35,6 +36,8 @@ func TestLimitsExportImport(t *testing.T) {
 	waitFor(t, l.tt, func() bool { return !l.tt.HasText("bob@example.com") })
 	l.a.OpenFile = func(string) (string, error) { return path, nil }
 	must(t, l.tt.Click("Import…"))
+	l.tt.Frame()
+	must(t, l.tt.Click("Choose File…"))
 	waitFor(t, l.tt, func() bool {
 		return l.tt.HasText("Imported: added 1 account, left 1 as they were. " + twoMacs)
 	})
@@ -81,6 +84,32 @@ func TestLimitsExportFull(t *testing.T) {
 		data, _ := os.ReadFile(path)
 		if got := strings.Contains(string(data), "numStartups"); got != full {
 			t.Errorf("full %v: whole ~/.claude.json in the file: %v", full, got)
+		}
+	}
+}
+
+// A readings file from another Mac, held for 10 minutes.
+func TestLimitsImportReadings(t *testing.T) {
+	l := limitsApp(t)
+	canSwitch(t, l)
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
+	path := filepath.Join(t.TempDir(), "list.json")
+	must(t, os.WriteFile(path, []byte(`{"schemaVersion":1,"accounts":[{"email":"bob@example.com","organizationUuid":"org","usageStatus":"ok","usageAgeSeconds":0,"usage":{"fiveHour":{"pct":41}}}]}`), 0o600))
+	*l.now = l.now.Add(time.Minute)
+	l.a.OpenFile = func(string) (string, error) { return path, nil }
+	must(t, l.tt.Click("Import…"))
+	l.tt.Frame()
+	must(t, l.tt.Click("Don't read those accounts here for"))
+	l.tt.Frame()
+	must(t, l.tt.Click("Choose File…"))
+	waitFor(t, l.tt, func() bool {
+		return l.tt.HasText("Readings: 1 taken, 0 kept (newer here), 0 skipped.") && l.tt.HasText("41%")
+	})
+	blocks, _ := l.book.Blocks()
+	for _, b := range blocks {
+		if b.Email == "bob@example.com" && !b.HeldUntil.Equal(l.now.Add(10*time.Minute)) {
+			t.Errorf("held until %v", b.HeldUntil)
 		}
 	}
 }
