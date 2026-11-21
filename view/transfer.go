@@ -61,7 +61,7 @@ func (l *limits) exportTo(a *App, full bool) {
 				}
 				a.notice += exportWarning + " " + twoMacs
 			}
-			l.toast(a, err)
+			l.fail(a, err)
 		})
 	})
 }
@@ -142,7 +142,7 @@ func (l *limits) importFrom(a *App, hold time.Duration) {
 			if err == nil && len(did) > 0 {
 				a.notice = "Imported: " + strings.Join(did, ", ") + ". " + twoMacs
 			}
-			l.toast(a, err)
+			l.fail(a, err)
 			if got.Added+got.Updated > 0 {
 				l.load(a, true)
 			}

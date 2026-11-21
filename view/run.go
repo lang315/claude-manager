@@ -62,7 +62,7 @@ func (l *limits) runDialog(c *ui.Context, a *App) {
 							if err == nil {
 								a.notice = "Opened Claude Code in Terminal as " + b.Email + "."
 							}
-							l.toast(a, err)
+							l.fail(a, err)
 							l.load(a, true)
 						})
 					})

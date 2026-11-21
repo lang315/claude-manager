@@ -1,6 +1,7 @@
 package view
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -111,5 +112,47 @@ func TestTokenSlotAsks(t *testing.T) {
 			}
 		}
 		return false
+	})
+}
+
+// claude-swap's TUI output dialog: a failed action shows its whole error.
+func TestFailureDialog(t *testing.T) {
+	l := limitsApp(t)
+	h := canSwitch(t, l)
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
+	must(t, os.WriteFile(h.ClaudeJSON, []byte(`not json`), 0o600))
+	clickMenu(t, l.tt, "bob@example.com")
+	must(t, l.tt.ChooseMenuItem("Switch to This Account"))
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Couldn't Finish") })
+	must(t, l.tt.Click("Copy"))
+	if len(*l.copied) != 1 || !strings.Contains((*l.copied)[0], "not a JSON object") {
+		t.Errorf("copied %q", *l.copied)
+	}
+	must(t, l.tt.Click("Done"))
+}
+
+// j/k and the arrows move between accounts; Enter switches.
+func TestViKeys(t *testing.T) {
+	l := limitsApp(t)
+	h := canSwitch(t, l)
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return len(l.a.limits.blocks) == 2 })
+	l.tt.TypeKey(0, ui.KeyJ, "j")
+	l.tt.Frame()
+	if l.a.limits.sel != 1 {
+		t.Fatalf("sel %d", l.a.limits.sel)
+	}
+	l.tt.TypeKey(0, ui.KeyK, "k")
+	l.tt.Frame()
+	if l.a.limits.sel != 0 {
+		t.Fatalf("sel %d after k", l.a.limits.sel)
+	}
+	l.tt.TypeKey(0, ui.KeyJ, "j")
+	l.tt.Frame()
+	l.tt.TypeKey(0, ui.KeyS, "s")
+	waitFor(t, l.tt, func() bool {
+		conf, _ := os.ReadFile(h.ClaudeJSON)
+		return strings.Contains(string(conf), `"accountUuid":"bob"`)
 	})
 }

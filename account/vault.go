@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -32,10 +34,13 @@ type Vault interface {
 // own items, so no read asks for a password.
 type Keychain struct {
 	Bin string // tests point it at a stand-in; "" is /usr/bin/security
+	// File, when set, is the keychain file every command reads and writes,
+	// rather than the user's: the end-to-end test's own keychain.
+	File string
 }
 
 func (k Keychain) Get(service, acct string) ([]byte, error) {
-	out, err := k.run("the read", "", args("find-generic-password", service, acct, "-w")...)
+	out, err := k.run("the read", "", k.in(args("find-generic-password", service, acct, "-w"))...)
 	if err != nil {
 		return nil, err
 	}
@@ -54,9 +59,13 @@ func (k Keychain) Put(service, acct string, secret []byte) error {
 		return fmt.Errorf("The keychain item %q %q can't be written.", service, acct)
 	}
 	hexed := hex.EncodeToString(secret)
-	cmd := fmt.Sprintf("add-generic-password -U -s %s -a %s -X %s\n", quote(service), quote(acct), hexed)
+	file := ""
+	if k.File != "" {
+		file = " " + quote(k.File)
+	}
+	cmd := fmt.Sprintf("add-generic-password -U -s %s -a %s -X %s%s\n", quote(service), quote(acct), hexed, file)
 	if len(cmd) > stdinLimit {
-		_, err := k.run("the write", "", "add-generic-password", "-U", "-s", service, "-a", acct, "-X", hexed)
+		_, err := k.run("the write", "", k.in([]string{"add-generic-password", "-U", "-s", service, "-a", acct, "-X", hexed})...)
 		return err
 	}
 	_, err := k.run("the write", cmd, "-i")
@@ -69,11 +78,19 @@ func quote(s string) string {
 }
 
 func (k Keychain) Delete(service, acct string) error {
-	_, err := k.run("the removal", "", args("delete-generic-password", service, acct)...)
+	_, err := k.run("the removal", "", k.in(args("delete-generic-password", service, acct))...)
 	if errors.Is(err, ErrNotFound) {
 		return nil
 	}
 	return err
+}
+
+// in names k.File last on a command line, as security takes a keychain.
+func (k Keychain) in(a []string) []string {
+	if k.File == "" {
+		return a
+	}
+	return append(a, k.File)
 }
 
 func args(cmd, service, acct string, more ...string) []string {
@@ -88,6 +105,11 @@ func (k Keychain) run(what, stdin string, arg ...string) ([]byte, error) {
 	bin := k.Bin
 	if bin == "" {
 		bin = "/usr/bin/security"
+	}
+	// A test on a keychain of its own sets the guard to that keychain's
+	// path: a command naming no such keychain would reach the user's.
+	if g := os.Getenv("CLAUDE_MANAGER_KEYCHAIN_GUARD"); g != "" && !slices.Contains(arg, g) && !strings.Contains(stdin, quote(g)) {
+		return nil, fmt.Errorf("The keychain command names no %s: refused, to keep the user's keychain out of a test.", g)
 	}
 	cmd := exec.Command(bin, arg...)
 	if stdin != "" {

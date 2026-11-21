@@ -120,7 +120,15 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 				if h.Auto {
 					how = "auto"
 				}
-				fmt.Fprintf(out, "%s  %s -> %s  %s: %s\n", h.At.Local().Format("2006-01-02 15:04"), h.From, h.To, how, h.Why)
+				why := ""
+				if h.Auto || h.Why != "by hand" {
+					why = ": " + h.Why
+				}
+				from := h.From
+				if from == "" {
+					from = "(none)"
+				}
+				fmt.Fprintf(out, "%s  %s -> %s  %s%s\n", h.At.Local().Format("2006-01-02 15:04"), from, h.To, how, why)
 			}
 		}
 	case "unclaimed":

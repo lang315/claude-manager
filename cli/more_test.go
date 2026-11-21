@@ -241,7 +241,7 @@ func TestForceAndOneAccount(t *testing.T) {
 func TestObserve(t *testing.T) {
 	a := newApp(t)
 	a.run(t, "", "switch", "bob@example.com")
-	if _, out, _ := a.run(t, "", "history"); !strings.Contains(out, "alice@example.com -> bob@example.com  by hand") {
+	if _, out, _ := a.run(t, "", "history"); !strings.Contains(out, "alice@example.com -> bob@example.com  by hand\n") {
 		t.Errorf("history %q", out)
 	}
 	Instances = func() []store.Instance {

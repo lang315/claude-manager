@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -35,6 +36,10 @@ type limits struct {
 	removing account.Account
 
 	switching string
+	failure   string // claude-swap's TUI output dialog: the whole error of an action that failed
+	failed2   bool
+	sel       int                // the account block j/k move to, s switches to
+	selShown  bool               // j/k were used: the chosen block is marked
 	switches  []account.Switched // the recent switches, the latest first
 	run       runUI
 	export    exportUI
@@ -117,6 +122,20 @@ func (l *limits) subtitle(now time.Time) string {
 func (l *limits) view(c *ui.Context, a *App, pal *palette) {
 	// claude-swap's TUI keys, as Command shortcuts: refresh, best pick,
 	// auto-switch on or off, add an account.
+	if a.Accounts != nil && l.switching == "" && len(l.blocks) > 0 && !l.failed2 {
+		// claude-swap's TUI keys: j/k move between accounts, s switches to
+		// the one chosen. (The arrows and Return stay the sidebar's.)
+		switch {
+		case c.Shortcut(0, ui.KeyJ):
+			l.sel, l.selShown = min(l.sel+1, len(l.blocks)-1), true
+		case c.Shortcut(0, ui.KeyK):
+			l.sel, l.selShown = max(l.sel-1, 0), true
+		case c.Shortcut(0, ui.KeyS):
+			if b := l.blocks[min(l.sel, len(l.blocks)-1)]; b.Added && !b.InUse && b.Terminal.Dir == "" && a.Accounts.CanSwitch() {
+				l.startSwitch(a, b)
+			}
+		}
+	}
 	if a.Accounts != nil && l.switching == "" {
 		switch {
 		case c.Shortcut(ui.Super, ui.KeyR) && !l.loading:
@@ -165,7 +184,11 @@ func (l *limits) view(c *ui.Context, a *App, pal *palette) {
 // block is one account: its name, then a meter per limit, or why there are
 // no figures.
 func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, now time.Time) {
-	face(c, pal).Padding(14, 16).Gap(10).Children(func() {
+	edge := pal.rule
+	if i := slices.IndexFunc(l.blocks, func(x account.Account) bool { return x.Key() == b.Key() }); l.selShown && i == l.sel {
+		edge = pal.sel // the account j/k chose
+	}
+	face(c, pal).Border(1, edge).Padding(14, 16).Gap(10).Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			name := b.Email
 			if name == "" {
@@ -407,6 +430,7 @@ func (l *limits) stopSignIn() {
 // dialogs are the Add Account dialog, the Remove confirmation and the Replace confirmation.
 func (l *limits) dialogs(c *ui.Context, a *App, pal *palette) {
 	l.runDialog(c, a)
+	l.failDialog(c, a)
 	l.exportDialog(c, a)
 	l.importDialog(c, a)
 	l.tokenDialog(c, a)
@@ -505,6 +529,34 @@ func (l *limits) menu(c *ui.Context, a *App, b account.Account) {
 	}).Tooltip("Actions for " + b.Email)
 }
 
+// fail shows the whole error of an action the user started, as
+// claude-swap's TUI output dialog, beside its toast.
+func (l *limits) fail(a *App, err error) {
+	if err == nil {
+		return
+	}
+	l.toast(a, err)
+	l.failure, l.failed2 = err.Error(), true
+}
+
+func (l *limits) failDialog(c *ui.Context, a *App) {
+	ui.Modal(c, &l.failed2, func() {
+		ui.Column(c).Gap(12).Padding(20).Width(520).Children(func() {
+			ui.Text(c, "Couldn't Finish").FontSize(17).Bold()
+			ui.Text(c, l.failure).Wrap().Selectable()
+			ui.Row(c).Gap(8).Children(func() {
+				ui.Spacer(c)
+				if ui.Button(c, "Copy").Clicked() {
+					a.CopyText(l.failure)
+				}
+				if ui.PrimaryButton(c, "Done").Clicked() {
+					l.failed2 = false
+				}
+			})
+		})
+	})
+}
+
 func (l *limits) startSwitch(a *App, b account.Account) {
 	l.switching = b.Key()
 	a.Go(func() {
@@ -512,7 +564,7 @@ func (l *limits) startSwitch(a *App, b account.Account) {
 		a.Update(func() {
 			l.switching = ""
 			if err != nil {
-				l.toast(a, err)
+				l.fail(a, err)
 			} else {
 				a.notice = "Switched to " + b.Email + ". Running sessions follow once macOS's keychain cache lapses, or when started again."
 			}

@@ -256,7 +256,11 @@ func accounts(home, configDir, root string) *account.Book {
 	// .credentials.json, and the app keeps its own in a 0600 file.
 	fileOnly := runtime.GOOS != "darwin"
 	var vault account.Vault = account.Keychain{}
-	if fileOnly {
+	if k := os.Getenv("CLAUDE_MANAGER_KEYCHAIN"); k != "" {
+		// A keychain file of its own, never the user's: for trying the app
+		// out, and its end-to-end checks.
+		vault = account.Keychain{File: k}
+	} else if fileOnly {
 		vault = &account.FileVault{Path: filepath.Join(appDir(home), "vault.json")}
 	}
 	var h *account.Home

@@ -86,7 +86,7 @@ func (l *limits) addToken(a *App) {
 			if err == nil {
 				a.notice = "Added."
 			}
-			l.toast(a, err)
+			l.fail(a, err)
 			l.load(a, true)
 		})
 	})

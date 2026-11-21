@@ -768,6 +768,28 @@ Verified: `TestRankingAndAddInUse`, `TestDryRun`, `TestAddThisAccount`,
 `TestDryRunGoLive`, `TestNextBestLogAndShortcuts`, `TestSwitchBest`,
 `TestLineTick`, `TestTokenSlotAsks`; mutation checks (14 of 14 caught).
 
+## 20. End to end, the output dialog, the keys
+
+- `Keychain.File` runs every `security` command on a keychain file of its
+  own; `CLAUDE_MANAGER_KEYCHAIN=<file>` makes the app and its command line
+  use one, never the user's; `CLAUDE_MANAGER_KEYCHAIN_GUARD=<file>` refuses
+  any command not naming that file (tests set it).
+- `TestE2ESwitchOnARealKeychain`: macOS's own `security` on a temporary
+  keychain: an 8 KB Claude Code login (past `security -i`'s line, so the
+  argv path), the app's park items, a switch A → B → A under Claude Code's
+  locks, `~/.claude.json`, Refresh following the account in use, Remove.
+- The built binary, run from a shell with a temporary HOME and keychain:
+  `add-token` (two API keys), `switch` A → B → A (the "Claude Code" item
+  read back each time), `history`, `export --account`, `remove --yes`,
+  `import`, `list`, `config`, `menubar --service-status`.
+- The TUI's output dialog: an action the user started that fails shows
+  "Couldn't Finish" with the whole error, selectable, and Copy. Its keys:
+  j/k choose an account (its edge marked), s switches to it.
+
+Verified: the two above, `TestKeychainGuard`, `TestFailureDialog`,
+`TestViKeys`; mutation checks (6 of 6 caught). Not verified: Claude Code
+itself reading what the app wrote (it never runs here).
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported
