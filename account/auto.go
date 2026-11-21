@@ -577,7 +577,10 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 		return Decision{Why: "Waiting for a fresh reading of the account in use."}, nil
 	case usable(accts[i], now):
 		b.unreadable = time.Time{}
-	case accts[i].APIKey:
+	case accts[i].APIKey && !b.settings().Keys:
+		// With keys among its candidates, a key in use is a last resort:
+		// it has no usage, so the default branch fails over off it, as
+		// claude-swap's.
 		b.unreadable = time.Time{}
 		return Decision{Why: errKeyInUse.Error()}, nil
 	case accts[i].Err == ErrNotSignedIn.Error():

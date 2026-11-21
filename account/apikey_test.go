@@ -88,6 +88,20 @@ func TestSwitchAPIKey(t *testing.T) {
 	if d, _ := b.AutoSwitch(ctx); d.To != "" || d.Why != errKeyInUse.Error() {
 		t.Errorf("auto-switch on a key: %+v", d)
 	}
+	// With API keys among its candidates, a key in use is a last resort,
+	// not a home: it has no usage, so auto-switch fails over off it, as
+	// claude-swap's.
+	s.Keys = true
+	must(t, b.SetAuto(s))
+	var d Decision
+	for m := 1; m <= 10 && d.To == ""; m++ {
+		b.Now = func() time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+		b.Refresh(ctx, true)
+		d, _ = b.AutoSwitch(ctx)
+	}
+	if d.Email != "bob@example.com" {
+		t.Errorf("stayed on the key: %+v", d)
+	}
 
 	must(t, b.Switch(ctx, bob.Key()))
 	if _, err := v.Get(managedService, "me"); !errors.Is(err, ErrNotFound) {
