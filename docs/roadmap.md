@@ -71,7 +71,7 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | `auto --model` per-model windows | 5 (Model windows in Auto-Switch Settings) |
 | `auto`: no-return bar, failover on failed reads, idle hold, trust in the last reading, adaptive polling, unknown model names | 2b |
 | `auto --once`, `--dry-run`, `--json`, exit codes | Not applicable: CLI and cron only |
-| Dead-token quarantine | Covered: a refused login shows its error and is never an auto-switch candidate; Sign In Again replaces it |
+| Dead-token quarantine | 2b: a refused refresh token is never an auto-switch candidate and is not posted again until the saved login changes; Sign In Again replaces it |
 | `export` / `import` | Ported: 3 |
 | `run` (session mode), history and setup sharing, MCP mirror | 4; `--no-share` / `--no-share-history` as the dialog's two checkboxes (4b) |
 | `map` / `unmap` (directory to account) | Not applicable: it picks the account for a bare `cswap run` typed in a folder; the app asks for the folder |

@@ -234,7 +234,15 @@ From claude-swap's `autoswitch.py`, `usage_store.py` and `poll_policy.py`:
   unreadable for 3 minutes, timed from when it was first seen so (Refresh by
   hand is no tick), moves to the account with the most room, ranked as at
   its limit, with no cooldown, no no-return bar and, by priority, no tier
-  gate. Never when nobody is signed in to Claude Code.
+  gate. Never when nobody is signed in to Claude Code, or its login can't
+  be read at all (a locked keychain): that holds.
+- Failure backoff (`_failure_backoff_s`): a failed read is tried again
+  after 30 seconds, doubling to 10 minutes, not on every tick. The 2-hour
+  trust needs the rate-limit error itself; any other failure clears the
+  wait Anthropic asked for.
+- Quarantine: a refresh token Anthropic refused (`invalid_grant`) is not
+  posted again until the account's saved login changes (Sign In Again,
+  Import, a terminal's take-back). In memory; a restart tries it once.
 - No-return bar (`lastSwitchFrom`, `_left_account_recovered`,
   `_all_above_margin_met`): after a move, while auto-switch's landing is in
   use, a proactive or consume move doesn't land on the account it left until
@@ -259,8 +267,11 @@ From claude-swap's `autoswitch.py`, `usage_store.py` and `poll_policy.py`:
 Verified: `TestDecideMemo` (17 cases), `TestDecideBarMargin`,
 `TestAutoSwitchHoldsOnLapsedLogin`, `TestAutoSwitchFailover`,
 `TestAutoSwitchNeverSignsIn`, `TestAutoSwitchSpentInUseStaysFresh`,
-`TestAutoSwitchSetsTheBar`, `TestRefreshPolling`, `TestUnseenModels`;
-mutation checks (27 of 27 caught).
+`TestAutoSwitchSetsTheBar`, `TestRefreshPolling`, `TestUnseenModels`,
+`TestAutoSwitchNeverSignsInOnUnreadableLogin`,
+`TestRefreshClearsWaitOnOtherFailure`, `TestRefreshQuarantinesARefusedLogin`,
+`TestRefreshBacksOff`, `TestBackoffCaps`, `TestRefreshSpentWithPastReset`;
+mutation checks (36 of 36 caught).
 
 ## 3. Export / import
 

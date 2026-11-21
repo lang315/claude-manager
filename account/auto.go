@@ -136,7 +136,7 @@ func usable(a Account, now time.Time) bool {
 	switch {
 	case a.Err == "":
 		return age <= fresh
-	case !a.WaitUntil.IsZero():
+	case a.Err == (&RateLimited{}).Error() && !a.WaitUntil.IsZero():
 		return age <= trustThrottled
 	case a.Err == ErrUnreachable.Error() || strings.HasPrefix(a.Err, "Anthropic answered 5"):
 		return age <= trustFor
@@ -441,6 +441,9 @@ func (b *Book) AutoSwitch(ctx context.Context) (Decision, error) {
 		return Decision{Why: "Waiting for a fresh reading of the account in use."}, nil
 	case usable(accts[i], now):
 		b.unreadable = time.Time{}
+	case accts[i].Err == ErrNotSignedIn.Error():
+		b.unreadable = time.Time{}
+		return Decision{Why: "Not signed in to Claude Code."}, nil
 	case accts[i].Err == LiveExpired:
 		// claude-swap's idle hold, without its 30-minute cap: claude-swap
 		// renews the login in use itself, so a lapse there is rare; the app

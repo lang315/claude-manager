@@ -67,12 +67,12 @@ func (b *Book) Refresh(ctx context.Context, force bool) ([]Account, error) {
 			blob, err := b.profileLogin(a.Terminal.Dir)
 			l, perr := parseLogin(blob)
 			if err != nil || perr != nil {
-				a.Err = errTerminalExpired.Error()
+				a.Err, a.WaitUntil = errTerminalExpired.Error(), time.Time{}
 				continue
 			}
 			token = l.AccessToken
 		case a.InUse && who == nil:
-			a.Err, held = liveErr.Error(), true
+			a.Err, a.WaitUntil, held = liveErr.Error(), time.Time{}, true
 			continue
 		case a.InUse:
 			token = live.AccessToken
@@ -108,7 +108,7 @@ func (b *Book) Refresh(ctx context.Context, force bool) ([]Account, error) {
 			if (a == b.inUse || a.InUse) != active {
 				continue
 			}
-			if now.Before(a.WaitUntil) || !force && !a.ReadAt.IsZero() && now.Before(b.due(a, active, near)) {
+			if now.Before(a.WaitUntil) || !force && now.Before(b.due(a, active, near)) {
 				continue
 			}
 			wg.Add(1)
@@ -221,17 +221,29 @@ func (b *Book) read(ctx context.Context, a *Account, token, held string, now tim
 		limits, err = b.readOwn(ctx, a, held, now)
 	}
 	if err != nil {
-		a.Err = err.Error()
+		a.Err, a.WaitUntil = err.Error(), time.Time{}
 		var rl *RateLimited
 		if errors.As(err, &rl) {
 			a.WaitUntil = now.Add(rl.Wait)
 		}
+		a.failures++
+		a.retryAt = now.Add(backoff(a.failures))
 		return
 	}
+	a.failures, a.retryAt = 0, time.Time{}
 	before, _ := stand(*a, Auto{Line: 100})
 	a.Limits, a.ReadAt, a.Err, a.WaitUntil = limits, now, "", time.Time{}
 	after, _ := stand(*a, Auto{Line: 100})
 	a.climbing = before.raw-after.raw >= 1
+}
+
+// backoff is how long a read that failed n times in a row waits:
+// claude-swap's 30 seconds, doubling, at most 10 minutes.
+func backoff(n int) time.Duration {
+	if n > 5 {
+		return 10 * time.Minute
+	}
+	return min(30*time.Second<<(n-1), 10*time.Minute)
 }
 
 // nearLine reports whether auto-switch is on and the account in use, as
@@ -260,6 +272,13 @@ func (b *Book) nearLine(now time.Time) bool {
 // its reading until then; here the account in use stays at 3, so its
 // reading stays fresh for auto-switch.
 func (b *Book) due(a *Account, active, near bool) time.Time {
+	switch {
+	case a.Err != "":
+		// A failing read waits out its backoff, not the cadence of a good one.
+		return a.retryAt
+	case a.ReadAt.IsZero():
+		return time.Time{}
+	}
 	every := 5 * time.Minute
 	switch {
 	case active && near && a.climbing:
@@ -271,7 +290,7 @@ func (b *Book) due(a *Account, active, near bool) time.Time {
 	if st, ok := stand(*a, Auto{Line: 100}); ok && st.raw <= 0 && !active {
 		due = a.ReadAt.Add(10 * time.Minute)
 		for _, l := range a.Limits {
-			if l.Percent >= 100 && !l.ResetsAt.IsZero() && l.ResetsAt.Add(time.Minute).Before(due) {
+			if l.Percent >= 100 && l.ResetsAt.After(a.ReadAt) && l.ResetsAt.Add(time.Minute).Before(due) {
 				due = l.ResetsAt.Add(time.Minute)
 			}
 		}
@@ -291,6 +310,11 @@ func (b *Book) readOwn(ctx context.Context, a *Account, held string, now time.Ti
 	}
 	l, err := parseLogin(blob)
 	if err != nil {
+		return nil, ErrInvalidGrant
+	}
+	// claude-swap's quarantine: a refused refresh token is not posted again
+	// until the saved login changes (Sign In Again, Import, a terminal's).
+	if b.dead[a.Key()] == sha256.Sum256([]byte(l.RefreshToken)) {
 		return nil, ErrInvalidGrant
 	}
 	if l.expiresBy(now.Add(renewAhead)) {
@@ -314,6 +338,12 @@ func (b *Book) renew(ctx context.Context, a *Account, blob []byte, l Login, held
 		return l, errLiveExpired
 	}
 	fresh, err := b.API.Renew(ctx, l, now)
+	if errors.Is(err, ErrInvalidGrant) {
+		if b.dead == nil {
+			b.dead = map[string][32]byte{}
+		}
+		b.dead[a.Key()] = sha256.Sum256([]byte(l.RefreshToken))
+	}
 	if err != nil {
 		return l, err
 	}
