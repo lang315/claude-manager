@@ -89,3 +89,24 @@ func TestBackoffIsShared(t *testing.T) {
 		t.Errorf("another process asked again inside the back-off: %q", calls)
 	}
 }
+
+// claude-swap's autoswitch_state.json: the cooldown, the no-return bar and
+// how long the account in use has been unreadable hold for every process,
+// so auto --once from cron can't flap between two accounts.
+func TestAutoStateIsShared(t *testing.T) {
+	b, v, h, f := switchBook(t)
+	f.usage["alice-at"], f.usage["bob-at"] = 95, 10
+	b.Refresh(ctx, true)
+	s := DefaultAuto()
+	s.On = true
+	must(t, b.SetAuto(s))
+	if d, err := b.AutoSwitch(ctx); err != nil || d.Email != "bob@example.com" {
+		t.Fatalf("first switch: %+v %v", d, err)
+	}
+	f.usage["alice-at"], f.usage["bob-at"] = 10, 95
+	next := &Book{Dir: b.Dir, Vault: v, API: b.API, Now: b.Now, Home: h, Live: b.Live}
+	next.Refresh(ctx, true)
+	if d, _ := next.Once(ctx, false); d.To != "" {
+		t.Errorf("another process switched back in the cooldown: %+v", d)
+	}
+}

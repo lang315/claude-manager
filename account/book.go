@@ -128,6 +128,7 @@ type saved struct {
 	Prefs     *Prefs            `json:"prefs,omitempty"`
 	Unclaimed []Unclaimed       `json:"unclaimed,omitempty"` // logins in use kept as nobody's
 	History   []Switched        `json:"history,omitempty"`   // the recent switches
+	AutoState *autoState        `json:"autoState,omitempty"` // auto-switch's memory, for every process
 }
 
 func (b *Book) path() string { return filepath.Join(b.Dir, "accounts.json") }
@@ -231,6 +232,7 @@ func (b *Book) load() error {
 	}
 	b.ensureSlots()
 	b.maps, b.unclaimed, b.history = s.Maps, s.Unclaimed, s.History
+	b.setAutoState(s.AutoState)
 	if s.Prefs != nil {
 		b.prefs = *s.Prefs
 	}
@@ -250,7 +252,7 @@ func (b *Book) save() error {
 	if err := os.Chmod(b.Dir, 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(saved{Accounts: b.added, InUse: b.inUse, Auto: &b.auto, Maps: b.maps, Prefs: &b.prefs, Unclaimed: b.unclaimed, History: b.history}, "", "  ")
+	data, err := json.MarshalIndent(saved{Accounts: b.added, InUse: b.inUse, Auto: &b.auto, Maps: b.maps, Prefs: &b.prefs, Unclaimed: b.unclaimed, History: b.history, AutoState: b.savedAutoState()}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -421,4 +423,11 @@ func (b *Book) Remove(key string) error {
 	b.added = slices.DeleteFunc(b.added, func(a Account) bool { return a.Key() == key })
 	maps.DeleteFunc(b.maps, func(_, k string) bool { return k == key })
 	return b.save()
+}
+
+func (b *Book) savedAutoState() *autoState {
+	if s := b.autoState(); s != (autoState{}) {
+		return &s
+	}
+	return nil
 }

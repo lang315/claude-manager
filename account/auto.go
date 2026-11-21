@@ -150,6 +150,33 @@ type Decision struct {
 // claude-swap keeps it in its state file: the last switch, for the
 // cooldown; failover, when the account in use stayed unreadable; and the
 // no-return bar on the account it last left.
+// autoState is what auto-switch remembers between ticks, saved so every
+// process goes by it, as claude-swap's autoswitch_state.json: the cooldown
+// after a switch, a failed switch's wait, how long the account in use has
+// been unreadable, and the no-return bar.
+type autoState struct {
+	LastSwitch   time.Time `json:"lastSwitchAt,omitzero"`
+	LastFailed   time.Time `json:"lastFailedAt,omitzero"`
+	Unreadable   time.Time `json:"unreadableSince,omitzero"`
+	BarTo        string    `json:"lastSwitchTo,omitempty"`
+	BarFrom      string    `json:"lastSwitchFrom,omitempty"`
+	LeftHeadroom float64   `json:"leftHeadroom,omitempty"`
+	LeftResets   time.Time `json:"leftRecoveryAt,omitzero"`
+	LeftWhy      string    `json:"leftTrigger,omitempty"`
+}
+
+func (b *Book) autoState() autoState {
+	return autoState{b.lastSwitch, b.lastFailed, b.unreadable, b.bar.barTo, b.bar.barFrom, b.bar.leftLH, b.bar.leftResets, b.bar.leftWhy}
+}
+
+func (b *Book) setAutoState(s *autoState) {
+	if s == nil {
+		s = &autoState{}
+	}
+	b.lastSwitch, b.lastFailed, b.unreadable = s.LastSwitch, s.LastFailed, s.Unreadable
+	b.bar = memo{barTo: s.BarTo, barFrom: s.BarFrom, leftLH: s.LeftHeadroom, leftResets: s.LeftResets, leftWhy: s.LeftWhy}
+}
+
 type memo struct {
 	last       time.Time
 	failover   bool
@@ -528,6 +555,12 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 	if !b.settings().On && !once || b.Home == nil {
 		return Decision{}, nil
 	}
+	was := b.autoState()
+	defer func() { // what this tick changed, every process goes by
+		if b.autoState() != was {
+			b.save()
+		}
+	}()
 	now := b.Now()
 	wait := max(time.Duration(b.settings().Cooldown)*time.Second, fresh)
 	if now.Sub(b.lastFailed) < wait {
@@ -591,10 +624,10 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 		b.event("auto-failed", "Auto-switch failed", fmt.Sprintf("The switch to %s failed: %v", d.Email, err))
 		return Decision{Why: fmt.Sprintf("The switch to %s failed: %v", d.Email, err)}, err
 	}
-	b.record(from, d.Email, d.Why, true)
-	b.save()
 	b.unreadable = time.Time{}
 	b.bar = memo{barTo: d.To, barFrom: d.from, leftLH: d.leftLH, leftResets: d.leftResets, leftWhy: d.trigger}
+	b.record(from, d.Email, d.Why, true)
+	b.save()
 	return d, nil
 }
 
