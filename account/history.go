@@ -79,14 +79,15 @@ func (b *Book) record(from, to, why string, auto bool) {
 // in a row.
 func (b *Book) event(kind, title, body string) {
 	b.side.Lock()
-	defer b.side.Unlock()
 	if b.told[kind] == body {
+		b.side.Unlock()
 		return
 	}
 	if b.told == nil {
 		b.told = map[string]string{}
 	}
 	b.told[kind] = body
+	b.side.Unlock()
 	if b.Events != nil {
 		b.Events(title, body)
 	}

@@ -95,6 +95,7 @@ type Book struct {
 	mu         sync.Mutex
 	side       sync.Mutex // who, dead, told and Log: Refresh reads accounts in parallel
 	loaded     bool
+	cleaned    bool // cleanLeftovers ran
 	added      []Account
 	inUse      *Account             // the account in use, when it is not an added one
 	nobody     *Account             // stands in for it when the login in use can't be read
@@ -136,7 +137,10 @@ func (b *Book) load() error {
 		return nil
 	}
 	b.auto = DefaultAuto()
-	b.cleanLeftovers()
+	if !b.cleaned {
+		b.cleaned = true
+		b.cleanLeftovers()
+	}
 	data, err := os.ReadFile(b.path())
 	if errors.Is(err, fs.ErrNotExist) {
 		b.loaded = true

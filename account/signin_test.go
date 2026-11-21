@@ -236,6 +236,16 @@ func TestLoadRemovesLeftovers(t *testing.T) {
 	if err := v.Put(liveService(left), "me", []byte("x")); err != nil {
 		t.Fatal(err)
 	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(left, old, old); err != nil {
+		t.Fatal(err)
+	}
+	// Another process's sign-in, still going: the command line's first
+	// load must not take it for a leftover.
+	live := filepath.Join(b.Dir, "signin-live")
+	if err := os.MkdirAll(live, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := b.Blocks(); err != nil {
 		t.Fatal(err)
 	}
@@ -244,6 +254,9 @@ func TestLoadRemovesLeftovers(t *testing.T) {
 	}
 	if v.Len() != 0 {
 		t.Fatal("its keychain item stays")
+	}
+	if _, err := os.Stat(live); err != nil {
+		t.Fatalf("a sign-in in progress was removed: %v", err)
 	}
 }
 

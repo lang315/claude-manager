@@ -72,11 +72,7 @@ func (b *Book) SignIn(ctx context.Context, on func(Event)) (*SignIn, error) {
 	if err != nil {
 		return nil, err
 	}
-	timeout := b.SignInTimeout
-	if timeout == 0 {
-		timeout = 10 * time.Minute
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, b.signInTimeout())
 	cmd := exec.CommandContext(ctx, bin, "auth", "login", "--claudeai")
 	cmd.Dir, cmd.Env = dir, signInEnv(dir, bin)
 	ownGroup(cmd)
@@ -233,11 +229,21 @@ func (b *Book) forget(dir string) {
 	_ = os.RemoveAll(dir)
 }
 
-// cleanLeftovers removes what a sign-in the app did not finish left.
+func (b *Book) signInTimeout() time.Duration {
+	if b.SignInTimeout == 0 {
+		return 10 * time.Minute
+	}
+	return b.SignInTimeout
+}
+
+// cleanLeftovers removes what a sign-in the app did not finish left: one
+// older than a sign-in may run, so not another process's still going.
 func (b *Book) cleanLeftovers() {
 	dirs, _ := filepath.Glob(filepath.Join(b.Dir, "signin-*"))
 	for _, d := range dirs {
-		b.forget(d)
+		if fi, err := os.Stat(d); err == nil && time.Since(fi.ModTime()) > b.signInTimeout() {
+			b.forget(d)
+		}
 	}
 }
 
