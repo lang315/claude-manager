@@ -261,7 +261,7 @@ func backoff(n int) time.Duration {
 // last read, is within 15 points of a line or can't be read: then every
 // account is watched closely (claude-swap's ESCALATION_MARGIN_PCT).
 func (b *Book) nearLine(now time.Time) bool {
-	if !b.auto.On {
+	if !b.settings().On {
 		return false
 	}
 	a := b.inUse
@@ -271,7 +271,7 @@ func (b *Book) nearLine(now time.Time) bool {
 	if a == nil {
 		return false
 	}
-	st, ok := stand(*a, b.auto)
+	st, ok := stand(*a, b.settings())
 	return !ok || !usable(*a, now) || st.room <= 15
 }
 

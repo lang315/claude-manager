@@ -82,7 +82,7 @@ func (b *Book) tokenOwner(l Login) *Profile {
 // when it is on. Its saved token is the one in use too: Claude Code can't
 // renew a setup-token.
 func (b *Book) readToken(ctx context.Context, a *Account, now time.Time) ([]Limit, error) {
-	if !b.auto.Probe {
+	if !b.settings().Probe {
 		return nil, errNoProbe
 	}
 	saved, err := b.Vault.Get(ParkService, a.Key())

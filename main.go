@@ -37,7 +37,8 @@ func main() {
 	if root == "" {
 		root, claudeJSON = filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json")
 	}
-	if len(os.Args) > 1 && slices.Contains(cli.Commands, os.Args[1]) {
+	gui := cli.GUI(os.Args[1:])
+	if !gui && len(os.Args) > 1 && slices.Contains(cli.Commands, os.Args[1]) {
 		cli.Version = version
 		cli.Upgrade = upgrade
 		os.Exit(cli.Run(context.Background(), os.Args[1:], accounts(home, configDir, root), os.Stdin, os.Stdout, os.Stderr))
@@ -51,6 +52,9 @@ func main() {
 		Profiles:   account.ProfilesDir(appDir(home)),
 	})
 	a.Accounts = accounts(home, configDir, root)
+	if gui && len(os.Args) > 1 && os.Args[1] == "watch" {
+		a.Show("limits") // cswap watch: the dashboard on its live page
+	}
 	a.OpenURL, a.CopyText = mygo.Shell.OpenExternal, mygo.Clipboard.WriteText
 	jsonFiles := []mygo.FileFilter{{Name: "JSON", Extensions: []string{"json"}}}
 	a.SaveFile = func(name, message string) (string, error) {

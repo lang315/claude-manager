@@ -75,7 +75,7 @@ type Book struct {
 	// Launch opens a terminal at folder running claude on configDir:
 	// LaunchInTerminal in the app. Running says whether a claude runs on a
 	// profile: ClaudeRunning in the app.
-	Launch  func(folder, configDir string) error
+	Launch  func(folder, configDir string, args ...string) error
 	Running func(configDir string) (bool, error)
 
 	mu         sync.Mutex
@@ -91,6 +91,7 @@ type Book struct {
 	bar        memo              // the no-return bar auto-switch set
 	maps       map[string]string // folder → account key
 	prefs      Prefs
+	override   *Auto // auto-switch settings for this process only (Override)
 	unclaimed  []Unclaimed
 	unreadable time.Time           // since when the account in use can't be read
 	dead       map[string][32]byte // an account's refresh token Anthropic refused: its SHA-256

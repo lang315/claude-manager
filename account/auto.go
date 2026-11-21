@@ -484,11 +484,11 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 	if err := b.load(); err != nil {
 		return Decision{}, err
 	}
-	if !b.auto.On && !once || b.Home == nil {
+	if !b.settings().On && !once || b.Home == nil {
 		return Decision{}, nil
 	}
 	now := b.Now()
-	wait := max(time.Duration(b.auto.Cooldown)*time.Second, fresh)
+	wait := max(time.Duration(b.settings().Cooldown)*time.Second, fresh)
 	if now.Sub(b.lastFailed) < wait {
 		return Decision{Why: "Waiting after a failed switch."}, nil
 	}
@@ -520,12 +520,12 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 		if b.unreadable.IsZero() {
 			b.unreadable = now
 		}
-		if wait := b.auto.failoverAfter() - now.Sub(b.unreadable); wait > 0 {
+		if wait := b.settings().failoverAfter() - now.Sub(b.unreadable); wait > 0 {
 			return Decision{Why: fmt.Sprintf("The account in use can't be read; moving on in %s if it stays so.", wait.Round(time.Minute))}, nil
 		}
 		m.failover = true
 	}
-	d := decide(now, b.auto, accts, m)
+	d := decide(now, b.settings(), accts, m)
 	if d.To == "" || dry {
 		return d, nil
 	}
@@ -536,4 +536,13 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 	b.unreadable = time.Time{}
 	b.bar = memo{barTo: d.To, barFrom: d.from, leftLH: d.leftLH, leftResets: d.leftResets, leftWhy: d.trigger}
 	return d, nil
+}
+
+// settings are the auto-switch settings in force: an Override's for this
+// process, else the saved ones.
+func (b *Book) settings() Auto {
+	if b.override != nil {
+		return *b.override
+	}
+	return b.auto
 }

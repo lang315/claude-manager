@@ -154,9 +154,6 @@ func TestStatusAndSwitch(t *testing.T) {
 // cswap auto --once's exit codes: 0 switched, 2 nothing to do, 3 blocked.
 func TestAutoOnce(t *testing.T) {
 	a := newApp(t)
-	if code, _, errs := a.run(t, "", "auto"); code != failed || !strings.Contains(errs, "--once") {
-		t.Errorf("without --once: %d %s", code, errs)
-	}
 	if code, out, _ := a.run(t, "", "auto", "--once"); code != nothing || !strings.Contains(out, "under its lines") {
 		t.Errorf("under: %d %s", code, out)
 	}
@@ -213,7 +210,7 @@ func TestExportImportRun(t *testing.T) {
 		t.Errorf("import: %d %s", code, out)
 	}
 	var folder, profile string
-	a.b.Launch = func(f, p string) error { folder, profile = f, p; return nil }
+	a.b.Launch = func(f, p string, _ ...string) error { folder, profile = f, p; return nil }
 	a.b.Running = func(string) (bool, error) { return false, nil }
 	dir := t.TempDir()
 	if code, _, errs := a.run(t, "", "run", "bob@example.com", dir, "--no-share-history"); code != ok {
@@ -229,7 +226,7 @@ func TestExportImportRun(t *testing.T) {
 
 func TestReorder(t *testing.T) {
 	got := reorder([]string{"bob", "--json", "--email", "e@x", "--hold=5", "-", "--", "--x"})
-	want := []string{"--json", "--email", "e@x", "--hold=5", "bob", "-", "--x"}
+	want := []string{"--json", "--email", "e@x", "--hold=5", "bob", "-", "--", "--x"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("%q", got)
 	}
@@ -268,7 +265,7 @@ func TestAliasMapRun(t *testing.T) {
 		t.Fatalf("map: %d %s %s", code, out, errs)
 	}
 	var folder string
-	a.b.Launch = func(f, p string) error { folder = f; return nil }
+	a.b.Launch = func(f, p string, _ ...string) error { folder = f; return nil }
 	a.b.Running = func(string) (bool, error) { return false, nil }
 	sub := filepath.Join(work, "src")
 	must(t, os.Mkdir(sub, 0o700))
@@ -321,7 +318,7 @@ func TestConfigDebugUpgrade(t *testing.T) {
 	// run.shareHistory false: run shares no history unless --share-history.
 	a.run(t, "", "config", "set", "run.shareHistory", "false")
 	var profile string
-	a.b.Launch = func(f, p string) error { profile = p; return nil }
+	a.b.Launch = func(f, p string, _ ...string) error { profile = p; return nil }
 	a.b.Running = func(string) (bool, error) { return false, nil }
 	must(t, os.Mkdir(filepath.Join(a.h.Root, "projects"), 0o700))
 	if code, _, errs := a.run(t, "", "run", "bob@example.com", t.TempDir()); code != ok {

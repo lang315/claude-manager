@@ -63,6 +63,7 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **11. Slot numbers, move, swap** (#30, draft).
 - [x] **12. Unclaimed logins** (#31, draft).
 - [x] **13. Linux, WSL and Windows** (#32, draft).
+- [x] **14. Command line on par with cswap's "Other commands"** (#33, draft).
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an
@@ -96,17 +97,22 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | `unclaimed` stash | 12: a lapsed login in use that names no added account is kept (`claude-manager-unclaimed`) before a switch replaces it; `claude-manager unclaimed [--purge ID]` |
 | API-key accounts | 8b: added, switched to (Claude Code's managed key), exported and imported; no limits are read |
 | `config` | Auto-Switch Settings, and `claude-manager config` (10) |
-| TUI, `watch` | Covered: the app itself |
+| TUI, `watch` | 14: `claude-manager tui` opens the app, `watch` on Limits |
+| `add [--slot] [--alias]`, `disable`/`enable`, `threshold`, `priority` (command line) | 14 |
+| `switch` with no account, `--strategy best|next-available` | 14 |
+| `auto` in the foreground, `--threshold`, `--weekly-threshold`, `--model`, `--strategy`, `--interval`, `--include-api-key-accounts` | 14: for that run only, never saved |
+| `list --token-status` | 14 |
+| `run <account> -- <args>`, `--require-session` | 14 |
+| `export -`, `import -` | 14 |
+| `menubar --install-service`, `--uninstall-service`, `--service-status`, `--auto-switch`, `--no-auto-switch`, `--foreground` | 14: a LaunchAgent on macOS (as cswap's), an autostart entry on Linux, a Run key on Windows |
 | `purge` | 9: `claude-manager purge --yes` |
 | `upgrade`, update check (`updates.check`) | 10: a daily check and "Update to X…" in the menu bar, `claude-manager upgrade`, through MyGo's updates; they work once the app is built with an update feed (`mygo.config.ts`), which needs its signing key |
 | Linux, Windows, WSL | 13: builds for all three; without a keychain Claude Code's login is `.credentials.json` and its API key `primaryApiKey`, the app's items a 0600 `vault.json`; Open in Terminal opens the system's terminal (Windows Terminal under WSL, a console on Windows) |
 | Spend (extra usage) on each account | 7: an "Extra usage" row, and "extra N%" in the menu bar |
 | `switch <account>` | 1; `claude-manager switch <email> [--json]` (9) |
-| `switch` with no account: rotate, best, next-available | Covered: the window and the menu bar list every account with its windows, and a click switches to it; auto-switch picks the best |
 | `add-token` with a setup-token; `usage.headerProbe` | 8: Add Token…, and "Read setup-token usage"; `claude-manager add-token <token|->` (9) |
 | `add-token` with a Console API key | 8b: Add Token… takes either kind |
 | `import-usage`, `--hold` | 3c: Import takes a `cswap list --json` file too, with "Don't read those accounts here for N minutes" |
-| `list --token-status` | Covered: each block shows its sign-in's end ("good until") and why a read failed |
 | `export --full` (a same-Mac backup) | 3b: the Export dialog's "Full backup for this Mac" |
 | `import --force` | Covered: an imported login replaces one only when newer; an older one never does |
 | `run --require-session` | Covered: Open in Terminal is never offered for the account in use |

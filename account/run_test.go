@@ -29,7 +29,10 @@ func newRunBook(t *testing.T) *runBook {
 	t.Helper()
 	b, v, h, f := switchBook(t)
 	r := &runBook{b: b, v: v, h: h, f: f}
-	b.Launch = func(folder, dir string) error { r.launched = append(r.launched, [2]string{folder, dir}); return nil }
+	b.Launch = func(folder, dir string, _ ...string) error {
+		r.launched = append(r.launched, [2]string{folder, dir})
+		return nil
+	}
 	b.Running = func(string) (bool, error) { return r.running, r.scanErr }
 	return r
 }
@@ -104,7 +107,7 @@ func TestRunMarksBeforeSeeding(t *testing.T) {
 	r := newRunBook(t)
 	must(t, os.MkdirAll(filepath.Dir(ProfilesDir(r.b.Dir)), 0o700))
 	must(t, os.WriteFile(ProfilesDir(r.b.Dir), nil, 0o600)) // the seed can't make its folder
-	r.b.Launch = func(string, string) error { t.Fatal("launched without a seed"); return nil }
+	r.b.Launch = func(string, string, ...string) error { t.Fatal("launched without a seed"); return nil }
 	if err := r.b.Run(bob.Key(), "/work", both); err == nil {
 		t.Fatal("ran without a profile")
 	}

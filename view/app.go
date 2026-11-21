@@ -33,8 +33,8 @@ type App struct {
 
 	root   string // Store.Root as shown, with ~ for the home directory
 	page   string
-	busy   int     // loads the user started and moves in flight; not Usage's scan nor quiet reloads, which feed no Trash target
-	notice string  // shown as a toast on the next frame
+	busy   int    // loads the user started and moves in flight; not Usage's scan nor quiet reloads, which feed no Trash target
+	notice string // shown as a toast on the next frame
 	prefs  account.Prefs
 	quiet  screens // the screen a quiet reload is starting for; 0 for a load the user started
 	live   live    // paces the reloads the watch asks for
@@ -287,3 +287,6 @@ func (a *App) trash(paths func() []string) {
 		}
 	})
 }
+
+// Show opens page: "limits" and the others of the sidebar.
+func (a *App) Show(page string) { a.page = page }

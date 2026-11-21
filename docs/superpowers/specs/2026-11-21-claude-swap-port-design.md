@@ -628,6 +628,27 @@ Verified: `TestFileVault`, `TestSwitchFileOnly` (OAuth and API key),
 `GOOS=linux|windows go vet ./...` clean; mutation checks (7 of 7 caught).
 Not verified: a run on Linux, WSL or Windows, and the terminals there.
 
+## 14. The rest of cswap's commands
+
+Each line of claude-swap's README "Other commands", checked against the
+command line: `add [--slot] [--alias]` (the account in use, followed);
+`disable`, `enable`, `threshold`, `priority` (with no account they list);
+bare `switch` (the next slot after the one in use, round; `--strategy best`:
+most quota left; `next-available`: the next with room; held-out accounts
+skipped); `auto` in the foreground, its flags an `Override` for that run,
+never saved; `list --token-status`; `run … -- <args>` forwarded to claude,
+shell-quoted (`--require-session` accepted: the account in use is always
+refused); `export -`, `import -`; `menubar --install-service` (a LaunchAgent
+plist bootstrapped with launchctl, as cswap's; an autostart `.desktop` on
+Linux; an HKCU Run value on Windows), `--uninstall-service`,
+`--service-status`, `--auto-switch`, `--no-auto-switch`; `tui`, `watch`,
+`menubar [--foreground]` open the app (`watch` on Limits).
+
+Verified: `TestAddAndTune`, `TestSwitchWithoutAccount`,
+`TestAutoLoopAndFlags`, `TestTokenStatusRunArgsStdio`, `TestMenubarService`,
+`TestGUI`; mutation checks (16 of 16 caught). Not verified: launchctl, the
+Run key and autostart for real.
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported

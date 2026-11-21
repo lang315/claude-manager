@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Prefs are the app's own settings beside auto-switch's, claude-swap's
@@ -234,4 +235,38 @@ func (b *Book) Set(key, value string) error {
 	}
 	b.auto, b.prefs = s.clamped(), p
 	return b.save()
+}
+
+// Override puts s in place of the saved auto-switch settings for this
+// process only, as cswap auto's flags do; nothing is saved.
+func (b *Book) Override(s Auto) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if err := b.load(); err != nil {
+		return err
+	}
+	o := s.clamped()
+	b.override = &o
+	return nil
+}
+
+// LoginTimes is when the added account key's saved login lapses (its
+// access token) and when it can no longer be renewed (its refresh token);
+// zero where it doesn't say, as for a setup-token.
+func (b *Book) LoginTimes(key string) (access, refresh time.Time, err error) {
+	saved, err := b.Vault.Get(ParkService, key)
+	if err != nil {
+		return access, refresh, err
+	}
+	l, err := parseLogin(saved)
+	if err != nil {
+		return access, refresh, nil // an API key: no login
+	}
+	if l.ExpiresAt > 0 {
+		access = time.UnixMilli(l.ExpiresAt)
+	}
+	if l.RefreshTokenExpiresAt > 0 {
+		refresh = time.UnixMilli(l.RefreshTokenExpiresAt)
+	}
+	return access, refresh, nil
 }

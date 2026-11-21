@@ -34,7 +34,7 @@ const (
 
 // Commands are the commands Run knows; main opens the app for anything
 // else.
-var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "alias", "map", "unmap", "move", "swap", "unclaimed", "config", "upgrade", "version", "--version", "help"}
+var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "alias", "map", "unmap", "move", "swap", "unclaimed", "add", "disable", "enable", "threshold", "priority", "menubar", "config", "upgrade", "version", "--version", "help"}
 
 // Upgrade installs a newer version of the app, if there is one, and says
 // what it did; main sets it.
@@ -67,6 +67,21 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 	unset := fs.Bool("unset", false, "alias: take an account's alias away")
 	debug := fs.Bool("debug", false, "print each request made to Anthropic (never a token)")
 	purgeID := fs.String("purge", "", "unclaimed: delete the kept login with this id")
+	slot := fs.Int("slot", 0, "add: the slot to put the account in")
+	aliasFlag := fs.String("alias", "", "add: an alias for the account")
+	strategy := fs.String("strategy", "", "switch: rotate, best or next-available; auto: a strategy for this run")
+	threshold := fs.Float64("threshold", 0, "auto: the five-hour line for this run")
+	weeklyThreshold := fs.Float64("weekly-threshold", 0, "auto: the weekly line for this run")
+	model := fs.String("model", "", "auto: model windows for this run")
+	interval := fs.Float64("interval", 0, "auto: seconds between checks for this run")
+	keys := fs.Bool("include-api-key-accounts", false, "auto: fall back on an API key account")
+	tokenStatus := fs.Bool("token-status", false, "list: where each login is and when it lapses")
+	_ = fs.Bool("require-session", false, "run: never the account in use (always so here)")
+	svcStatus := fs.Bool("service-status", false, "menubar: does the app start at login, is auto-switch on")
+	svcInstall := fs.Bool("install-service", false, "menubar: start the app at login")
+	svcUninstall := fs.Bool("uninstall-service", false, "menubar: stop starting the app at login")
+	autoOn := fs.Bool("auto-switch", false, "menubar: turn auto-switch on")
+	autoOff := fs.Bool("no-auto-switch", false, "menubar: turn auto-switch off")
 	shareHistory := fs.Bool("share-history", false, "run: share chat history, whatever run.shareHistory says")
 	if err := fs.Parse(reorder(args[1:])); err != nil {
 		return failed
@@ -100,14 +115,39 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 			fmt.Fprintln(out, said)
 		}
 	case "list":
+		if *tokenStatus {
+			var accts []account.Account
+			if accts, err = c.read(ctx); len(accts) > 0 {
+				err = nil
+				c.tokenStatus(accts)
+			}
+			break
+		}
 		err = c.list(ctx, *jsonOut)
+	case "add":
+		err = c.add(ctx, *slot, *aliasFlag)
+	case "disable", "enable", "threshold", "priority":
+		err = c.tune(args[0], rest, *unset)
+	case "menubar":
+		err = c.menubar(*svcStatus, *svcInstall, *svcUninstall, *autoOn, *autoOff)
 	case "status":
 		err = c.status(ctx, *jsonOut)
 	case "switch":
-		err = c.switchTo(ctx, one(rest), *jsonOut)
+		name := one(rest)
+		if name == "" {
+			var a account.Account
+			if a, err = c.pick(ctx, *strategy); err != nil {
+				break
+			}
+			name = a.Key()
+		}
+		err = c.switchTo(ctx, name, *jsonOut)
 	case "auto":
+		if err = c.autoFlags(*threshold, *weeklyThreshold, *model, *strategy, *interval, *keys); err != nil {
+			break
+		}
 		if !*once {
-			err = errors.New("auto runs in the app; from the command line give --once")
+			err = c.autoLoop(ctx, *dry, *jsonOut)
 			break
 		}
 		code, err = c.auto(ctx, *dry, *jsonOut)
@@ -118,9 +158,33 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 	case "purge":
 		err = c.purge(*yes)
 	case "export":
-		err = c.export(one(rest), *full)
+		path := one(rest)
+		if path != "-" {
+			err = c.export(path, *full)
+			break
+		}
+		var done func()
+		if path, done, err = stdioFile(nil); err != nil {
+			break
+		}
+		defer done()
+		if _, _, err = b.Export(path, *full); err == nil {
+			var f *os.File
+			if f, err = os.Open(path); err == nil {
+				_, err = io.Copy(out, f)
+				f.Close()
+			}
+		}
 	case "import", "import-usage":
-		err = c.importFile(one(rest), *hold)
+		path := one(rest)
+		if path == "-" {
+			var done func()
+			if path, done, err = stdioFile(in); err != nil {
+				break
+			}
+			defer done()
+		}
+		err = c.importFile(path, *hold)
 	case "run":
 		history := !*noHistory
 		if p, perr := b.Prefs(); perr == nil && p.NoShareHistory && !*shareHistory {
@@ -162,6 +226,18 @@ const usage = `claude-manager <command> [flags]
   upgrade                          install a newer version of the app
   unclaimed [--purge ID]           logins in use kept as nobody's when switched off
   move <from> <to> | swap <a> <b>  renumber accounts (move swaps when <to> is taken)
+  add [--slot N] [--alias A]       add the account Claude Code is signed in to
+  disable | enable <account>       hold an account out of auto-switch, or put it back
+  threshold [<account> <pct> | <account> --unset]   an account's own line, or list them
+  priority [<account> <tier> | <account> --unset]   an account's tier, or list them
+  switch [--strategy rotate|best|next-available]    with no account: the next one
+  auto [--once] [--threshold P] [--weekly-threshold P] [--model M] [--strategy S]
+       [--interval S] [--include-api-key-accounts]  without --once: every interval until stopped
+  list --token-status              where each login is and when it lapses
+  run <account> [folder] -- <claude args>
+  export - | import -              to stdout, from stdin
+  menubar [--install-service | --uninstall-service | --service-status | --auto-switch | --no-auto-switch]
+  tui | watch | menubar [--foreground]   open the app
   version
   --debug                          with any command: print each request made to Anthropic
 
@@ -173,8 +249,8 @@ func reorder(args []string) []string {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
-		case a == "--":
-			rest = append(rest, args[i+1:]...)
+		case a == "--": // what follows goes to claude, "--" kept to tell it apart
+			rest = append(rest, args[i:]...)
 			i = len(args)
 		case strings.HasPrefix(a, "-") && a != "-":
 			flags = append(flags, a)
@@ -190,8 +266,7 @@ func reorder(args []string) []string {
 }
 
 func takesValue(f string) bool {
-	f = strings.TrimLeft(f, "-")
-	return f == "email" || f == "hold"
+	return slices.Contains([]string{"email", "hold", "purge", "slot", "alias", "strategy", "threshold", "weekly-threshold", "model", "interval"}, strings.TrimLeft(f, "-"))
 }
 
 func one(rest []string) string {
@@ -528,6 +603,10 @@ func (c *cmd) importFile(path string, hold int) error {
 }
 
 func (c *cmd) run(rest []string, share account.Share) error {
+	var forward []string
+	if i := slices.Index(rest, "--"); i >= 0 {
+		rest, forward = rest[:i], rest[i+1:]
+	}
 	accts, _ := c.b.Blocks()
 	name, folder := one(rest), "."
 	if len(rest) > 1 {
@@ -553,7 +632,7 @@ func (c *cmd) run(rest []string, share account.Share) error {
 	if err != nil {
 		return err
 	}
-	if err := c.b.Run(a.Key(), folder, share); err != nil {
+	if err := c.b.Run(a.Key(), folder, share, forward...); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.out, "Opened Claude Code in Terminal as %s.\n", a.Email)

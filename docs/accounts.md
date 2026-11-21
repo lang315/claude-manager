@@ -46,7 +46,17 @@ claude-manager add-token <token|-> [--email E]  a setup-token or a Console API k
 claude-manager remove <account> | purge --yes
 claude-manager export <file> [--full] | import <file> [--hold SECONDS]
 claude-manager run [<account>] [folder] [--no-share] [--no-share-history | --share-history]
-claude-manager alias | map | unmap | config | upgrade | version
+claude-manager alias | map | unmap | move | swap | unclaimed | config | upgrade | version
+claude-manager add [--slot N] [--alias A]       add the account Claude Code is signed in to
+claude-manager disable | enable | threshold | priority <account> ...
+claude-manager switch [--strategy rotate|best|next-available]   with no account: the next
+claude-manager auto [--threshold P] [--weekly-threshold P] [--model M] [--strategy S] [--interval S]
+                                                every interval until stopped; the flags for that run only
+claude-manager list --token-status
+claude-manager run <account> [folder] -- <claude args>
+claude-manager export - | import -              stdout, stdin
+claude-manager menubar --install-service | --uninstall-service | --service-status | --auto-switch | --no-auto-switch
+claude-manager tui | watch | menubar [--foreground]   open the app
 claude-manager <command> --debug                each request made to Anthropic, never a token
 ```
 

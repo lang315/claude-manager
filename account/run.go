@@ -65,7 +65,7 @@ func (b *Book) profile(key string) string {
 //
 // share applies when the profile is seeded; opened again while claude may
 // run there, the profile is left as it is.
-func (b *Book) Run(key, folder string, share Share) error {
+func (b *Book) Run(key, folder string, share Share, args ...string) error {
 	h := b.Home
 	if h == nil {
 		return ErrCantSwitch
@@ -90,7 +90,7 @@ func (b *Book) Run(key, folder string, share Share) error {
 		if err := b.save(); err != nil {
 			return err
 		}
-		return b.Launch(folder, a.Terminal.Dir)
+		return b.Launch(folder, a.Terminal.Dir, args...)
 	}
 	if a.OAuthAccount == nil {
 		return errNoAccount
@@ -124,7 +124,7 @@ func (b *Book) Run(key, folder string, share Share) error {
 	if err := b.seed(dir, parked, a.OAuthAccount, share); err != nil {
 		return errors.Join(err, b.clearProfile(dir))
 	}
-	return b.Launch(folder, dir)
+	return b.Launch(folder, dir, args...)
 }
 
 func (b *Book) seed(dir string, parked []byte, acct json.RawMessage, share Share) error {
@@ -304,9 +304,13 @@ func ClaudeRunning(configDir string) (bool, error) {
 	return false, nil
 }
 
-// RunCommand is the shell command LaunchInTerminal runs.
-func RunCommand(folder, configDir string) string {
-	return "cd " + shellQuote(folder) + " && CLAUDE_CONFIG_DIR=" + shellQuote(configDir) + " exec claude"
+// RunCommand is the shell command LaunchInTerminal runs: claude with args.
+func RunCommand(folder, configDir string, args ...string) string {
+	cmd := "cd " + shellQuote(folder) + " && CLAUDE_CONFIG_DIR=" + shellQuote(configDir) + " exec claude"
+	for _, a := range args {
+		cmd += " " + shellQuote(a)
+	}
+	return cmd
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

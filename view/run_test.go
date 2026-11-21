@@ -14,7 +14,7 @@ func TestLimitsOpenInTerminal(t *testing.T) {
 	must(t, os.Mkdir(filepath.Join(h.Root, "projects"), 0o700))
 	must(t, os.WriteFile(filepath.Join(h.Root, "settings.json"), []byte("{}"), 0o600))
 	var launched, dirs []string
-	l.book.Launch = func(folder, dir string) error {
+	l.book.Launch = func(folder, dir string, _ ...string) error {
 		launched, dirs = append(launched, folder), append(dirs, dir)
 		return nil
 	}
@@ -55,7 +55,7 @@ func TestLimitsOpenInTerminal(t *testing.T) {
 func TestLimitsNoTerminalForAccountInUse(t *testing.T) {
 	l := limitsApp(t)
 	canSwitch(t, l)
-	l.book.Launch = func(string, string) error { t.Fatal("launched"); return nil }
+	l.book.Launch = func(string, string, ...string) error { t.Fatal("launched"); return nil }
 	l.open(t)
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
 	if account.ProfilesDir(l.book.Dir) == "" {
