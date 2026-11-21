@@ -123,12 +123,12 @@ func (a *App) TrayTick() {
 	a.Update(func() { a.limits.load(a, false) })
 }
 
-// setTheme saves ui.theme and redraws in it.
+// setTheme saves ui.theme and redraws in it. Only the theme is saved:
+// a.prefs may be older than the book's.
 func (a *App) setTheme(theme string) {
 	a.prefs.Theme = theme
-	p := a.prefs
 	a.Go(func() {
-		err := a.Accounts.SetPrefs(p)
+		err := a.Accounts.Set("ui.theme", theme)
 		a.Update(func() { a.limits.toast(a, err) })
 	})
 }
@@ -136,10 +136,14 @@ func (a *App) setTheme(theme string) {
 // switchBest is claude-swap's TUI best pick: the account with the most
 // quota left.
 func (l *limits) switchBest(a *App) {
-	b, err := a.Accounts.Pick("best")
-	if err != nil {
-		l.toast(a, err)
-		return
-	}
-	l.startSwitch(a, b)
+	a.Go(func() { // Pick waits for a refresh under way: never on the main thread
+		b, err := a.Accounts.Pick("best")
+		a.Update(func() {
+			if err != nil {
+				l.toast(a, err)
+				return
+			}
+			l.startSwitch(a, b)
+		})
+	})
 }

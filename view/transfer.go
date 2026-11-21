@@ -116,13 +116,14 @@ func (l *limits) importFrom(a *App, hold time.Duration) {
 		}
 		if data, err := os.ReadFile(path); err == nil && account.IsReadings(data) {
 			got, err := a.Accounts.ImportUsage(path, hold)
+			blocks, _ := a.Accounts.Blocks() // off the main thread: it waits for a refresh under way
 			a.Update(func() {
 				if err == nil {
 					a.notice = fmt.Sprintf("Readings: %d taken, %d kept (newer here), %d skipped.", got.Adopted, got.Kept, got.Skipped)
 				}
 				l.toast(a, err)
 				if got.Adopted > 0 {
-					l.blocks, _ = a.Accounts.Blocks()
+					l.blocks = blocks
 				}
 			})
 			return
