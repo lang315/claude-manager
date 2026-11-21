@@ -114,4 +114,30 @@ func TestLimitsScreenshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Close()
+	l = limitsApp(t)
+	canSwitch(t, l)
+	tt = ui.NewTester(l.a.View, 1100, 720)
+	l.a.Update, l.tt = tt.Update, tt
+	l.a.AutoTick()
+	l.open(t)
+	waitFor(t, tt, func() bool { return tt.HasText("bob@example.com") })
+	must(t, tt.Click("Auto-switch"))
+	waitFor(t, tt, func() bool { return tt.HasText("No account has room.") })
+	must(t, tt.Click("⋯"))
+	must(t, tt.ChooseMenuItem("Hold Out of Auto-Switch"))
+	waitFor(t, tt, func() bool { return tt.HasText("Held out of auto-switch") })
+	shot := func(name string) {
+		f, err := os.Create(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := png.Encode(f, tt.Image()); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+	shot("limits-auto.png")
+	must(t, tt.Click("Auto-Switch Settings…"))
+	waitFor(t, tt, func() bool { return tt.HasText("Auto-Switch Settings") && tt.HasText("Strategy") })
+	shot("limits-auto-settings.png")
 }

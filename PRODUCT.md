@@ -27,9 +27,9 @@ back.
 A local, read-first tool. It never sends data anywhere, never edits Claude Code
 configuration, and never deletes: everything it removes goes to the macOS Trash,
 and running sessions are protected by checks made again at trash time. One
-exception, on the user's click: switching accounts writes Claude Code's login
-and the `oauthAccount` key of `~/.claude.json`, after saving the login it
-replaces.
+exception: switching accounts, on the user's click or by auto-switch once the
+user turns it on, writes Claude Code's login and the `oauthAccount` key of
+`~/.claude.json`, after saving the login it replaces.
 
 ## Operating Context
 

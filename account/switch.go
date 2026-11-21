@@ -32,6 +32,11 @@ func (b *Book) Switch(ctx context.Context, key string) error {
 	if err := b.load(); err != nil {
 		return err
 	}
+	return b.switchLocked(ctx, key)
+}
+
+func (b *Book) switchLocked(ctx context.Context, key string) error {
+	h := b.Home
 	ti := slices.IndexFunc(b.added, func(a Account) bool { return a.Key() == key })
 	if ti < 0 {
 		return errNotAdded
@@ -118,6 +123,7 @@ func (b *Book) Switch(ctx context.Context, key string) error {
 		return fmt.Errorf("The switch failed; Claude Code still uses its earlier account: %w", err)
 	}
 	b.inUse = nil
+	b.lastSwitch = b.Now()
 	return b.save()
 }
 

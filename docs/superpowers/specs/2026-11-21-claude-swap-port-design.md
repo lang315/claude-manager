@@ -147,43 +147,48 @@ or when restarted."
 
 ## 2. Auto-switch
 
-Runs inside the app, on the Limits page's refresh tick, only while the app
-is open. Off by default; a switch on the Limits page turns it on.
+Runs inside the app every minute (and on each Limits refresh), whatever page
+is shown and whether the app is in front, only while the app is open. Off by
+default. A checkbox on the Limits page turns it on; it can't be turned on
+when the app can't switch (another `CLAUDE_CONFIG_DIR`).
 
-Settings, saved in `accounts.json`, with claude-swap's defaults:
+Settings, saved in `accounts.json` (`auto`), with claude-swap's defaults and
+ranges, clamped on load:
 
 | Setting | Default | Range |
 |---|---|---|
 | Five-hour line | 90 % | 50–99.9 |
-| Weekly line (7-day and per-model) | same as five-hour | 50–99.9 |
+| Weekly line (7-day) | none: the five-hour line | 50–99.9 |
 | Cooldown | 5 min | 0–24 h |
 | Margin (hysteresis) | 10 points | 0–50 |
-| Strategy | Most left | Most left, Weekly first, Use soonest reset, By priority |
+| Strategy | Most left (`best`) | Most left, Weekly reset first, Spend soonest reset, By priority |
 
-Per account: Off (held out of rotation), its own five-hour line, a
-priority tier (0–1000).
+Per added account: held out of rotation, its own five-hour line, a
+priority tier (0–1000). They survive switches and Sign In Again.
 
-Rules (claude-swap `docs/auto-switch.md`, simplified where marked):
+Rules: claude-swap's `docs/auto-switch.md` and `autoswitch.py`
+(`_tick_inner`, `_rank_candidates`, `lines.py`), ported in `account.decide`:
 
-- The account in use is over when a window's percent ≥ its line.
-- A candidate is an added, not-held-out account whose reading is under 5
-  min old (claude-swap's `STALE_OK_S`) and under every line. 
-- Most left: the candidate with the most room under its lines, and at least
-  the margin more than the account in use. Weekly first: among candidates,
-  the soonest weekly reset. Use soonest reset: also moves before the line
-  when a sooner-resetting account has room. By priority: highest tier
-  first, then soonest weekly reset; never lands on an account over its line.
-- Cooldown holds proactive moves; at-limit (100 %) moves skip it.
-- All over the line (not By priority): move only to an account with at
-  least twice the room of the one in use, or 3 points more.
-- No candidate: "Auto-switch: no account has room." shown on the page; no
-  move.
-- Simplified: no unhealthy-tick failover, no idle hold, no per-model
-  selection (all per-model weekly windows count against the weekly line).
+- Windows: the five-hour and 7-day ones only. Per-model windows count in
+  claude-swap only with `--model`; that option is not ported.
+- Each window against its own line; the binding window is the one with the
+  least line headroom, on the five-hour line's scale, over-line first.
+- Triggers: over a line (proactive; at-limit at 100 %, which skips the
+  cooldown); under its lines, Spend soonest reset and By priority still look
+  for a better account.
+- Landing: an added account, not held out, with a kept `oauthAccount`, a
+  reading under 5 minutes old and no error, and room under 100 %.
+- Ranking per strategy as in `_rank_candidates`, including the all-over rule
+  (at least `min(2 × room, room + 3)` points more) and By priority never
+  landing on an account over a line.
+- A manual switch starts the cooldown too (claude-swap counts only its own
+  switches), so a strategy doesn't undo the user's choice a minute later.
+  The cooldown is kept in memory: a restart clears it.
+- Not ported: the no-return bar, failover when the account in use can't be
+  read, the idle hold, adaptive polling, `--model`.
 
-The decision is one pure function `decide(now, inUse, accounts, settings)
-(target, reason)`, table-tested against the cases in claude-swap's
-`tests/test_autoswitch*.py`.
+Tested by `TestDecide` (cases from `docs/auto-switch.md`), `TestAutoSwitch`,
+`TestAccountAutoSurvivesSwitches`, and view tests.
 
 ## 3. Export / import
 

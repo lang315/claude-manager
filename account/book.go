@@ -35,9 +35,12 @@ type Account struct {
 	WaitUntil   time.Time `json:"waitUntil,omitzero"` // Anthropic asked to wait until then
 	// OAuthAccount is Claude Code's oauthAccount object from ~/.claude.json.
 	OAuthAccount json.RawMessage `json:"oauthAccount,omitempty"`
-	InUse        bool            `json:"-"` // Claude Code is signed in to it
-	Added        bool            `json:"-"` // the app holds a login of its own for it
-	Source       string          `json:"-"` // "Pitboard" when Limits are Pitboard's reading
+	AutoOff      bool            `json:"autoOff,omitempty"`  // held out of auto-switch
+	Line         float64         `json:"line,omitempty"`     // its own five-hour line; 0 for the global one
+	Priority     int             `json:"priority,omitempty"` // its tier for priority-consume-first
+	InUse        bool            `json:"-"`                  // Claude Code is signed in to it
+	Added        bool            `json:"-"`                  // the app holds a login of its own for it
+	Source       string          `json:"-"`                  // "Pitboard" when Limits are Pitboard's reading
 }
 
 // Key names the account by Anthropic's account and organisation.
@@ -60,19 +63,22 @@ type Book struct {
 	Pitboard func() ([]Account, error)
 	Home     *Home
 
-	mu     sync.Mutex
-	loaded bool
-	added  []Account
-	inUse  *Account             // the account in use, when it is not an added one
-	nobody *Account             // stands in for it when the login in use can't be read
-	who    map[[32]byte]Profile // an access token's SHA-256: whose it is
-	others []Account            // Pitboard's accounts, as last read
-	note   atomic.Value         // string: why Pitboard's files could not be read; read without the lock
+	mu         sync.Mutex
+	loaded     bool
+	added      []Account
+	inUse      *Account             // the account in use, when it is not an added one
+	nobody     *Account             // stands in for it when the login in use can't be read
+	who        map[[32]byte]Profile // an access token's SHA-256: whose it is
+	others     []Account            // Pitboard's accounts, as last read
+	auto       Auto
+	lastSwitch time.Time
+	note       atomic.Value // string: why Pitboard's files could not be read; read without the lock
 }
 
 type saved struct {
 	Accounts []Account `json:"accounts"`
 	InUse    *Account  `json:"inUse,omitempty"`
+	Auto     *Auto     `json:"auto,omitempty"`
 }
 
 func (b *Book) path() string { return filepath.Join(b.Dir, "accounts.json") }
@@ -84,6 +90,7 @@ func (b *Book) load() error {
 		return nil
 	}
 	b.loaded = true
+	b.auto = DefaultAuto()
 	b.cleanLeftovers()
 	data, err := os.ReadFile(b.path())
 	if errors.Is(err, fs.ErrNotExist) {
@@ -97,6 +104,9 @@ func (b *Book) load() error {
 		return fmt.Errorf("accounts.json could not be read: %w", err)
 	}
 	b.added, b.inUse = s.Accounts, s.InUse
+	if s.Auto != nil {
+		b.auto = s.Auto.clamped()
+	}
 	return nil
 }
 
@@ -108,7 +118,7 @@ func (b *Book) save() error {
 	if err := os.Chmod(b.Dir, 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(saved{Accounts: b.added, InUse: b.inUse}, "", "  ")
+	data, err := json.MarshalIndent(saved{Accounts: b.added, InUse: b.inUse, Auto: &b.auto}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -226,6 +236,7 @@ func (b *Book) keepLocked(blob []byte, p Profile, oauthAccount json.RawMessage) 
 	}
 	if was != nil {
 		a.Limits, a.ReadAt = was.Limits, was.ReadAt
+		a.AutoOff, a.Line, a.Priority = was.AutoOff, was.Line, was.Priority
 		if a.OAuthAccount == nil {
 			a.OAuthAccount = was.OAuthAccount
 		}

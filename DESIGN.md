@@ -279,16 +279,19 @@ The reader is padded 16 by 24. It shows the title (Heading), then the meta line:
 ### Backups Table
 MyGo's native data table, with the File column filling the width. Its footer matches Cleanup's: a muted "Selected", the bold tabular "N files · size", and the orange "Move to Trash…" at the right.
 
+### Auto-Switch Row
+First on the Limits page, above the account blocks: the "Auto-switch" checkbox, then a muted 12px status (why it stays, or whom it last switched to; "Checks every minute while the app is open." with nothing to report; the reason it is off outside Claude Code's default folder), then, at the right, "Auto-Switch Settings…", which opens a modal: five-hour line, an optional weekly line, cooldown in minutes, margin in points, strategy (Most left, Weekly reset first, Spend soonest reset, By priority).
+
 ### Account Block
 A face per account on the Limits page, padded 14 by 16.
-- **Header:** the email in bold, the plan in muted (with the organisation for a team plan), a small bold muted "In use" on the account Claude Code is signed in to, and a "⋯" menu on an added account: Switch to This Account (when it is not in use, and Claude Code runs from its default folder), Sign In Again and Remove….
+- **Header:** the email in bold, the plan in muted (with the organisation for a team plan), a small bold muted "In use" on the account Claude Code is signed in to, and a "⋯" menu on an added account: Switch to This Account (when it is not in use, and Claude Code runs from its default folder), Hold Out of / Put Back in Auto-Switch, Auto-Switch Line and Priority… (a modal: its own five-hour line, its priority tier), Sign In Again and Remove….
 - **Rows:** one per limit:
   - the name (150);
   - the meter, filling the width;
   - the percentage, tabular (44);
   - the muted reset time (150).
 - **Footer:**
-  - An added account ends with its sign-in date, muted, at 12px.
+  - An added account ends with its sign-in date, muted, at 12px, then its own auto-switch settings ("Held out of auto-switch · Own line 85% · Priority 3"), muted, at 12px.
   - Figures from Pitboard end with "Read N min ago by Pitboard", muted, at 12px.
   - An account only Pitboard holds, while the app can switch, ends with "Add this account here to switch to it.", muted, at 12px.
   - A block with no figures says why, in muted text.

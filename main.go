@@ -57,6 +57,12 @@ func main() {
 				a.LimitsTick()
 			}
 		}()
+		a.AutoTick()
+		go func() {
+			for range time.Tick(time.Minute) {
+				a.AutoTick()
+			}
+		}()
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

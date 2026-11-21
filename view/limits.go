@@ -34,6 +34,8 @@ type limits struct {
 	removing account.Account
 
 	switching string
+
+	auto autoUI
 }
 
 // load shows the book's saved readings, then refreshes them from
@@ -47,6 +49,7 @@ func (l *limits) load(a *App, force bool) {
 		return
 	}
 	l.loading = true
+	autoOn := l.auto.s.On && l.switching == ""
 	a.Go(func() {
 		saved, err := a.Accounts.Blocks()
 		a.Update(func() {
@@ -56,10 +59,25 @@ func (l *limits) load(a *App, force bool) {
 			l.toast(a, err)
 		})
 		blocks, err := a.Accounts.Refresh(context.Background(), force)
+		var d account.Decision
+		var autoErr error
+		if autoOn {
+			d, autoErr = a.Accounts.AutoSwitch(context.Background())
+		}
+		if d.To != "" {
+			blocks, _ = a.Accounts.Blocks()
+		}
 		a.Update(func() {
 			l.loading, l.loaded = false, true
 			l.blocks, l.updated = blocks, a.Store.Now()
 			l.toast(a, err)
+			if autoOn {
+				l.auto.why = d.Why
+				if d.To != "" && autoErr == nil {
+					l.auto.why = "Switched to " + d.Email + ": " + d.Why + "."
+					a.notice = "Auto-switched to " + d.Email + ": " + d.Why + "."
+				}
+			}
 			if l.again {
 				f := l.force
 				l.again, l.force = false, false
@@ -111,6 +129,7 @@ func (l *limits) view(c *ui.Context, a *App, pal *palette) {
 		now := a.Store.Now()
 		ui.Scroll(c).Grow(1).Children(func() {
 			ui.Column(c).Gap(14).Children(func() {
+				l.autoRow(c, a, pal)
 				for _, b := range l.blocks {
 					l.block(c, a, pal, b, now)
 				}
@@ -121,6 +140,7 @@ func (l *limits) view(c *ui.Context, a *App, pal *palette) {
 		})
 	}
 	l.dialogs(c, a, pal)
+	l.autoDialogs(c, a)
 }
 
 // block is one account: its name, then a meter per limit, or why there are
@@ -162,6 +182,9 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 		}
 		if b.Added && !b.GoodUntil.IsZero() {
 			ui.Text(c, goodUntil(b.GoodUntil, now)).FontSize(12).TextColor(pal.muted)
+		}
+		if s := autoBadges(b); b.Added && s != "" {
+			ui.Text(c, s).FontSize(12).TextColor(pal.muted)
 		}
 		if pitboardOnly := !b.Added && !b.InUse; pitboardOnly && a.Accounts.CanSwitch() {
 			ui.Text(c, "Add this account here to switch to it.").FontSize(12).TextColor(pal.muted)
@@ -395,6 +418,7 @@ func (l *limits) menu(c *ui.Context, a *App, b account.Account) {
 		if switchable && m.Item("Switch to This Account").Disabled(l.switching != "").Chosen() {
 			l.startSwitch(a, b)
 		}
+		l.autoMenu(m, a, b)
 		if m.Item("Sign In Again").Chosen() {
 			l.startAdd(a)
 		}
