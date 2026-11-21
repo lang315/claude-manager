@@ -415,6 +415,16 @@ func (b *Book) renew(ctx context.Context, a *Account, blob []byte, l Login, held
 // RetryAt is when a failed read is tried again; zero when none failed.
 func (a Account) RetryAt() time.Time { return a.Retry }
 
+// isDead reports whether saved, key's saved login, holds the refresh token
+// Anthropic refused (the quarantine).
+func (b *Book) isDead(key string, saved []byte) bool {
+	l, err := parseLogin(saved)
+	b.side.Lock()
+	defer b.side.Unlock()
+	h, ok := b.dead[key]
+	return err == nil && ok && h == sha256.Sum256([]byte(l.RefreshToken))
+}
+
 // saveUnsaved writes the renewed logins the keychain refused before.
 func (b *Book) saveUnsaved() {
 	for k, blob := range b.unsaved {

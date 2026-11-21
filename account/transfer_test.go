@@ -415,3 +415,20 @@ func TestImportSkipsKeyInUse(t *testing.T) {
 		t.Fatalf("forced: %+v, %v", got, err)
 	}
 }
+
+// claude-swap's import (issue #136): a plain import replaces a quarantined
+// account's dead login, newer or not.
+func TestImportHealsQuarantined(t *testing.T) {
+	b, v, _, _ := switchBook(t)
+	_, err := b.keep(login("bob-at", "bob-rt", t0.Add(time.Minute)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	b.Refresh(ctx, true) // bob's renewal is refused: quarantined
+	path := writeExport(t, claudeSwap(t, swapEntry(t, 1, bob, login("bob-old", "bob-rt-good", t0.Add(-time.Hour)), bobAccount)))
+	got, err := b.Import(path)
+	if err != nil || got.Updated != 1 {
+		t.Fatalf("import: %+v %v", got, err)
+	}
+	if l, _ := parseLogin(get(t, v, ParkService, bob.Key())); l.RefreshToken != "bob-rt-good" {
+		t.Errorf("saved %q", l.RefreshToken)
+	}
+}

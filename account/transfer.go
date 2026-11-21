@@ -310,7 +310,7 @@ func (b *Book) ImportWith(path string, force bool) (Imported, error) {
 		case errors.Is(err, ErrNotFound):
 		case err != nil:
 			return got, errors.Join(err, b.save())
-		case !force && !newer(e.blob, saved):
+		case !force && !newer(e.blob, saved) && !b.isDead(k, saved): // a quarantined login gives way (claude-swap #136)
 			got.Skipped++
 			continue
 		}
