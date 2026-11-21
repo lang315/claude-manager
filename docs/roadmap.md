@@ -119,7 +119,8 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | Setting `usage.headerProbe` | 8: "Read setup-token usage" in Add Token |
 | README "How it works": a target's token freshened before a switch | Covered in part: auto-switch lands only on an account its own login read well in the last 5 minutes (an hour while Anthropic is out of reach); the login itself is not renewed first |
 | README "How it works": plan refreshed every six hours | Covered: the plan comes with each login (its `subscriptionType`) |
-| README "Tips", "Data locations", "JSON output", "Uninstall" | Not applicable: CLI and Python package |
+| README "JSON output" | 9: `list`, `status`, `switch` take `--json` (cswap's schema 1); `auto --once --json` prints one event |
+| README "Tips", "Data locations", "Uninstall" | Not applicable: notes on the Python package and its files |
 
 ## v3 — editing configuration
 
