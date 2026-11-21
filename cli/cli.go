@@ -37,6 +37,9 @@ const (
 // else.
 var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "alias", "map", "unmap", "move", "swap", "unclaimed", "add", "disable", "enable", "threshold", "priority", "menubar", "history", "config", "upgrade", "version", "--version", "help", "-h", "--help"}
 
+// verbAliases are cswap's other names for commands.
+var verbAliases = map[string]string{"ls": "list", "rm": "remove", "update": "upgrade"}
+
 // Upgrade installs a newer version of the app, if there is one, and says
 // what it did; main sets it.
 var Upgrade = func(ctx context.Context) (string, error) {
@@ -49,6 +52,9 @@ var Version = "dev"
 // Run runs the command in args (without the program name) on b, writing
 // to out and errs, and returns its exit code.
 func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out, errs io.Writer) int {
+	if len(args) > 0 && verbAliases[args[0]] != "" {
+		args = append([]string{verbAliases[args[0]]}, args[1:]...)
+	}
 	if len(args) == 0 || !slices.Contains(Commands, args[0]) {
 		fmt.Fprintln(errs, usage)
 		return failed
@@ -75,6 +81,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 	weeklyThreshold := fs.Float64("weekly-threshold", 0, "auto: the weekly line for this run")
 	model := fs.String("model", "", "auto: model windows for this run")
 	interval := fs.Float64("interval", 0, "auto: seconds between checks for this run")
+	cooldown := fs.Float64("cooldown", -1, "auto: least seconds between proactive switches for this run")
 	keys := fs.Bool("include-api-key-accounts", false, "auto: fall back on an API key account")
 	tokenStatus := fs.Bool("token-status", false, "list: where each login is and when it lapses")
 	_ = fs.Bool("require-session", false, "run: never the account in use (always so here)")
@@ -169,7 +176,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 		}
 		err = c.switchTo(ctx, name, *jsonOut, *force)
 	case "auto":
-		if err = c.autoFlags(*threshold, *weeklyThreshold, *model, *strategy, *interval, *keys); err != nil {
+		if err = c.autoFlags(*threshold, *weeklyThreshold, *model, *strategy, *interval, *cooldown, *keys); err != nil {
 			break
 		}
 		if !*once {
@@ -267,7 +274,7 @@ const usage = `claude-manager <command> [flags]
   priority [<account> <tier> | <account> --unset]   an account's tier, or list them
   switch [--strategy rotate|best|next-available]    with no account: the next one
   auto [--once] [--threshold P] [--weekly-threshold P] [--model M] [--strategy S]
-       [--interval S] [--include-api-key-accounts]  without --once: every interval until stopped
+       [--interval S] [--cooldown S] [--include-api-key-accounts]  without --once: every interval until stopped
   list --token-status              where each login is and when it lapses
   run <account> [folder] -- <claude args>
   export - | import -              to stdout, from stdin
@@ -275,6 +282,7 @@ const usage = `claude-manager <command> [flags]
   tui | watch | menubar [--foreground]   open the app
   history                          the recent switches
   version
+  ls, rm, update                   list, remove, upgrade
   --debug                          with any command: print each request made to Anthropic
 
 With no command the app opens.`
@@ -302,7 +310,7 @@ func reorder(args []string) []string {
 }
 
 func takesValue(f string) bool {
-	return slices.Contains([]string{"email", "hold", "purge", "slot", "alias", "strategy", "threshold", "weekly-threshold", "model", "interval", "account"}, strings.TrimLeft(f, "-"))
+	return slices.Contains([]string{"email", "hold", "purge", "slot", "alias", "strategy", "threshold", "weekly-threshold", "model", "interval", "cooldown", "account"}, strings.TrimLeft(f, "-"))
 }
 
 func one(rest []string) string {

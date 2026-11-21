@@ -137,9 +137,9 @@ var (
 
 // autoFlags applies cswap auto's flags over the saved settings for this
 // run.
-func (c *cmd) autoFlags(threshold, weekly float64, model, strategy string, interval float64, keys bool) error {
-	if math.IsNaN(threshold) || math.IsNaN(weekly) || math.IsNaN(interval) { // flag takes "nan"
-		return errors.New("--threshold, --weekly-threshold and --interval take numbers.")
+func (c *cmd) autoFlags(threshold, weekly float64, model, strategy string, interval, cooldown float64, keys bool) error {
+	if math.IsNaN(threshold) || math.IsNaN(weekly) || math.IsNaN(interval) || math.IsNaN(cooldown) { // flag takes "nan"
+		return errors.New("--threshold, --weekly-threshold, --interval and --cooldown take numbers.")
 	}
 	s, err := c.b.AutoSettings()
 	if err != nil {
@@ -162,6 +162,9 @@ func (c *cmd) autoFlags(threshold, weekly float64, model, strategy string, inter
 	}
 	if interval != 0 {
 		s.Interval = int(interval)
+	}
+	if cooldown >= 0 {
+		s.Cooldown = int(cooldown)
 	}
 	if keys {
 		s.Keys = true

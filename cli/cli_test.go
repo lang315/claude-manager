@@ -418,3 +418,24 @@ func TestListJSONLeavesOutUnnamedLogin(t *testing.T) {
 		t.Errorf("list --json: %s", out)
 	}
 }
+
+// cswap's verb aliases, and auto's --cooldown.
+func TestAliasesAndCooldown(t *testing.T) {
+	a := newApp(t)
+	_, list, _ := a.run(t, "", "list")
+	if code, out, _ := a.run(t, "", "ls"); code != ok || out != list {
+		t.Errorf("ls: %d %q", code, out)
+	}
+	if code, _, errs := a.run(t, "n\n", "rm", "bob@example.com"); code != failed || !strings.Contains(errs, "nothing removed") {
+		t.Errorf("rm: %d %s", code, errs)
+	}
+	if _, _, errs := a.run(t, "", "update"); !strings.Contains(errs, "doesn't update itself") {
+		t.Errorf("update: %s", errs)
+	}
+	if _, _, errs := a.run(t, "", "auto", "--once", "--dry-run", "--cooldown", "0"); strings.Contains(errs, "not defined") {
+		t.Errorf("auto --cooldown: %s", errs)
+	}
+	if s, _ := a.b.AutoInEffect(); s.Cooldown != 0 {
+		t.Errorf("--cooldown 0: cooldown %d", s.Cooldown)
+	}
+}

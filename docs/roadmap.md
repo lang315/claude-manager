@@ -73,6 +73,7 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **21. Audit fixes: races, data loss, import, CLI and view bugs** (#40, draft). Decisions left open are listed in the PR.
 - [x] **22. The app and the command line share accounts.json** (#41, draft): a lock across processes, and a re-read when the other wrote it.
 - [x] **23. Auto-switch freshens its target's login** (#42, draft), as claude-swap's _freshen_target.
+- [x] **24. cswap's verb aliases and auto --cooldown** (#43, draft): `ls`, `rm`, `update`; every other flag in cswap's cli.py was already here.
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an
