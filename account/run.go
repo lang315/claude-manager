@@ -27,6 +27,7 @@ var (
 	errRunInUse   = errors.New("This account is the one in use: run claude in any terminal.")
 
 	errTerminalExpired = errors.New(InTerminalExpired)
+	errDrifted         = errors.New("The terminal opened as this account is signed in to another one now; its login will be kept as unclaimed when claude quits there.")
 )
 
 // InTerminalExpired is the status of an account open in a terminal whose
@@ -163,6 +164,20 @@ func (b *Book) seed(dir string, parked []byte, acct json.RawMessage, share Share
 	if err := writeAtomic(filepath.Join(dir, ".claude.json"), conf, 0o600); err != nil {
 		return err
 	}
+	busy := false
+	if b.Running != nil {
+		running, err := b.Running(dir)
+		busy = running || err != nil
+	}
+	if share.History && !busy {
+		// Its own history first goes into ~/.claude's, as claude-swap's;
+		// never under a claude still writing it.
+		for _, name := range history {
+			if _, _, err := mergeHistory(filepath.Join(h.Root, name), filepath.Join(dir, name), filepath.Join(b.Dir, "history-conflicts")); err != nil {
+				return err
+			}
+		}
+	}
 	for _, g := range []struct {
 		names []string
 		on    bool
@@ -248,7 +263,13 @@ func (b *Book) takeBack(a *Account, now time.Time) error {
 	if err != nil && !errors.Is(err, ErrNotSignedIn) {
 		return err
 	}
-	if err == nil {
+	if err == nil && b.drifted(*a) {
+		// A /login in that terminal put another account there: its login
+		// is not this account's to save. It is kept as unclaimed instead.
+		if err := b.stashLocked(blob, "signed in to another account in a terminal opened as "+a.Email); err != nil {
+			return err
+		}
+	} else if err == nil {
 		parked, _ := b.Vault.Get(ParkService, a.Key())
 		if _, ok := complete(blob); ok && newer(blob, parked) {
 			if err := b.park(a.Key(), blob); err != nil {
@@ -268,6 +289,22 @@ func (b *Book) takeBack(a *Account, now time.Time) error {
 	}
 	a.Terminal = Terminal{}
 	return nil
+}
+
+// drifted reports whether a's profile is signed in to another account,
+// as claude-swap's session_identity_drifted: its .claude.json names
+// another account, or its login's own uuids do. Unreadable is no drift.
+func (b *Book) drifted(a Account) bool {
+	if a.Terminal.Dir == "" {
+		return false
+	}
+	conf, _ := os.ReadFile(filepath.Join(a.Terminal.Dir, ".claude.json"))
+	if k := keyOf(oauthAccountOf(conf)); k != "" && k != a.Key() {
+		return true
+	}
+	blob, err := b.profileLogin(a.Terminal.Dir)
+	k := keyOf(oauthOf(blob))
+	return err == nil && k != "" && k != a.Key()
 }
 
 // ClaudeRunning reports whether a claude runs on configDir, from the

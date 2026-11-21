@@ -655,6 +655,28 @@ Verified: `TestAddAndTune`, `TestSwitchWithoutAccount`,
 `TestGUI`; mutation checks (16 of 16 caught). Not verified: launchctl, the
 Run key and autostart for real.
 
+## 15. Session identity and history merge
+
+- Drift (`session_identity_drifted`): a terminal profile whose
+  `.claude.json` or login names another account than the one it was opened
+  as is read as "signed in to another one now", and at take-back its login
+  is kept as unclaimed, never saved as the account's. Unreadable is no
+  drift. This closed a bug: a `/login` to another account in that terminal
+  had its login saved under the first one.
+- History merge (`_merge_history_into_source`): opened with history shared,
+  a profile's own `projects/` and `history.jsonl` go into `~/.claude` before
+  it links them: a file `~/.claude` lacks is moved; one whose copy there
+  holds every byte of it is dropped; any other clash keeps the shared copy
+  and parks the profile's under `history-conflicts/<time>-<profile>/`.
+  `history.jsonl` takes the lines it lacks. Not while a claude runs on the
+  profile. Simpler than claude-swap's: a later profile transcript doesn't
+  replace the shared one, it is parked.
+- Not a gap: claude-swap's stale-profile re-seed; take-back removes a
+  profile's login, so each opening after it seeds afresh.
+
+Verified: `TestTakeBackDrifted`, `TestMergeHistory`,
+`TestRunMergesProfileHistory`; mutation checks (11 of 11 caught).
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported

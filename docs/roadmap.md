@@ -64,6 +64,7 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **12. Unclaimed logins** (#31, draft).
 - [x] **13. Linux, WSL and Windows** (#32, draft).
 - [x] **14. Command line on par with cswap's "Other commands"** (#33, draft).
+- [x] **15. Terminal identity check and history merge** (#34, draft).
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an
@@ -88,6 +89,7 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | `auto --once`, `--dry-run`, `--json`, exit codes | 9: `claude-manager auto --once [--dry-run] [--json]`, exit 0/1/2/3 as cswap's; `list --json` is cswap's schema, so either app's `import-usage` takes it |
 | Dead-token quarantine | 2b: a refused refresh token is never an auto-switch candidate and is not posted again until the saved login changes; Sign In Again replaces it |
 | `export` / `import` | Ported: 3; `claude-manager export|import` (9) |
+| `run`: a terminal signed in to another account (identity drift); a profile's own history merged into `~/.claude` | 15 |
 | `run` (session mode), history and setup sharing, MCP mirror | 4; `claude-manager run <email> [folder] [--no-share] [--no-share-history]` (9); `--no-share` / `--no-share-history` as the dialog's two checkboxes (4b) |
 | `map` / `unmap` (directory to account) | 9b: `claude-manager map|unmap`, and `run` with no account opens the one mapped to the folder |
 | Weekly pace marker | 5 |

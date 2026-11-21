@@ -68,6 +68,9 @@ func (b *Book) Refresh(ctx context.Context, force bool) ([]Account, error) {
 		case a.APIKey: // no limits to read
 			a.Err, held = "", held || a.InUse
 			continue
+		case a.Terminal.Dir != "" && b.drifted(*a):
+			a.Err = errDrifted.Error()
+			continue
 		case a.Terminal.Dir != "":
 			// The terminal renews this login: read with its token, never renew.
 			blob, err := b.profileLogin(a.Terminal.Dir)

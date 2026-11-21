@@ -36,7 +36,9 @@ Closing the window keeps the app in the menu bar, reading the accounts' limits
 from Anthropic every 5 minutes, and renewing the added accounts' saved logins
 as they near expiry, until the user quits it.
 Open in Terminal writes a per-account profile folder under the app's own folder,
-whose links point into `~/.claude`; it never writes into `~/.claude`.
+whose links point into `~/.claude`. Opening one that kept its own chat history
+moves that history into `~/.claude` first (a copy that clashes with one there is
+parked under the app's `history-conflicts`, never deleted).
 
 ## Operating Context
 

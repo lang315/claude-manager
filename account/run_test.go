@@ -397,3 +397,42 @@ func TestRunShare(t *testing.T) {
 		t.Errorf("MCP servers mirrored without setup shared: %s", conf2)
 	}
 }
+
+// A /login to another account in the terminal: that login is neither read
+// as this account's nor saved under it; it is kept as unclaimed.
+func TestTakeBackDrifted(t *testing.T) {
+	r := newRunBook(t)
+	must(t, r.b.Run(bob.Key(), "/work", both))
+	dir := r.dir()
+	carolLogin := withUUIDs(t, stored(t, login("carol-at", "carol-rt", t0.Add(9*time.Hour))), carol)
+	must(t, r.v.Put(liveService(dir), "me", carolLogin))
+	r.running = true
+	got, _ := r.b.Refresh(ctx, true)
+	if a := blockOf(t, got, "bob@example.com"); a.Err != errDrifted.Error() {
+		t.Errorf("read as bob's: %+v", a)
+	}
+	r.running = false
+	r.b.Refresh(ctx, true)
+	if l, _ := parseLogin(get(t, r.v, ParkService, bob.Key())); l.RefreshToken != "bob-rt" {
+		t.Errorf("carol's login saved as bob's: %q", l.RefreshToken)
+	}
+	kept, _ := r.b.UnclaimedLogins()
+	if len(kept) != 1 || !strings.Contains(kept[0].Why, "another account") {
+		t.Fatalf("kept %+v", kept)
+	}
+	if r.bob(t).Terminal.Dir != "" {
+		t.Error("not taken back")
+	}
+
+	// Its .claude.json alone says so too.
+	r2 := newRunBook(t)
+	must(t, r2.b.Run(bob.Key(), "/work", both))
+	must(t, os.WriteFile(filepath.Join(r2.dir(), ".claude.json"), []byte(`{"oauthAccount":`+carolAccount+`}`), 0o600))
+	if !r2.b.drifted(r2.bob(t)) {
+		t.Error("drift by .claude.json missed")
+	}
+	must(t, os.WriteFile(filepath.Join(r2.dir(), ".claude.json"), []byte(`{}`), 0o600))
+	if r2.b.drifted(r2.bob(t)) {
+		t.Error("unreadable identity taken for drift")
+	}
+}
