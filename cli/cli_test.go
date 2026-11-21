@@ -278,16 +278,29 @@ func TestAliasMapRun(t *testing.T) {
 	if code, out, errs := a.run(t, "", "map", "dev", work); code != ok || !strings.Contains(out, "now opens as bob@example.com") {
 		t.Fatalf("map: %d %s %s", code, out, errs)
 	}
-	var folder string
-	a.b.Launch = func(f, p string, _ ...string) error { folder = f; return nil }
+	var folder, profile string
+	a.b.Launch = func(f, p string, _ ...string) error { folder, profile = f, p; return nil }
 	a.b.Running = func(string) (bool, error) { return false, nil }
 	sub := filepath.Join(work, "src")
 	must(t, os.Mkdir(sub, 0o700))
 	if code, _, errs := a.run(t, "", "run", sub); code != ok || folder != sub {
 		t.Fatalf("run by mapping: %d %s %q", code, errs, folder)
 	}
-	if code, _, errs := a.run(t, "", "run", t.TempDir()); code != failed || !strings.Contains(errs, "No account is mapped") {
-		t.Errorf("unmapped: %d %s", code, errs)
+	// cswap run's fast path: a folder mapped to nobody, or the account in
+	// use, opens plain claude as the account in use; --require-session
+	// refuses.
+	if code, out, errs := a.run(t, "", "run", t.TempDir()); code != ok || profile != "" || !strings.Contains(out, "No account is mapped") {
+		t.Errorf("unmapped: %d %s %s %q", code, out, errs, profile)
+	}
+	if code, _, errs := a.run(t, "", "run", t.TempDir(), "--require-session"); code != failed || !strings.Contains(errs, "No account is mapped") {
+		t.Errorf("unmapped --require-session: %d %s", code, errs)
+	}
+	a.run(t, "", "list") // the account in use is added on a read
+	if code, out, errs := a.run(t, "", "run", "alice@example.com", t.TempDir()); code != ok || profile != "" || !strings.Contains(out, "is the account in use") {
+		t.Errorf("the account in use: %d %s %s %q", code, out, errs, profile)
+	}
+	if code, _, _ := a.run(t, "", "run", "alice@example.com", t.TempDir(), "--require-session"); code != failed {
+		t.Error("the account in use with --require-session")
 	}
 	// An account's name wins over a folder of that name here.
 	here := t.TempDir()

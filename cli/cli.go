@@ -84,7 +84,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 	cooldown := fs.Float64("cooldown", -1, "auto: least seconds between proactive switches for this run")
 	keys := fs.Bool("include-api-key-accounts", false, "auto: fall back on an API key account")
 	tokenStatus := fs.Bool("token-status", false, "list: where each login is and when it lapses")
-	_ = fs.Bool("require-session", false, "run: never the account in use (always so here)")
+	requireSession := fs.Bool("require-session", false, "run: refuse rather than open Claude Code as the account in use")
 	exportAccount := fs.String("account", "", "export: only this account")
 	force := fs.Bool("force", false, "import: replace saved logins even when not older; switch: put the saved login in use even for the account in use")
 	svcStatus := fs.Bool("service-status", false, "menubar: does the app start at login, is auto-switch on")
@@ -250,7 +250,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 		if p, perr := b.Prefs(); perr == nil && p.NoShareHistory && !*shareHistory {
 			history = false
 		}
-		err = c.run(rest, account.Share{Setup: !*noShare, History: history})
+		err = c.run(rest, account.Share{Setup: !*noShare, History: history}, *requireSession)
 	}
 	if err != nil {
 		if *jsonOut {
@@ -274,9 +274,11 @@ const usage = `claude-manager <command> [flags]
   purge --yes                      remove every added account
   export <file> [--full]           write the added accounts to a file
   import <file> [--hold SECONDS]   add an export's accounts, or take a readings file (cswap list --json)
-  run [<email>] [folder] [--no-share] [--no-share-history]
+  run [<email>] [folder] [--no-share] [--no-share-history] [--require-session]
                                    open Claude Code in Terminal as an account; with none
-                                   named, the one mapped to the folder
+                                   named, the one mapped to the folder; as the account in
+                                   use when it is that one or none is mapped, unless
+                                   --require-session
   alias [<email> <name> | <email> --unset]
                                    a short name for an account, or list them
   map [<email> [folder]]           map a folder (and those below) to an account, or list
@@ -781,7 +783,7 @@ func (c *cmd) importFile(path string, hold int, force, usageOnly bool) error {
 	return nil
 }
 
-func (c *cmd) run(rest []string, share account.Share) error {
+func (c *cmd) run(rest []string, share account.Share, requireSession bool) error {
 	var forward []string
 	if i := slices.Index(rest, "--"); i >= 0 {
 		rest, forward = rest[:i], rest[i+1:]
@@ -803,15 +805,23 @@ func (c *cmd) run(rest []string, share account.Share) error {
 			return err
 		}
 		if key == "" {
-			return fmt.Errorf("No account is mapped to %s: run claude there, or name an account.", folder)
+			if requireSession {
+				return fmt.Errorf("No account is mapped to %s: name an account.", folder)
+			}
+			return c.runDefault(folder, fmt.Sprintf("No account is mapped to %s", folder), forward)
 		}
 		name = key
+		if _, err := find(accts, name); err != nil && !requireSession {
+			return c.runDefault(folder, "The account mapped to "+folder+" is no longer added", forward)
+		}
 	}
 	a, err := find(accts, name)
 	if err != nil {
 		return err
 	}
-	if err := c.b.Run(a.Key(), folder, share, forward...); err != nil {
+	if err := c.b.Run(a.Key(), folder, share, forward...); errors.Is(err, account.ErrRunInUse) && !requireSession {
+		return c.runDefault(folder, a.Email+" is the account in use", forward)
+	} else if err != nil {
 		return err
 	}
 	fmt.Fprintf(c.out, "Opened Claude Code in Terminal as %s.\n", a.Email)
@@ -1012,5 +1022,16 @@ func (c *cmd) unclaimed(purge string) error {
 	for _, u := range kept {
 		fmt.Fprintf(c.out, "%s  %s  %s\n", u.ID, u.At.Local().Format("2006-01-02 15:04"), u.Why)
 	}
+	return nil
+}
+
+// runDefault is cswap run's fast path: Claude Code as the account in use,
+// in its own folder, for a folder mapped to nobody or a run as the account
+// in use (--require-session refuses instead).
+func (c *cmd) runDefault(folder, why string, args []string) error {
+	if err := c.b.RunDefault(folder, args...); err != nil {
+		return err
+	}
+	fmt.Fprintf(c.out, "%s: opened Claude Code in Terminal as the account in use.\n", why)
 	return nil
 }

@@ -26,7 +26,7 @@ type Terminal struct {
 
 var (
 	errInTerminal  = errors.New("This account is open in a terminal. Quit Claude Code there first.")
-	errRunInUse    = errors.New("This account is the one in use: run claude in any terminal.")
+	ErrRunInUse    = errors.New("This account is the one in use: run claude in any terminal.")
 	errProfileBusy = errors.New("Claude Code is running in this account's terminal profile: quit it there first.")
 
 	errTerminalExpired = errors.New(InTerminalExpired)
@@ -94,7 +94,7 @@ func (b *Book) readyRun(key string, share Share) (string, error) {
 	}
 	a := &b.added[i]
 	if key == h.accountKey() {
-		return "", errRunInUse
+		return "", ErrRunInUse
 	}
 	if a.Terminal.Dir != "" {
 		// The profile holds the login now: open it again, with take-back
@@ -131,7 +131,7 @@ func (b *Book) readyRun(key string, share Share) (string, error) {
 	// would be a second renewer on Claude Code's chain.
 	if lb, err := h.readLive(b.Vault); err == nil {
 		if l, err := parseLogin(lb.data); keyOf(oauthOf(lb.data)) == key || err == nil && l.RefreshToken == pl.RefreshToken {
-			return "", errRunInUse
+			return "", ErrRunInUse
 		}
 	}
 	dir := b.profile(key)
@@ -417,8 +417,30 @@ func liveTranscripts(root string) func(rel string) bool {
 	}
 }
 
-// RunCommand is the shell command LaunchInTerminal runs: claude with args.
+// RunDefault opens Claude Code in a terminal at folder as the account in
+// use, in its own folder: cswap run's fast path, nothing seeded.
+func (b *Book) RunDefault(folder string, args ...string) error {
+	if b.Home == nil {
+		return ErrCantSwitch
+	}
+	if b.Claude != nil {
+		if _, err := b.Claude(); err != nil {
+			return err
+		}
+	}
+	return b.Launch(folder, "", args...)
+}
+
+// RunCommand is the shell command LaunchInTerminal runs: claude with args;
+// with no configDir, plain claude in the shell's own environment.
 func RunCommand(folder, configDir string, args ...string) string {
+	if configDir == "" {
+		cmd := "cd " + shellQuote(folder) + " && exec claude"
+		for _, a := range args {
+			cmd += " " + shellQuote(a)
+		}
+		return cmd
+	}
 	cmd := "cd " + shellQuote(folder) + " && exec env"
 	for _, v := range authOverrides {
 		cmd += " -u " + v

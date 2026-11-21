@@ -162,7 +162,7 @@ func TestRunRefuses(t *testing.T) {
 		t.Errorf("not added: %v", err)
 	}
 	r.b.Refresh(ctx, true) // alice is added by following her login
-	if err := r.b.Run(alice.Key(), "/work", both); !errors.Is(err, errRunInUse) {
+	if err := r.b.Run(alice.Key(), "/work", both); !errors.Is(err, ErrRunInUse) {
 		t.Errorf("in use: %v", err)
 	}
 	r.b.Home = nil
@@ -390,7 +390,7 @@ func TestRunRefusesClaudeCodesLogin(t *testing.T) {
 				must(t, os.WriteFile(r.h.ClaudeJSON, []byte(`{"oauthAccount":`+bobAccount+`}`), 0o600))
 			}
 			must(t, r.v.Put(liveDefault, "me", l))
-			if err := r.b.Run(bob.Key(), "/a", both); !errors.Is(err, errRunInUse) {
+			if err := r.b.Run(bob.Key(), "/a", both); !errors.Is(err, ErrRunInUse) {
 				t.Fatalf("err = %v", err)
 			}
 			if len(r.launched) != 0 || r.bob(t).Terminal.Dir != "" {
@@ -554,5 +554,12 @@ func TestSeedSkipsOnboarding(t *testing.T) {
 	conf, _ := os.ReadFile(filepath.Join(r.dir(), ".claude.json"))
 	if !strings.Contains(string(conf), `"hasCompletedOnboarding":true`) || !strings.Contains(string(conf), `"numStartups":2`) {
 		t.Errorf("profile .claude.json %s", conf)
+	}
+}
+
+// The account in use runs plain claude, its shell's environment as it is.
+func TestRunCommandDefault(t *testing.T) {
+	if got := RunCommand("/f", "", "--resume"); got != `cd '/f' && exec claude '--resume'` {
+		t.Errorf("RunCommand = %s", got)
 	}
 }
