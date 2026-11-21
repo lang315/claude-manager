@@ -13,15 +13,19 @@ const (
 // startExport asks where to save the added accounts, then writes them.
 func (l *limits) startExport(a *App) {
 	a.Go(func() {
-		path, err := a.SaveFile("Claude accounts.json", exportWarning)
+		path, err := a.SaveFile("Claude accounts.json", exportWarning+" "+twoMacs)
 		if err != nil || path == "" {
 			a.Update(func() { l.toast(a, err) })
 			return
 		}
-		n, err := a.Accounts.Export(path)
+		n, left, err := a.Accounts.Export(path)
 		a.Update(func() {
 			if err == nil {
-				a.notice = fmt.Sprintf("Exported %s. %s", plural(n, "account"), exportWarning)
+				a.notice = fmt.Sprintf("Exported %s. ", plural(n, "account"))
+				if left > 0 {
+					a.notice += fmt.Sprintf("Left out %d: sign in again to it first. ", left)
+				}
+				a.notice += exportWarning + " " + twoMacs
 			}
 			l.toast(a, err)
 		})

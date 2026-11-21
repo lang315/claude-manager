@@ -10,8 +10,9 @@ import (
 	"slices"
 )
 
-// exportFile is claude-swap's export (transfer.py, FORMAT_VERSION 1), so
-// either app reads the other's. It is not encrypted.
+// exportFile is claude-swap's export (transfer.py, FORMAT_VERSION 1): the
+// app reads claude-swap's exports and writes its format. It is not
+// encrypted.
 type exportFile struct {
 	Version      int           `json:"version"`
 	ExportedAt   string        `json:"exportedAt"`
@@ -38,13 +39,15 @@ var (
 )
 
 // Export writes the added accounts and their logins to path, readable by
-// the user only, and returns how many it wrote. The account in use goes
-// with Claude Code's login when that is newer than its saved one.
-func (b *Book) Export(path string) (int, error) {
+// the user only. It returns how many it wrote, and how many it left out:
+// those without an oauthAccount or a complete saved login, which Import
+// would refuse. The account in use goes with Claude Code's login when that
+// is newer than its saved one.
+func (b *Book) Export(path string) (n, left int, err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if err := b.load(); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	var live []byte
 	inUse := ""
@@ -57,50 +60,58 @@ func (b *Book) Export(path string) (int, error) {
 	now := b.Now().UTC().Format("2006-01-02T15:04:05Z")
 	f := exportFile{Version: 1, ExportedAt: now, ExportedFrom: "macos"}
 	for _, a := range b.added {
-		if a.OAuthAccount == nil {
-			continue
-		}
 		blob, err := b.Vault.Get(ParkService, a.Key())
-		if errors.Is(err, ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return 0, err
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return 0, 0, err
 		}
 		if a.Key() == inUse && live != nil && newer(live, blob) {
 			blob = live
 		}
+		if _, ok := complete(blob); !ok || keyOf(a.OAuthAccount) == "" {
+			left++
+			continue
+		}
 		creds, err := withOAuth(nil, oauthOf(blob))
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		conf, err := json.Marshal(map[string]json.RawMessage{"oauthAccount": a.OAuthAccount})
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		f.Accounts = append(f.Accounts, exportEntry{Number: len(f.Accounts) + 1, Email: a.Email, UUID: a.AccountUUID,
 			OrgUUID: a.OrgUUID, OrgName: a.OrgName, Added: now, Credentials: creds, Config: conf})
 	}
 	if len(f.Accounts) == 0 {
-		return 0, errNothingToExport
+		return 0, left, errNothingToExport
 	}
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	// writeAtomic keeps a replaced file's mode, and would follow a link's.
 	switch fi, err := os.Lstat(path); {
 	case errors.Is(err, fs.ErrNotExist):
 	case err != nil:
-		return 0, err
+		return 0, 0, err
 	case !fi.Mode().IsRegular():
-		return 0, errors.New("Choose a new file name to export to.")
+		return 0, 0, errors.New("Choose a new file name to export to.")
 	default:
 		if err := os.Chmod(path, 0o600); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	}
-	return len(f.Accounts), writeAtomic(path, append(data, '\n'), 0o600)
+	if err := writeAtomic(path, append(data, '\n'), 0o600); err != nil {
+		return 0, 0, err
+	}
+	return len(f.Accounts), left, nil
+}
+
+// complete reads blob's login when it has all a switch needs.
+func complete(blob []byte) (Login, bool) {
+	o := oauthOf(blob)
+	l, err := parseLogin(blob)
+	return l, o != nil && err == nil && l.RefreshToken != "" && l.ExpiresAt != 0
 }
 
 // newer reports whether login blob x lapses after login blob y.
@@ -127,7 +138,7 @@ func (b *Book) Import(path string) (Imported, error) {
 		return Imported{}, err
 	}
 	var f exportFile
-	if json.Unmarshal(data, &f) != nil {
+	if json.Unmarshal(data, &f) != nil || f.Version == 0 {
 		return Imported{}, errNotExport
 	}
 	switch {
@@ -159,8 +170,7 @@ func (b *Book) Import(path string) (Imported, error) {
 		}
 		o := oauthOf(e.Credentials)
 		blob, err := withOAuth(nil, o)
-		l, perr := parseLogin(blob)
-		if o == nil || err != nil || perr != nil || l.RefreshToken == "" || l.ExpiresAt == 0 {
+		if _, ok := complete(blob); o == nil || err != nil || !ok {
 			return Imported{}, bad("has no complete login")
 		}
 		acct := oauthAccountOf(e.Config)
@@ -196,13 +206,16 @@ func (b *Book) Import(path string) (Imported, error) {
 	if err := b.load(); err != nil {
 		return Imported{}, err
 	}
-	inUse := ""
+	inUse, liveKey := "", ""
 	if b.Home != nil {
 		inUse = b.Home.accountKey()
+		if lb, err := b.Home.readLive(b.Vault); err == nil {
+			liveKey = keyOf(oauthOf(lb.data))
+		}
 	}
 	for _, e := range in {
 		k := e.p.Key()
-		if k == inUse { // follow keeps Claude Code's login; a file's copy would be a second renewer
+		if k == inUse || k == liveKey { // follow keeps Claude Code's login; a file's copy would be a second renewer
 			got.Skipped++
 			continue
 		}

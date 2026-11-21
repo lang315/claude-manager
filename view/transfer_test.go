@@ -16,8 +16,8 @@ func TestLimitsExportImport(t *testing.T) {
 	l.open(t)
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
 	must(t, l.tt.Click("Export…"))
-	waitFor(t, l.tt, func() bool { return l.tt.HasText("Exported 2 accounts. " + exportWarning) })
-	if said != exportWarning {
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Exported 2 accounts. " + exportWarning + " " + twoMacs) })
+	if said != exportWarning+" "+twoMacs {
 		t.Errorf("save panel said %q", said)
 	}
 	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {

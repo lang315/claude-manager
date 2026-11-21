@@ -41,10 +41,12 @@ func main() {
 	a.OpenURL, a.CopyText = mygo.Shell.OpenExternal, mygo.Clipboard.WriteText
 	jsonFiles := []mygo.FileFilter{{Name: "JSON", Extensions: []string{"json"}}}
 	a.SaveFile = func(name, message string) (string, error) {
-		return mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "Export Accounts", DefaultPath: name, Message: message, Filters: jsonFiles})
+		return mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "Export Accounts", DefaultPath: filepath.Join(home, "Desktop", name),
+			Message: message, Filters: jsonFiles, CreateDirectories: true})
 	}
 	a.OpenFile = func(message string) (string, error) {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Import Accounts", Message: message, Filters: jsonFiles})
+		// claude-swap's exports go by any name.
+		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Import Accounts", Message: message, Filters: append(jsonFiles, mygo.FileFilter{Name: "All Files", Extensions: []string{"*"}})})
 		if err != nil || len(paths) == 0 {
 			return "", err
 		}

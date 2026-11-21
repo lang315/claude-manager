@@ -35,8 +35,8 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
   outside the app doesn't leave it spent. Done once Pitboard was no longer
   used for switching.
 - [ ] **3. Export / import.** Move added accounts to another Mac in one
-  private (0600, unencrypted) JSON file, in claude-swap's export format, so
-  either app reads the other's. Owed: a real export and import between two
+  private (0600, unencrypted) JSON file, in claude-swap's export format; the
+  app reads claude-swap's exports. Owed: a real export and import between two
   Macs.
 - [ ] **4. Run as account.** Open Claude Code in Terminal as one account
   (its own `CLAUDE_CONFIG_DIR`), the rest of the Mac staying on the default;

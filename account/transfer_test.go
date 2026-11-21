@@ -45,10 +45,10 @@ func TestExportImportRoundTrip(t *testing.T) {
 	b, _, _, _ := switchBook(t)
 	must(t, b.SetAccountAuto(bob.Key(), true, 0, 0))
 	path := filepath.Join(t.TempDir(), "out.json")
-	n, err := b.Export(path)
+	n, left, err := b.Export(path)
 	must(t, err)
-	if n != 1 {
-		t.Fatalf("exported %d accounts, want bob only", n)
+	if n != 1 || left != 0 {
+		t.Fatalf("exported %d, left out %d; want bob only", n, left)
 	}
 	fi, err := os.Stat(path)
 	must(t, err)
@@ -84,7 +84,7 @@ func TestExportTakesNewerLiveLogin(t *testing.T) {
 	b.Refresh(ctx, true)
 	must(t, v.Put(liveDefault, "me", withUUIDs(t, stored(t, login("alice-at2", "alice-rt2", t0.Add(5*time.Hour))), alice)))
 	path := filepath.Join(t.TempDir(), "out.json")
-	_, err := b.Export(path)
+	_, _, err := b.Export(path)
 	must(t, err)
 	e := entryOf(t, exportOf(t, path), "alice@example.com")
 	if l, _ := parseLogin(e.Credentials); l.RefreshToken != "alice-rt2" {
@@ -100,7 +100,7 @@ func TestExportLiveLoginOnlyWhenItsOwn(t *testing.T) {
 	b.Refresh(ctx, true)
 	must(t, v.Put(liveDefault, "me", withUUIDs(t, stored(t, login("x-at", "x-rt", t0.Add(5*time.Hour))), carol)))
 	path := filepath.Join(t.TempDir(), "out.json")
-	_, err := b.Export(path)
+	_, _, err := b.Export(path)
 	must(t, err)
 	if l, _ := parseLogin(entryOf(t, exportOf(t, path), "alice@example.com").Credentials); l.RefreshToken != "alice-rt" {
 		t.Errorf("alice exported with %q", l.RefreshToken)
@@ -113,7 +113,7 @@ func TestExportKeepsNewerSavedLogin(t *testing.T) {
 	_, err := b.keep(login("alice-new", "alice-rt-new", t0.Add(5*time.Hour)).Marshal(), alice, json.RawMessage(aliceAccount))
 	must(t, err)
 	path := filepath.Join(t.TempDir(), "out.json")
-	_, err = b.Export(path)
+	_, _, err = b.Export(path)
 	must(t, err)
 	if l, _ := parseLogin(entryOf(t, exportOf(t, path), "alice@example.com").Credentials); l.RefreshToken != "alice-rt-new" {
 		t.Errorf("alice exported with %q", l.RefreshToken)
@@ -127,10 +127,27 @@ func TestExportSkipsAccountWithoutOAuthAccount(t *testing.T) {
 	_, err := b.keep(login("carol-at", "carol-rt", t0.Add(time.Hour)).Marshal(), carol, nil)
 	must(t, err)
 	path := filepath.Join(t.TempDir(), "out.json")
-	n, err := b.Export(path)
+	n, left, err := b.Export(path)
 	must(t, err)
-	if n != 1 || exportOf(t, path).Accounts[0].Email != "bob@example.com" {
-		t.Errorf("exported %d: %+v", n, exportOf(t, path).Accounts)
+	if n != 1 || left != 1 || exportOf(t, path).Accounts[0].Email != "bob@example.com" {
+		t.Errorf("exported %d, left out %d: %+v", n, left, exportOf(t, path).Accounts)
+	}
+}
+
+// Export leaves out what Import would refuse, so its file always imports.
+func TestExportLeavesOutIncompleteLogin(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	_, err := b.keep(login("carol-at", "", t0.Add(time.Hour)).Marshal(), carol, json.RawMessage(carolAccount))
+	must(t, err)
+	path := filepath.Join(t.TempDir(), "out.json")
+	n, left, err := b.Export(path)
+	must(t, err)
+	if n != 1 || left != 1 {
+		t.Fatalf("exported %d, left out %d", n, left)
+	}
+	c, _, _, _ := switchBook(t)
+	if _, err := c.Import(path); err != nil {
+		t.Fatalf("its own export refused: %v", err)
 	}
 }
 
@@ -138,7 +155,7 @@ func TestExportMakesReplacedFilePrivate(t *testing.T) {
 	b, _, _, _ := switchBook(t)
 	path := filepath.Join(t.TempDir(), "out.json")
 	must(t, os.WriteFile(path, []byte("old"), 0o644))
-	_, err := b.Export(path)
+	_, _, err := b.Export(path)
 	must(t, err)
 	fi, err := os.Stat(path)
 	must(t, err)
@@ -154,7 +171,7 @@ func TestExportRefusesLink(t *testing.T) {
 	must(t, os.WriteFile(target, []byte("keep"), 0o644))
 	link := filepath.Join(dir, "out.json")
 	must(t, os.Symlink(target, link))
-	if _, err := b.Export(link); err == nil {
+	if _, _, err := b.Export(link); err == nil {
 		t.Fatal("exported through a link")
 	}
 	if data, _ := os.ReadFile(target); string(data) != "keep" {
@@ -165,7 +182,7 @@ func TestExportRefusesLink(t *testing.T) {
 func TestExportSkipsAccountWithoutLogin(t *testing.T) {
 	b, v, _, _ := switchBook(t)
 	must(t, v.Delete(ParkService, bob.Key()))
-	if _, err := b.Export(filepath.Join(t.TempDir(), "out.json")); !errors.Is(err, errNothingToExport) {
+	if _, _, err := b.Export(filepath.Join(t.TempDir(), "out.json")); !errors.Is(err, errNothingToExport) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -258,9 +275,10 @@ func TestImportRejectsBadFileWritingNothing(t *testing.T) {
 		return swapEntry(t, 1, carol, login("carol-at", "carol-rt", t0.Add(time.Hour)), carolAccount)
 	}
 	cases := map[string]func(t *testing.T) any{
-		"not JSON":  func(t *testing.T) any { return "x" },
-		"version 2": func(t *testing.T) any { f := claudeSwap(t, good(t)); f["version"] = 2; return f },
-		"encrypted": func(t *testing.T) any { f := claudeSwap(t, good(t)); f["encrypted"] = true; return f },
+		"not JSON":   func(t *testing.T) any { return "x" },
+		"no version": func(t *testing.T) any { f := claudeSwap(t, good(t)); delete(f, "version"); return f },
+		"version 2":  func(t *testing.T) any { f := claudeSwap(t, good(t)); f["version"] = 2; return f },
+		"encrypted":  func(t *testing.T) any { f := claudeSwap(t, good(t)); f["encrypted"] = true; return f },
 		"no accounts": func(t *testing.T) any {
 			return claudeSwap(t)
 		},
@@ -304,5 +322,29 @@ func TestImportRejectsBadFileWritingNothing(t *testing.T) {
 				t.Error("accounts.json changed")
 			}
 		})
+	}
+}
+
+// ~/.claude.json may lag behind the keychain: Claude Code's login names
+// the account in use too.
+func TestImportSkipsAccountWhoseLoginIsLive(t *testing.T) {
+	b, v, _, _ := switchBook(t)
+	must(t, v.Put(liveDefault, "me", withUUIDs(t, stored(t, login("bob-at", "bob-rt", t0.Add(time.Hour))), bob)))
+	path := writeExport(t, claudeSwap(t,
+		swapEntry(t, 1, bob, login("bob-new", "bob-rt-new", t0.Add(5*time.Hour)), bobAccount)))
+	got, err := b.Import(path)
+	must(t, err)
+	if got != (Imported{Skipped: 1}) {
+		t.Fatalf("imported %+v", got)
+	}
+	if l, _ := parseLogin(get(t, v, ParkService, bob.Key())); l.RefreshToken != "bob-rt" {
+		t.Errorf("bob's login replaced by %q", l.RefreshToken)
+	}
+}
+
+func TestImportOtherJSONIsNotAnExport(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	if _, err := b.Import(writeExport(t, map[string]any{"name": "x"})); !errors.Is(err, errNotExport) {
+		t.Fatalf("err = %v", err)
 	}
 }
