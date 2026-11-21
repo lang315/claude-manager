@@ -473,3 +473,39 @@ func TestRefreshSpentWithPastReset(t *testing.T) {
 		t.Errorf("read %d times in 9 minutes", reads)
 	}
 }
+
+// autoswitch.intervalSeconds and unhealthyTicks: failover waits Ticks
+// ticks of Interval.
+func TestAutoSwitchTicksSetting(t *testing.T) {
+	b, v, _, f := switchBook(t)
+	f.usage["alice-at"], f.usage["bob-at"] = 50, 10
+	b.Refresh(ctx, true)
+	s := DefaultAuto()
+	s.On, s.Interval, s.Ticks = true, 30, 5
+	must(t, b.SetAuto(s))
+	must(t, v.Put(liveDefault, "me", stored(t, login("alice-at", "alice-rt", t0.Add(5*time.Hour)))))
+	f.status["alice-at"] = 500
+	f.renewed["bob-rt"] = "bob-at"
+	for sec := 0; sec <= 150; sec += 30 {
+		b.Now = func() time.Time { return t0.Add(2*time.Hour + time.Duration(sec)*time.Second) }
+		b.Refresh(ctx, true)
+		d, _ := b.AutoSwitch(ctx)
+		if sec < 150 && d.To != "" || sec == 150 && d.To != bob.Key() {
+			t.Fatalf("at %ds: %+v", sec, d)
+		}
+	}
+}
+
+func TestAutoSettingsClamped(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	s := DefaultAuto()
+	s.Interval, s.Ticks = 5, 500
+	must(t, b.SetAuto(s))
+	got, _ := b.AutoSettings()
+	if got.Interval != 15 || got.Ticks != 100 || got.Every() != 15*time.Second {
+		t.Errorf("got %+v", got)
+	}
+	if (Auto{}).Every() != time.Minute || (Auto{}).failoverAfter() != 3*time.Minute {
+		t.Error("defaults")
+	}
+}

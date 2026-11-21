@@ -109,7 +109,7 @@ func main() {
 		}()
 		a.AutoTick()
 		go func() {
-			for range time.Tick(time.Minute) {
+			for range time.Tick(15 * time.Second) {
 				a.AutoTick()
 			}
 		}()

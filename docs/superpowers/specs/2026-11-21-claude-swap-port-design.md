@@ -273,6 +273,20 @@ Verified: `TestDecideMemo` (17 cases), `TestDecideBarMargin`,
 `TestRefreshBacksOff`, `TestBackoffCaps`, `TestRefreshSpentWithPastReset`;
 mutation checks (36 of 36 caught).
 
+## 2c. Tick interval and unhealthy ticks
+
+- `Auto.Interval` (`autoswitch.intervalSeconds`, 15–3600 s, default 60) and
+  `Auto.Ticks` (`autoswitch.unhealthyTicks`, 1–100, default 3), 0 meaning
+  the default so earlier settings files read the same. main calls
+  `AutoTick` every 15 seconds; it ticks once `Interval` has passed since the
+  last tick. Failover waits `Ticks × Interval` of failed reads.
+- Two fields in Auto-Switch Settings: "Check every (seconds)" and
+  "Unreadable ticks before moving on".
+
+Verified: `TestAutoSwitchTicksSetting`, `TestAutoSettingsClamped`,
+`TestAutoTickInterval`, `TestAutoSwitchSettings`; mutation checks (6 of 6
+caught).
+
 ## 3. Export / import
 
 - The file is claude-swap's export (`transfer.py`, version 1): the app reads

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/claude-manager/account"
@@ -19,11 +20,14 @@ type autoUI struct {
 	s      account.Auto
 	loaded bool
 	why    string
+	ticked time.Time // the last tick that ran
 
 	editing  bool
 	draft    account.Auto
 	weekly   bool
 	cooldown float64 // minutes
+	interval float64 // seconds
+	ticks    float64
 	strategy string
 
 	tuning   bool
@@ -34,7 +38,8 @@ type autoUI struct {
 }
 
 // AutoTick runs auto-switch, whatever page is shown and whether or not the
-// app is in front. main calls it every minute.
+// app is in front, once its interval has passed since the last tick. main
+// calls it every 15 seconds, the shortest interval.
 func (a *App) AutoTick() {
 	if a.Accounts == nil {
 		return
@@ -42,8 +47,10 @@ func (a *App) AutoTick() {
 	a.Go(func() {
 		s, err := a.Accounts.AutoSettings()
 		a.Update(func() {
-			a.limits.auto.s, a.limits.auto.loaded = s, err == nil
-			if s.On {
+			u := &a.limits.auto
+			u.s, u.loaded = s, err == nil
+			if now := a.Store.Now(); s.On && now.Sub(u.ticked) >= s.Every()-time.Second {
+				u.ticked = now
 				a.limits.load(a, false)
 			}
 		})
@@ -73,6 +80,10 @@ func (l *limits) autoRow(c *ui.Context, a *App, pal *palette) {
 		ui.Spacer(c)
 		if ui.Button(c, "Auto-Switch Settings…").Disabled(!u.loaded).Clicked() {
 			u.draft, u.weekly, u.cooldown = u.s, u.s.WeeklyLine != 0, float64(u.s.Cooldown)/60
+			u.interval, u.ticks = u.s.Every().Seconds(), float64(u.s.Ticks)
+			if u.ticks == 0 {
+				u.ticks = 3
+			}
 			if !u.weekly {
 				u.draft.WeeklyLine = u.s.Line
 			}
@@ -161,6 +172,8 @@ func (l *limits) autoDialogs(c *ui.Context, a *App) {
 			}
 			field("Cooldown (minutes)", func() { ui.NumberInput(c, &u.cooldown, 0, 1440, 1) })
 			field("Margin (points)", func() { ui.NumberInput(c, &u.draft.Margin, 0, 50, 1) })
+			field("Check every (seconds)", func() { ui.NumberInput(c, &u.interval, 15, 3600, 15) })
+			field("Unreadable ticks before moving on", func() { ui.NumberInput(c, &u.ticks, 1, 100, 1) })
 			field("Strategy", func() { ui.Select(c, &u.strategy, strategyLabels) })
 			field("Model windows", func() { ui.TextInput(c, &u.draft.Model).Placeholder("None; e.g. Fable, or all").Grow(1) })
 			ui.Text(c, "Their weekly windows count too, on the weekly line: the names on the Weekly rows, comma separated.").FontSize(12).Wrap()
@@ -175,6 +188,7 @@ func (l *limits) autoDialogs(c *ui.Context, a *App) {
 						s.WeeklyLine = 0
 					}
 					s.Cooldown = int(u.cooldown * 60)
+					s.Interval, s.Ticks = int(u.interval), int(u.ticks)
 					s.Strategy = strategies[max(0, slices.Index(strategyLabels, u.strategy))]
 					u.editing = false
 					l.saveAuto(a, s)

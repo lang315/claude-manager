@@ -29,6 +29,30 @@ type Auto struct {
 	// separated, matched case-insensitively; "all" for every one, "" for
 	// none (claude-swap's --model).
 	Model string `json:"model,omitempty"`
+	// Interval is the seconds between ticks (autoswitch.intervalSeconds,
+	// 15 to 3600); Ticks how many ticks the account in use stays unreadable
+	// before failover (autoswitch.unhealthyTicks, 1 to 100). 0 is the
+	// default: 60 and 3.
+	Interval int `json:"interval,omitempty"`
+	Ticks    int `json:"ticks,omitempty"`
+}
+
+// Every is the time between auto-switch's ticks.
+func (s Auto) Every() time.Duration {
+	if s.Interval == 0 {
+		return time.Minute
+	}
+	return time.Duration(s.Interval) * time.Second
+}
+
+// failoverAfter is how long the account in use stays unreadable before
+// failover: Ticks ticks.
+func (s Auto) failoverAfter() time.Duration {
+	n := s.Ticks
+	if n == 0 {
+		n = 3
+	}
+	return time.Duration(n) * s.Every()
 }
 
 // DefaultAuto is auto-switch as first set: off.
@@ -41,6 +65,12 @@ func (s Auto) clamped() Auto {
 	}
 	s.Cooldown = int(clamp(float64(s.Cooldown), 0, 86400))
 	s.Margin = clamp(s.Margin, 0, 50)
+	if s.Interval != 0 {
+		s.Interval = int(clamp(float64(s.Interval), 15, 3600))
+	}
+	if s.Ticks != 0 {
+		s.Ticks = int(clamp(float64(s.Ticks), 1, 100))
+	}
 	if !slices.Contains([]string{Best, WeeklyFirst, ConsumeFirst, ByPriority}, s.Strategy) {
 		s.Strategy = Best
 	}
@@ -118,7 +148,6 @@ type memo struct {
 const (
 	trustFor       = time.Hour       // a reading that failed since is trusted this long (TRUST_MAX_AGE_S)
 	trustThrottled = 2 * time.Hour   // when Anthropic asked to wait (RATE_LIMIT_TRUST_MAX_AGE_S)
-	failoverAfter  = 3 * time.Minute // the account in use unreadable this long fails over (3 ticks of a minute)
 	recoverySlack  = 5 * time.Minute // RECOVERY_HYSTERESIS_S
 	spentHeadroom  = 3.0             // SPENT_HEADROOM_PCT
 )
@@ -455,7 +484,7 @@ func (b *Book) AutoSwitch(ctx context.Context) (Decision, error) {
 		if b.unreadable.IsZero() {
 			b.unreadable = now
 		}
-		if wait := failoverAfter - now.Sub(b.unreadable); wait > 0 {
+		if wait := b.auto.failoverAfter() - now.Sub(b.unreadable); wait > 0 {
 			return Decision{Why: fmt.Sprintf("The account in use can't be read; moving on in %s if it stays so.", wait.Round(time.Minute))}, nil
 		}
 		m.failover = true

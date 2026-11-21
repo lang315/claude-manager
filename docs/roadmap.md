@@ -92,12 +92,11 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | `export --full` (a same-Mac backup of all of `~/.claude.json` and every credential) | Not ported: Claude Code's own files are outside what the app manages |
 | `import --force` | Covered: an imported login replaces one only when newer; an older one never does |
 | `run --require-session` | Covered: Open in Terminal is never offered for the account in use |
-| `auto --interval` | Not ported: polling follows 2b's policy |
+| `auto --interval` | 2c (the setting) |
 | `ui.theme` | Not applicable: the app follows macOS's appearance |
 | `--version`, `--debug`, `help` | Not applicable: CLI |
 | Setting `autoswitch.threshold`, `weeklyThreshold`, `cooldownSeconds`, `hysteresisPct`, `strategy`, `model` | Ported: Auto-Switch Settings (2, 5) |
-| Setting `autoswitch.intervalSeconds` | Not ported: auto-switch ticks every minute; reads follow 2b's policy |
-| Setting `autoswitch.unhealthyTicks` | Not ported as a setting: fixed at claude-swap's default, 3 one-minute ticks |
+| Settings `autoswitch.intervalSeconds`, `unhealthyTicks` | 2c: Auto-Switch Settings, "Check every (seconds)" (15–3600, 60) and "Unreadable ticks before moving on" (1–100, 3) |
 | Setting `autoswitch.includeApiKeyAccounts` | Not applicable: no API-key accounts |
 | Setting `run.shareHistory` | Covered: the Open in Terminal dialog's history checkbox (4b), asked each time |
 | Setting `updates.check`, `ui.theme` | Not applicable: app updates; macOS appearance |

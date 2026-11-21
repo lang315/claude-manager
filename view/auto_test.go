@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lang315/claude-manager/account"
 )
@@ -89,11 +90,14 @@ func TestAutoSwitchSettings(t *testing.T) {
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("A separate line for the weekly window") })
 	must(t, l.tt.Click("A separate line for the weekly window"))
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("Weekly line (%)") })
-	l.tt.Update(func() { l.a.limits.auto.draft.Model = "Fable" })
+	l.tt.Update(func() {
+		u := &l.a.limits.auto
+		u.draft.Model, u.interval, u.ticks = "Fable", 30, 5
+	})
 	must(t, l.tt.Click("Save"))
 	waitFor(t, l.tt, func() bool {
 		s, _ := l.book.AutoSettings()
-		return s.WeeklyLine == 90 && s.Model == "Fable"
+		return s.WeeklyLine == 90 && s.Model == "Fable" && s.Interval == 30 && s.Ticks == 5
 	})
 }
 
@@ -114,4 +118,33 @@ func TestAutoSwitchHoldOut(t *testing.T) {
 	clickMenu(t, l.tt, "bob@example.com")
 	must(t, l.tt.ChooseMenuItem("Put Back in Auto-Switch"))
 	waitFor(t, l.tt, func() bool { return !l.tt.HasText("Held out of auto-switch") })
+}
+
+// AutoTick runs auto-switch once its interval has passed, not on every
+// call main makes.
+func TestAutoTickInterval(t *testing.T) {
+	l := limitsApp(t)
+	canSwitch(t, l)
+	s := account.DefaultAuto()
+	s.On, s.Interval = true, 120
+	must(t, l.book.SetAuto(s))
+	l.a.Store.Now = func() time.Time { return *l.now }
+	ticked := func() time.Time {
+		var at time.Time
+		l.tt.Update(func() { at = l.a.limits.auto.ticked })
+		l.tt.Frame()
+		return at
+	}
+	l.a.AutoTick()
+	waitFor(t, l.tt, func() bool { return !ticked().IsZero() })
+	first := ticked()
+	*l.now = l.now.Add(60 * time.Second)
+	l.a.AutoTick()
+	l.tt.Frame()
+	if !ticked().Equal(first) {
+		t.Fatal("ticked within the interval")
+	}
+	*l.now = l.now.Add(60 * time.Second)
+	l.a.AutoTick()
+	waitFor(t, l.tt, func() bool { return ticked().Equal(first.Add(120 * time.Second)) })
 }
