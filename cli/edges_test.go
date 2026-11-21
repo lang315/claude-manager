@@ -100,6 +100,13 @@ func TestSessionShellRefused(t *testing.T) {
 	if code, _, _ := a.run(t, "", "list"); code != ok {
 		t.Error("list refused")
 	}
+	// auto switches this profile's login in place, as switch would.
+	if code, _, errs := a.run(t, "", "auto", "--once"); code != failed || !strings.Contains(errs, "normal shell") {
+		t.Errorf("auto: %d %s", code, errs)
+	}
+	if _, _, errs := a.run(t, "", "auto", "--once", "--dry-run"); strings.Contains(errs, "normal shell") {
+		t.Errorf("auto --dry-run refused: %s", errs)
+	}
 }
 
 func TestAddSlotAsks(t *testing.T) {

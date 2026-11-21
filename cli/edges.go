@@ -112,7 +112,7 @@ func (c *cmd) inSessionShell() bool {
 var getenv = os.Getenv
 
 // mutating are the commands that change accounts or Claude Code's login.
-var mutating = []string{"switch", "add", "add-token", "remove", "purge", "import", "import-usage", "move", "swap", "run",
+var mutating = []string{"switch", "auto", "add", "add-token", "remove", "purge", "import", "import-usage", "move", "swap", "run",
 	"disable", "enable", "threshold", "priority", "alias", "map", "unmap", "unclaimed"}
 
 const restartHint = "Running Claude Code sessions take it within about 30 seconds (the keychain cache), or when started again."
