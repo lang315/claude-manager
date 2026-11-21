@@ -1,6 +1,7 @@
 package account
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -210,8 +211,13 @@ func TestSwitchLapsedLiveLogin(t *testing.T) {
 		t.Errorf("alice's saved login = %q, want the one in use", l.AccessToken)
 	}
 	must(t, v.Put(liveDefault, "me", stored(t, login("x", "x-rt", t0.Add(-time.Hour)))))
-	if err := b.Switch(ctx, alice.Key()); !errors.Is(err, errLiveWhose) {
-		t.Fatalf("err = %v", err)
+	must(t, b.Switch(ctx, alice.Key()))
+	kept, _ := b.UnclaimedLogins()
+	if len(kept) != 1 {
+		t.Fatalf("unclaimed %+v", kept)
+	}
+	if l, _ := parseLogin(get(t, v, UnclaimedService, kept[0].ID)); l.AccessToken != "x" {
+		t.Errorf("kept %q", l.AccessToken)
 	}
 }
 
@@ -392,11 +398,10 @@ func TestSwitchLapsedLoginDisagreeing(t *testing.T) {
 	b, v, h, _ := bobLapsed(t)
 	must(t, os.WriteFile(h.ClaudeJSON, []byte(aliceConf), 0o600)) // ~/.claude.json names alice, the login says bob
 	before := get(t, v, liveDefault, "me")
-	if err := b.Switch(ctx, alice.Key()); !errors.Is(err, errLiveWhose) {
-		t.Fatalf("err = %v", err)
-	}
-	if string(get(t, v, liveDefault, "me")) != string(before) {
-		t.Error("the login in use changed")
+	must(t, b.Switch(ctx, alice.Key()))
+	kept, _ := b.UnclaimedLogins()
+	if len(kept) != 1 || !bytes.Equal(oauthOf(get(t, v, UnclaimedService, kept[0].ID)), oauthOf(before)) {
+		t.Fatalf("the login in use was not kept: %+v", kept)
 	}
 	if l, _ := parseLogin(get(t, v, ParkService, bob.Key())); l.RefreshToken != "bob-rt" {
 		t.Errorf("bob's saved login = %q", l.RefreshToken)

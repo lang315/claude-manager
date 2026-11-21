@@ -591,6 +591,23 @@ mutation checks (10 of 10 caught, after a redundant check went).
 Verified: `TestSlots`, `TestSlotsTravel`, `TestSlotKeptBySwitches`; mutation
 checks (9 of 9 caught).
 
+## 12. Unclaimed logins
+
+- Before: a switch off a lapsed login in use that named no added account
+  was refused ("Open Claude Code to renew it"). Now, as claude-swap's
+  unclaimed stash: the login (`claudeAiOauth` only) is kept in keychain
+  `claude-manager-unclaimed` under an id (the first 12 hex of its SHA-256),
+  read back, listed in `accounts.json` `unclaimed` with when and why, and the
+  switch goes on; if it can't be kept, nothing is switched. Any other
+  failure to tell whose it is (Anthropic out of reach) still refuses.
+- `claude-manager unclaimed` lists them; `--purge ID` deletes one (its
+  account comes back by signing in with /login and Add Account).
+
+Verified: `TestSwitchLapsedLiveLogin`, `TestSwitchLapsedLoginDisagreeing`,
+`TestSwitchUnknownTokenlessLogin`, `TestUnclaimedKeptOrNothingSwitched`,
+`TestUnclaimedOnlyForAnUnknownLogin`, `TestUnclaimed`; mutation checks (6 of
+6 caught).
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported

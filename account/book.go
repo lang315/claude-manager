@@ -91,17 +91,19 @@ type Book struct {
 	bar        memo              // the no-return bar auto-switch set
 	maps       map[string]string // folder → account key
 	prefs      Prefs
+	unclaimed  []Unclaimed
 	unreadable time.Time           // since when the account in use can't be read
 	dead       map[string][32]byte // an account's refresh token Anthropic refused: its SHA-256
 	note       atomic.Value        // string: why Pitboard's files could not be read; read without the lock
 }
 
 type saved struct {
-	Accounts []Account         `json:"accounts"`
-	InUse    *Account          `json:"inUse,omitempty"`
-	Auto     *Auto             `json:"auto,omitempty"`
-	Maps     map[string]string `json:"maps,omitempty"` // a folder to the account claude-manager run opens there
-	Prefs    *Prefs            `json:"prefs,omitempty"`
+	Accounts  []Account         `json:"accounts"`
+	InUse     *Account          `json:"inUse,omitempty"`
+	Auto      *Auto             `json:"auto,omitempty"`
+	Maps      map[string]string `json:"maps,omitempty"` // a folder to the account claude-manager run opens there
+	Prefs     *Prefs            `json:"prefs,omitempty"`
+	Unclaimed []Unclaimed       `json:"unclaimed,omitempty"` // logins in use kept as nobody's
 }
 
 func (b *Book) path() string { return filepath.Join(b.Dir, "accounts.json") }
@@ -128,7 +130,7 @@ func (b *Book) load() error {
 	}
 	b.added, b.inUse = s.Accounts, s.InUse
 	b.ensureSlots()
-	b.maps = s.Maps
+	b.maps, b.unclaimed = s.Maps, s.Unclaimed
 	if s.Prefs != nil {
 		b.prefs = *s.Prefs
 	}
@@ -147,7 +149,7 @@ func (b *Book) save() error {
 	if err := os.Chmod(b.Dir, 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(saved{Accounts: b.added, InUse: b.inUse, Auto: &b.auto, Maps: b.maps, Prefs: &b.prefs}, "", "  ")
+	data, err := json.MarshalIndent(saved{Accounts: b.added, InUse: b.inUse, Auto: &b.auto, Maps: b.maps, Prefs: &b.prefs, Unclaimed: b.unclaimed}, "", "  ")
 	if err != nil {
 		return err
 	}

@@ -61,6 +61,7 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **9b. Aliases, folder mappings, version** on the command line (#28, draft).
 - [x] **10. Settings, appearance, updates, --debug, docs** (#29, draft).
 - [x] **11. Slot numbers, move, swap** (#30, draft).
+- [x] **12. Unclaimed logins** (#31, draft).
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an
@@ -91,7 +92,7 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | Menu bar, LaunchAgent, Start at login | 6 (the app itself stays in the menu bar; MyGo's open-at-login, no LaunchAgent) |
 | `alias` | 9b: `claude-manager alias`, usable wherever an email is; exported and imported |
 | Slot numbers, `move`, `swap` | 11: each added account has a number from 1; `claude-manager switch 2`, `move`, `swap`; `list` by number; export and import keep it |
-| `unclaimed` stash | Not needed: an unknown outgoing login becomes an added account |
+| `unclaimed` stash | 12: a lapsed login in use that names no added account is kept (`claude-manager-unclaimed`) before a switch replaces it; `claude-manager unclaimed [--purge ID]` |
 | API-key accounts | 8b: added, switched to (Claude Code's managed key), exported and imported; no limits are read |
 | `config` | Auto-Switch Settings, and `claude-manager config` (10) |
 | TUI, `watch` | Covered: the app itself |

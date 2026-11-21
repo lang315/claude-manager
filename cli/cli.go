@@ -34,7 +34,7 @@ const (
 
 // Commands are the commands Run knows; main opens the app for anything
 // else.
-var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "alias", "map", "unmap", "move", "swap", "config", "upgrade", "version", "--version", "help"}
+var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "alias", "map", "unmap", "move", "swap", "unclaimed", "config", "upgrade", "version", "--version", "help"}
 
 // Upgrade installs a newer version of the app, if there is one, and says
 // what it did; main sets it.
@@ -66,6 +66,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 	noHistory := fs.Bool("no-share-history", false, "run: don't share chat history")
 	unset := fs.Bool("unset", false, "alias: take an account's alias away")
 	debug := fs.Bool("debug", false, "print each request made to Anthropic (never a token)")
+	purgeID := fs.String("purge", "", "unclaimed: delete the kept login with this id")
 	shareHistory := fs.Bool("share-history", false, "run: share chat history, whatever run.shareHistory says")
 	if err := fs.Parse(reorder(args[1:])); err != nil {
 		return failed
@@ -89,6 +90,8 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 		err = c.unmap(one(rest))
 	case "config":
 		err = c.config(rest)
+	case "unclaimed":
+		err = c.unclaimed(*purgeID)
 	case "move", "swap":
 		err = c.reslot(args[0], rest)
 	case "upgrade":
@@ -157,6 +160,7 @@ const usage = `claude-manager <command> [flags]
   config [list | get <key> | set <key> <value> | unset <key>]
                                    settings, by claude-swap's names
   upgrade                          install a newer version of the app
+  unclaimed [--purge ID]           logins in use kept as nobody's when switched off
   move <from> <to> | swap <a> <b>  renumber accounts (move swaps when <to> is taken)
   version
   --debug                          with any command: print each request made to Anthropic
@@ -730,4 +734,25 @@ func (c *cmd) reslot(verb string, rest []string) error {
 		fmt.Fprintf(c.out, "Swapped slots %d and %d.\n", x, y)
 	}
 	return err
+}
+
+func (c *cmd) unclaimed(purge string) error {
+	if purge != "" {
+		if err := c.b.PurgeUnclaimed(purge); err != nil {
+			return err
+		}
+		fmt.Fprintf(c.out, "Deleted %s. Sign in to its account with /login and Add Account to have it back.\n", purge)
+		return nil
+	}
+	kept, err := c.b.UnclaimedLogins()
+	if err != nil {
+		return err
+	}
+	if len(kept) == 0 {
+		fmt.Fprintln(c.out, "No unclaimed logins.")
+	}
+	for _, u := range kept {
+		fmt.Fprintf(c.out, "%s  %s  %s\n", u.ID, u.At.Local().Format("2006-01-02 15:04"), u.Why)
+	}
+	return nil
 }

@@ -361,3 +361,22 @@ func TestSlots(t *testing.T) {
 		}
 	}
 }
+
+func TestUnclaimed(t *testing.T) {
+	a := newApp(t)
+	if _, out, _ := a.run(t, "", "unclaimed"); out != "No unclaimed logins.\n" {
+		t.Errorf("empty %q", out)
+	}
+	must(t, a.v.Put("Claude Code-credentials", "me", []byte(`{"claudeAiOauth":{"accessToken":"nobody-at","refreshToken":"nobody-rt","expiresAt":1}}`)))
+	if code, _, errs := a.run(t, "", "switch", "bob@example.com"); code != ok {
+		t.Fatalf("switch: %s", errs)
+	}
+	_, out, _ := a.run(t, "", "unclaimed")
+	id := strings.Fields(out)[0]
+	if !strings.Contains(out, "names no added account") {
+		t.Errorf("list %q", out)
+	}
+	if code, out, _ := a.run(t, "", "unclaimed", "--purge", id); code != ok || !strings.Contains(out, "Deleted "+id) {
+		t.Errorf("purge: %d %s", code, out)
+	}
+}

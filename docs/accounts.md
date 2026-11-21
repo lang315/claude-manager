@@ -25,6 +25,7 @@ lists every claude-swap feature and where it went.
 | Accounts, their last readings, auto-switch settings, aliases, folder mappings, preferences | `~/Library/Application Support/Claude Manager/accounts.json` (0600) |
 | Each added account's saved login | macOS keychain, item `claude-manager-park`, account `<accountUuid>/<orgUuid>`; the one before it in `claude-manager-park-prev` |
 | A setup-token or API key account's token or key | the same `claude-manager-park` item |
+| A login in use that named no account when switched off | keychain `claude-manager-unclaimed`, by id; `claude-manager unclaimed` lists them |
 | Open in Terminal profiles | `~/Library/Application Support/Claude Manager/profiles/<hash>/` |
 | Claude Code's own login, as the app switches it | keychain `Claude Code-credentials` (or `~/.claude/.credentials.json`), `Claude Code` for an API key, and `~/.claude.json`'s `oauthAccount` |
 

@@ -159,13 +159,62 @@ func TestSwitchUnknownTokenlessLogin(t *testing.T) {
 	_, err := b.AddToken(tokA, "a@token.local")
 	must(t, err)
 	must(t, v.Put(liveDefault, "me", []byte(`{"claudeAiOauth":{"accessToken":"sk-ant-oat01-gone"}}`)))
-	if err := b.Switch(ctx, bob.Key()); !errors.Is(err, errLiveWhose) {
-		t.Fatalf("err = %v", err)
+	must(t, b.Switch(ctx, bob.Key()))
+	if kept, _ := b.UnclaimedLogins(); len(kept) != 1 {
+		t.Fatalf("not kept as unclaimed: %+v", kept)
 	}
 	if l, _ := parseLogin(get(t, v, ParkService, tokenUUID+"a@token.local/")); l.AccessToken != tokA {
 		t.Errorf("a's token replaced by %q", l.AccessToken)
 	}
 	if p := b.tokenOwner(Login{AccessToken: tokA, RefreshToken: "rt"}); p != nil {
 		t.Error("a login with a refresh token taken for a setup-token")
+	}
+}
+
+func TestUnclaimedKeptOrNothingSwitched(t *testing.T) {
+	b, v, _, _ := switchBook(t)
+	must(t, v.Put(liveDefault, "me", []byte(`{"claudeAiOauth":{"accessToken":"sk-ant-oat01-gone"}}`)))
+	v.Fail = errors.New("locked")
+	if err := b.Switch(ctx, bob.Key()); err == nil || !strings.Contains(err.Error(), "could not be kept") {
+		t.Fatalf("err = %v", err)
+	}
+	v.Fail = nil
+	if l, _ := parseLogin(get(t, v, liveDefault, "me")); l.AccessToken != "sk-ant-oat01-gone" {
+		t.Error("switched without keeping the login")
+	}
+	must(t, b.Switch(ctx, bob.Key()))
+	kept, _ := b.UnclaimedLogins()
+	if len(kept) != 1 || kept[0].Why == "" || !kept[0].At.Equal(t0) {
+		t.Fatalf("kept %+v", kept)
+	}
+	if err := b.PurgeUnclaimed("nope"); !errors.Is(err, errNoUnclaimed) {
+		t.Errorf("purge nope: %v", err)
+	}
+	again := &Book{Dir: b.Dir, Vault: v, Now: b.Now}
+	if k, _ := again.UnclaimedLogins(); len(k) != 1 {
+		t.Errorf("not saved: %+v", k)
+	}
+	must(t, b.PurgeUnclaimed(kept[0].ID))
+	if _, err := v.Get(UnclaimedService, kept[0].ID); !errors.Is(err, ErrNotFound) {
+		t.Error("purged login left in the keychain")
+	}
+	if kept, _ := b.UnclaimedLogins(); len(kept) != 0 {
+		t.Errorf("still listed: %+v", kept)
+	}
+}
+
+// A failure to tell whose the login is, other than its lapse, refuses the
+// switch: nothing is kept as unclaimed.
+func TestUnclaimedOnlyForAnUnknownLogin(t *testing.T) {
+	b, v, _, _ := switchBook(t)
+	b.API.Base = "http://127.0.0.1:1"
+	if err := b.Switch(ctx, bob.Key()); !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("err = %v", err)
+	}
+	if kept, _ := b.UnclaimedLogins(); len(kept) != 0 {
+		t.Errorf("kept %+v", kept)
+	}
+	if l, _ := parseLogin(get(t, v, liveDefault, "me")); l.AccessToken != "alice-at" {
+		t.Error("switched")
 	}
 }

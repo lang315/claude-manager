@@ -16,7 +16,7 @@ var (
 	errNotAdded   = errors.New("Add this account here to switch to it.")
 	errNoAccount  = errors.New("Sign in again to this account to switch to it.")
 	errLiveMoved  = errors.New("Claude Code renewed its sign-in during the switch. Try again.")
-	errLiveWhose  = errors.New("Claude Code's sign-in has expired, so the app can't tell whose it is to keep it. Open Claude Code to renew it, then switch.")
+	errLiveWhose  = errors.New("Claude Code's sign-in had expired and names no added account.")
 	errRestore    = errors.New("The switch failed, and Claude Code's sign-in could not be put back. Run claude and /login.")
 )
 
@@ -68,7 +68,8 @@ func (b *Book) switchLocked(ctx context.Context, key string) error {
 		return err
 	}
 	who, err := b.whose(ctx, was.data)
-	if err != nil {
+	unclaimed := errors.Is(err, errLiveWhose)
+	if err != nil && !unclaimed {
 		return err
 	}
 	if who != nil && who.Key() == key || tgt.APIKey && b.keyInUse() == key {
@@ -123,6 +124,11 @@ func (b *Book) switchLocked(ctx context.Context, key string) error {
 		return err
 	}
 
+	if unclaimed {
+		if err := b.stashLocked(was.data, errLiveWhose.Error()); err != nil {
+			return fmt.Errorf("The login in use could not be kept, so nothing was switched: %w", err)
+		}
+	}
 	if who != nil {
 		mine := oauthAccountOf(conf)
 		if keyOf(mine) != who.Key() {
