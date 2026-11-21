@@ -633,7 +633,11 @@ func (c *cmd) switchTo(ctx context.Context, name string, asJSON, force bool) err
 	if now, _ := c.b.UnclaimedLogins(); len(now) > len(kept) {
 		fmt.Fprintln(c.errs, "Claude Code's sign-in named no added account; it was kept as unclaimed (claude-manager unclaimed).")
 	}
-	fmt.Fprintf(c.out, "Switched to %s.\n%s\n", a.Email, restartHint)
+	hint := restartHint
+	if c.b.Home != nil && c.b.Home.FileOnly { // no keychain cache to wait out
+		hint = fileHint
+	}
+	fmt.Fprintf(c.out, "Switched to %s.\n%s\n", a.Email, hint)
 	return nil
 }
 

@@ -116,3 +116,7 @@ var mutating = []string{"switch", "auto", "add", "add-token", "remove", "purge",
 	"disable", "enable", "threshold", "priority", "alias", "map", "unmap", "unclaimed"}
 
 const restartHint = "Running Claude Code sessions take it within about 30 seconds (the keychain cache), or when started again."
+
+// fileHint is restartHint where Claude Code keeps its login in a file
+// (claude-swap's file backend): read again on the next message.
+const fileHint = "Running Claude Code sessions take it on their next message: no restart needed."

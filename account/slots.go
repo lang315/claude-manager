@@ -1,6 +1,7 @@
 package account
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 )
@@ -57,6 +58,9 @@ func (b *Book) Swap(x, y int) error {
 	defer b.mu.Unlock()
 	if err := b.load(); err != nil {
 		return err
+	}
+	if x == y {
+		return errors.New("An account can't be swapped with itself.")
 	}
 	b.ensureSlots()
 	i, j := b.atSlot(x), b.atSlot(y)
