@@ -48,3 +48,14 @@ func TestGlobalConfig(t *testing.T) {
 		t.Errorf("a non-empty legacy file: %s", got)
 	}
 }
+
+// claude-swap makes a lock's parent folder: a first switch with no
+// ~/.claude yet locks as well as any.
+func TestLockMakesItsFolder(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "none", "yet", ".lock")
+	free, err := lock(t.Context(), dir, configStale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	free()
+}

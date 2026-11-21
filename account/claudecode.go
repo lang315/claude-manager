@@ -47,6 +47,9 @@ func lock(ctx context.Context, dir string, stale time.Duration) (func(), error) 
 }
 
 func lockFor(ctx context.Context, dir string, stale, wait time.Duration) (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil { // as claude-swap's lock_dir.parent.mkdir
+		return nil, err
+	}
 	deadline := time.Now().Add(wait)
 	for {
 		err := os.Mkdir(dir, 0o755)
