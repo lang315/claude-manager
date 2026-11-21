@@ -775,8 +775,8 @@ func (c *cmd) run(rest []string, share account.Share) error {
 	name, folder := one(rest), "."
 	if len(rest) > 1 {
 		folder = rest[1]
-	} else if isDir(name) {
-		name, folder = "", name // run <folder>: its mapped account
+	} else if _, ferr := find(accts, name); ferr != nil && isDir(name) {
+		name, folder = "", name // run <folder>: its mapped account; an account's name wins
 	}
 	folder, err := absPath(folder)
 	if err != nil {

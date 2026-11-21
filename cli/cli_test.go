@@ -289,6 +289,13 @@ func TestAliasMapRun(t *testing.T) {
 	if code, _, errs := a.run(t, "", "run", t.TempDir()); code != failed || !strings.Contains(errs, "No account is mapped") {
 		t.Errorf("unmapped: %d %s", code, errs)
 	}
+	// An account's name wins over a folder of that name here.
+	here := t.TempDir()
+	t.Chdir(here)
+	must(t, os.Mkdir("dev", 0o700))
+	if code, _, errs := a.run(t, "", "run", "dev"); code != ok || folder != here {
+		t.Errorf("run dev beside ./dev: %d %s %q", code, errs, folder)
+	}
 	if code, out, _ := a.run(t, "", "unmap", work); code != ok || !strings.Contains(out, "Unmapped") {
 		t.Errorf("unmap: %d %s", code, out)
 	}
