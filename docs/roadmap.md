@@ -23,36 +23,45 @@ Each item gets its own design before it is built.
 Claude-swap's macOS features (github.com/realiti4/claude-swap, MIT), rewritten
 in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-design.md`.
 
-- [ ] **1. Native switch.** Switch to an added account from the Limits page;
+- [x] **1. Native switch.** (#12, draft) Switch to an added account from the Limits page;
   the login in use is saved first, under Claude Code's own locks. Replaces the
   `pitboard use` path. Owed: a real switch A → B → A on this Mac, together
   with the real Add Account check from PR #9.
-- [ ] **2. Auto-switch.** Switch before the account in use reaches its
+- [x] **2. Auto-switch.** (#13, draft) Switch before the account in use reaches its
   five-hour or weekly line, while the app is open; strategies, cooldown,
   margin, per-account off / line / priority.
-- [ ] **1b. Follow the login in use.** The account in use is added by itself,
+- [x] **1b. Follow the login in use.** (#14, draft) The account in use is added by itself,
   and its saved login follows Claude Code's renewals, so a change of account
   outside the app doesn't leave it spent. Done once Pitboard was no longer
   used for switching.
-- [ ] **3. Export / import.** Move added accounts to another Mac in one
+- [x] **3. Export / import.** (#15, draft) Move added accounts to another Mac in one
   private (0600, unencrypted) JSON file, in claude-swap's export format; the
   app reads claude-swap's exports. Owed: a real export and import between two
   Macs.
-- [ ] **4. Run as account.** Open Claude Code in Terminal as one account
+- [x] **4. Run as account.** (#16, #19, draft) Open Claude Code in Terminal as one account
   (its own `CLAUDE_CONFIG_DIR`), the rest of the Mac staying on the default;
   its renewed login is taken back once it exits.
-- [ ] **2b. The rest of auto-switch.** The no-return bar, failover, the idle
+- [x] **2b. The rest of auto-switch.** (#20, draft) The no-return bar, failover, the idle
   hold, trust in a failing account's last reading, adaptive polling, and the
   unknown-model-name warning.
-- [ ] **5. Weekly pace and per-model windows.** Mark a weekly window used
+- [x] **5. Weekly pace and per-model windows.** (#17, draft) Mark a weekly window used
   ahead of the week's pace (`pace.py`); let auto-switch also weigh one
   model's weekly window, as `cswap auto --model Fable`.
-- [ ] **7. Extra usage.** Each account's pay-as-you-go spend of its monthly
+- [x] **7. Extra usage.** (#21, draft) Each account's pay-as-you-go spend of its monthly
   cap, as claude-swap's spend line.
-- [ ] **6. Menu bar and start at login.** A menu bar item with each account's
+- [x] **6. Menu bar and start at login.** (#18, draft) A menu bar item with each account's
   limits, Switch and Auto-switch, that keeps running with the window closed;
   Start at login (`menubar.py`, `launch_agent.py`, done with MyGo's tray and
   open-at-login instead of a LaunchAgent).
+- [x] **2c. Tick interval and unhealthy ticks** as settings (#22, draft).
+- [x] **3b. Full backup export** (`export --full`) (#23, draft).
+- [x] **3c. Readings from another Mac** (`import-usage`, `--hold`) (#24, draft).
+- [x] **8. Setup-token accounts and the header probe** (#25, draft).
+- [x] **8b. Console API key accounts** (#26, draft).
+- [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
+- Owed for all: the real runs (Add Account, switch A → B → A, export and
+  import between two Macs, Open in Terminal, the menu bar, a setup-token, an
+  API key). Auto-switch stays off until the switch check passes.
 
 ### claude-swap features, ported or not
 
@@ -65,28 +74,30 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 
 | Feature | Here |
 |---|---|
-| `add` (capture the live login), `remove`, `list`, `status` | Ported: Add Account, follow (1b), Remove, the Limits page |
+| `add` (capture the live login), `remove`, `list`, `status` | Ported: Add Account, follow (1b), Remove, the Limits page; `remove`, `list [--json]`, `status [--json]` on the command line (9) |
 | `switch` | Ported: 1 |
 | `auto`: strategies, lines, weekly line, cooldown, margin, `disable`/`enable`, `threshold`, `priority` | Ported: 2 |
 | `auto --model` per-model windows | 5 (Model windows in Auto-Switch Settings) |
 | `auto`: no-return bar, failover on failed reads, idle hold, trust in the last reading, adaptive polling, unknown model names | 2b |
-| `auto --once`, `--dry-run`, `--json`, exit codes | Not applicable: CLI and cron only |
+| `auto --once`, `--dry-run`, `--json`, exit codes | 9: `claude-manager auto --once [--dry-run] [--json]`, exit 0/1/2/3 as cswap's; `list --json` is cswap's schema, so either app's `import-usage` takes it |
 | Dead-token quarantine | 2b: a refused refresh token is never an auto-switch candidate and is not posted again until the saved login changes; Sign In Again replaces it |
-| `export` / `import` | Ported: 3 |
-| `run` (session mode), history and setup sharing, MCP mirror | 4; `--no-share` / `--no-share-history` as the dialog's two checkboxes (4b) |
+| `export` / `import` | Ported: 3; `claude-manager export|import` (9) |
+| `run` (session mode), history and setup sharing, MCP mirror | 4; `claude-manager run <email> [folder] [--no-share] [--no-share-history]` (9); `--no-share` / `--no-share-history` as the dialog's two checkboxes (4b) |
 | `map` / `unmap` (directory to account) | Not applicable: it picks the account for a bare `cswap run` typed in a folder; the app asks for the folder |
 | Weekly pace marker | 5 |
 | Menu bar, LaunchAgent, Start at login | 6 (the app itself stays in the menu bar; MyGo's open-at-login, no LaunchAgent) |
-| `alias`, slot numbers, `move`, `swap` | Not applicable: accounts are named by email in a GUI |
+| `alias`, slot numbers, `move`, `swap` | Not ported: the app and its command line name an account by its email, or by its key when an email has two organizations; there are no slots to number, move or swap |
 | `unclaimed` stash | Not needed: an unknown outgoing login becomes an added account |
 | API-key accounts | 8b: added, switched to (Claude Code's managed key), exported and imported; no limits are read |
 | `config` | Covered: Auto-Switch Settings |
 | TUI, `watch` | Covered: the app itself |
-| `upgrade`, update check, `purge` | Not applicable: app updates; removing every account empties the app's keychain items |
+| `purge` | 9: `claude-manager purge --yes` |
+| `upgrade`, update check | Not applicable: the app is updated as an app |
 | Linux, Windows, WSL | Not applicable: macOS app |
 | Spend (extra usage) on each account | 7: an "Extra usage" row, and "extra N%" in the menu bar |
+| `switch <account>` | 1; `claude-manager switch <email> [--json]` (9) |
 | `switch` with no account: rotate, best, next-available | Covered: the window and the menu bar list every account with its windows, and a click switches to it; auto-switch picks the best |
-| `add-token` with a setup-token; `usage.headerProbe` | 8: Add Token…, and "Read setup-token usage" |
+| `add-token` with a setup-token; `usage.headerProbe` | 8: Add Token…, and "Read setup-token usage"; `claude-manager add-token <token|->` (9) |
 | `add-token` with a Console API key | 8b: Add Token… takes either kind |
 | `import-usage`, `--hold` | 3c: Import takes a `cswap list --json` file too, with "Don't read those accounts here for N minutes" |
 | `list --token-status` | Covered: each block shows its sign-in's end ("good until") and why a read failed |
@@ -95,7 +106,8 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | `run --require-session` | Covered: Open in Terminal is never offered for the account in use |
 | `auto --interval` | 2c (the setting) |
 | `ui.theme` | Not applicable: the app follows macOS's appearance |
-| `--version`, `--debug`, `help` | Not applicable: CLI |
+| `help` | 9: `claude-manager help` |
+| `--version`, `--debug` | Not applicable: the app's About shows its version; it keeps no debug log |
 | Setting `autoswitch.threshold`, `weeklyThreshold`, `cooldownSeconds`, `hysteresisPct`, `strategy`, `model` | Ported: Auto-Switch Settings (2, 5) |
 | Settings `autoswitch.intervalSeconds`, `unhealthyTicks` | 2c: Auto-Switch Settings, "Check every (seconds)" (15–3600, 60) and "Unreadable ticks before moving on" (1–100, 3) |
 | Setting `autoswitch.includeApiKeyAccounts` | 8b: "Fall back on an API key account when no account has room" |

@@ -131,6 +131,7 @@ const fresh = 5 * time.Minute
 // stay; Why says why it stays or moves.
 type Decision struct {
 	To, Email, Why string
+	Blocked        bool // it should move, and no account has room
 
 	trigger    string    // at-limit, proactive, consume, priority or failover
 	from       string    // the account left
@@ -158,6 +159,9 @@ const (
 	recoverySlack  = 5 * time.Minute // RECOVERY_HYSTERESIS_S
 	spentHeadroom  = 3.0             // SPENT_HEADROOM_PCT
 )
+
+// Usable reports whether a's limits may be decided on at now.
+func (a Account) Usable(now time.Time) bool { return usable(a, now) }
 
 // usable reports whether a's limits may be decided on at now: read in the
 // last 5 minutes, or, while reads fail for a passing reason (Anthropic out
@@ -401,7 +405,7 @@ func decide(now time.Time, s Auto, accts []Account, m memo) Decision {
 		if !act.over && !escape {
 			return Decision{Why: "No account is ahead of the one in use."}
 		}
-		return Decision{Why: "No account has room."}
+		return Decision{Why: "No account has room.", Blocked: true}
 	}
 	to := out[0].a
 	why := map[string]string{
@@ -461,15 +465,26 @@ func (b *Book) SetAccountAuto(key string, off bool, line float64, priority int) 
 	return b.save()
 }
 
+// Once is AutoSwitch for one tick from the command line (claude-swap's
+// auto --once): it runs whether or not auto-switch is on, and with dry it
+// only says what it would do.
+func (b *Book) Once(ctx context.Context, dry bool) (Decision, error) {
+	return b.autoSwitch(ctx, true, dry)
+}
+
 // AutoSwitch switches when auto-switch is on and the accounts as last read
 // call for it. A switch the user made starts the cooldown too.
 func (b *Book) AutoSwitch(ctx context.Context) (Decision, error) {
+	return b.autoSwitch(ctx, false, false)
+}
+
+func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if err := b.load(); err != nil {
 		return Decision{}, err
 	}
-	if !b.auto.On || b.Home == nil {
+	if !b.auto.On && !once || b.Home == nil {
 		return Decision{}, nil
 	}
 	now := b.Now()
@@ -511,7 +526,7 @@ func (b *Book) AutoSwitch(ctx context.Context) (Decision, error) {
 		m.failover = true
 	}
 	d := decide(now, b.auto, accts, m)
-	if d.To == "" {
+	if d.To == "" || dry {
 		return d, nil
 	}
 	if err := b.switchLocked(ctx, d.To); err != nil {

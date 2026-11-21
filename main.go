@@ -9,11 +9,13 @@ import (
 	"os"
 	osuser "os/user"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/lang315/claude-manager/account"
+	"github.com/lang315/claude-manager/cli"
 	"github.com/lang315/claude-manager/store"
 	"github.com/lang315/claude-manager/view"
 )
@@ -30,6 +32,9 @@ func main() {
 	root, claudeJSON := configDir, filepath.Join(configDir, ".claude.json")
 	if root == "" {
 		root, claudeJSON = filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json")
+	}
+	if len(os.Args) > 1 && slices.Contains(cli.Commands, os.Args[1]) {
+		os.Exit(cli.Run(context.Background(), os.Args[1:], accounts(home, configDir, root), os.Stdin, os.Stdout, os.Stderr))
 	}
 	a := view.New(&store.Store{
 		Root:       root,

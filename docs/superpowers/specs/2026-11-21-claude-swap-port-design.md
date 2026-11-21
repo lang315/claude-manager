@@ -536,6 +536,32 @@ Verified: `TestAddAPIKey`, `TestSwitchAPIKey`, `TestAPIKeyInUseByPrimaryApiKey`,
 `TestExportImportAPIKey`, `TestDropKey`, `TestLimitsAddAPIKey`; mutation
 checks (21 of 21 caught).
 
+## 9. Command line
+
+- `claude-manager <command>` runs one command on the same accounts as the
+  app and exits (package `cli`); any other start opens the app. Commands:
+  `list [--json]`, `status [--json]`, `switch <email> [--json]`,
+  `auto --once [--dry-run] [--json]`, `add-token <token|-> [--email E]`,
+  `remove <email>`, `purge --yes`, `export <file> [--full]`,
+  `import <file> [--hold SECONDS]` (also `import-usage`), `run <email>
+  [folder] [--no-share] [--no-share-history]`, `help`.
+- `list --json` is cswap's schema 1 (`number`, `email`, `organizationUuid`,
+  `active`, `usageStatus`, `usageAgeSeconds`, `usage.fiveHour/sevenDay/
+  scoped/spend`), plus `key` and `added`, so it is a readings file for either
+  app's import. On a handled error `--json` prints `{"schemaVersion":1,
+  "error":{…}}` and exits 1.
+- `auto --once` is one tick whether or not auto-switch is on, with cswap's
+  exit codes: 0 switched, 1 error, 2 nothing done (a dry run that would
+  switch too), 3 blocked (it should move and no account has room). The
+  failover count and the bar don't carry across runs: they live in memory.
+- An account is named by its email, or its key when an email has two
+  organizations.
+
+Verified: `TestListJSONIsCswapsAndImports`, `TestStatusAndSwitch`,
+`TestAutoOnce`, `TestAddRemovePurge`, `TestExportImportRun`, `TestReorder`,
+`TestFindAmbiguous`, `TestListUnavailable`; mutation checks (13 of 13
+caught).
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported
