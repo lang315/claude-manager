@@ -201,13 +201,18 @@ func (b *Book) identify(ctx context.Context, now time.Time) (Login, *Profile, er
 
 func (b *Book) profileOf(ctx context.Context, token string) (Profile, error) {
 	k := sha256.Sum256([]byte(token))
-	if p, ok := b.who[k]; ok {
+	b.side.Lock()
+	p, ok := b.who[k]
+	b.side.Unlock()
+	if ok {
 		return p, nil
 	}
 	p, err := b.API.Profile(ctx, token)
 	if err != nil {
 		return p, err
 	}
+	b.side.Lock()
+	defer b.side.Unlock()
 	if b.who == nil {
 		b.who = map[[32]byte]Profile{}
 	}
@@ -330,7 +335,10 @@ func (b *Book) readOwn(ctx context.Context, a *Account, held string, now time.Ti
 	}
 	// claude-swap's quarantine: a refused refresh token is not posted again
 	// until the saved login changes (Sign In Again, Import, a terminal's).
-	if b.dead[a.Key()] == sha256.Sum256([]byte(l.RefreshToken)) {
+	b.side.Lock()
+	dead := b.dead[a.Key()] == sha256.Sum256([]byte(l.RefreshToken))
+	b.side.Unlock()
+	if dead {
 		return nil, "", ErrInvalidGrant
 	}
 	if l.expiresBy(now.Add(renewAhead)) {
@@ -355,10 +363,12 @@ func (b *Book) renew(ctx context.Context, a *Account, blob []byte, l Login, held
 	}
 	fresh, err := b.API.Renew(ctx, l, now)
 	if errors.Is(err, ErrInvalidGrant) {
+		b.side.Lock()
 		if b.dead == nil {
 			b.dead = map[string][32]byte{}
 		}
 		b.dead[a.Key()] = sha256.Sum256([]byte(l.RefreshToken))
+		b.side.Unlock()
 		b.logf("%s quarantined: its refresh token was refused", a.Email)
 		b.event("quarantined:"+a.Key(), "Account quarantined", a.Email+"'s sign-in was refused: sign in again to it.")
 	}

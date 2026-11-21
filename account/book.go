@@ -93,6 +93,7 @@ type Book struct {
 	Running func(configDir string) (bool, error)
 
 	mu         sync.Mutex
+	side       sync.Mutex // who, dead, told and Log: Refresh reads accounts in parallel
 	loaded     bool
 	added      []Account
 	inUse      *Account             // the account in use, when it is not an added one

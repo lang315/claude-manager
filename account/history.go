@@ -78,6 +78,8 @@ func (b *Book) record(from, to, why string, auto bool) {
 // changes: kind names it, and the same kind and body aren't told twice
 // in a row.
 func (b *Book) event(kind, title, body string) {
+	b.side.Lock()
+	defer b.side.Unlock()
 	if b.told[kind] == body {
 		return
 	}
@@ -93,6 +95,8 @@ func (b *Book) event(kind, title, body string) {
 // logf writes a line to Log when set: never a token.
 func (b *Book) logf(format string, args ...any) {
 	if b.Log != nil {
+		b.side.Lock()
+		defer b.side.Unlock()
 		fmt.Fprintf(b.Log, "%s %s\n", b.Now().Format(time.RFC3339), fmt.Sprintf(format, args...))
 	}
 }
