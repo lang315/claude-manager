@@ -529,7 +529,7 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 	if d.To == "" || dry {
 		return d, nil
 	}
-	if err := b.switchLocked(ctx, d.To); err != nil {
+	if err := b.switchLocked(ctx, d.To, false); err != nil {
 		b.lastFailed = now
 		return Decision{Why: fmt.Sprintf("The switch to %s failed: %v", d.Email, err)}, err
 	}

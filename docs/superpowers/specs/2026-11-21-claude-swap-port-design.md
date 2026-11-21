@@ -642,7 +642,13 @@ refused); `export -`, `import -`; `menubar --install-service` (a LaunchAgent
 plist bootstrapped with launchctl, as cswap's; an autostart `.desktop` on
 Linux; an HKCU Run value on Windows), `--uninstall-service`,
 `--service-status`, `--auto-switch`, `--no-auto-switch`; `tui`, `watch`,
-`menubar [--foreground]` open the app (`watch` on Limits).
+`menubar [--foreground]` open the app (`watch` on Limits); `export
+--account` (one account), `import --force` (replaces a saved login however
+old, the account in use's too), `switch <account> --force` (puts the saved
+login in use even for the account in use, not keeping the old one over it).
+A script checked every `cswap <command> --flag` in claude-swap's README
+against the command line: only claude's own `--resume`, passed after `--`,
+is not one of its flags.
 
 Verified: `TestAddAndTune`, `TestSwitchWithoutAccount`,
 `TestAutoLoopAndFlags`, `TestTokenStatusRunArgsStdio`, `TestMenubarService`,

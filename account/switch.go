@@ -33,10 +33,24 @@ func (b *Book) Switch(ctx context.Context, key string) error {
 	if err := b.load(); err != nil {
 		return err
 	}
-	return b.switchLocked(ctx, key)
+	return b.switchLocked(ctx, key, false)
 }
 
-func (b *Book) switchLocked(ctx context.Context, key string) error {
+// SwitchForce is Switch, also onto the account in use: its saved login,
+// such as one just imported, replaces Claude Code's (cswap switch --force).
+func (b *Book) SwitchForce(ctx context.Context, key string) error {
+	if b.Home == nil {
+		return ErrCantSwitch
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if err := b.load(); err != nil {
+		return err
+	}
+	return b.switchLocked(ctx, key, true)
+}
+
+func (b *Book) switchLocked(ctx context.Context, key string, force bool) error {
 	h := b.Home
 	ti := slices.IndexFunc(b.added, func(a Account) bool { return a.Key() == key })
 	if ti < 0 {
@@ -72,8 +86,11 @@ func (b *Book) switchLocked(ctx context.Context, key string) error {
 	if err != nil && !unclaimed {
 		return err
 	}
-	if who != nil && who.Key() == key || tgt.APIKey && b.keyInUse() == key {
+	if !force && (who != nil && who.Key() == key || tgt.APIKey && b.keyInUse() == key) {
 		return nil
+	}
+	if force && who != nil && who.Key() == key {
+		who = nil // the saved login replaces the one in use: the latter isn't kept over it
 	}
 
 	free, err := h.lockAll(ctx)

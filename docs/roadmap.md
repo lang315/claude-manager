@@ -104,6 +104,7 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | `list --token-status` | 14 |
 | `run <account> -- <args>`, `--require-session` | 14 |
 | `export -`, `import -` | 14 |
+| `export --account`, `import --force`, `switch N --force` | 14 |
 | `menubar --install-service`, `--uninstall-service`, `--service-status`, `--auto-switch`, `--no-auto-switch`, `--foreground` | 14: a LaunchAgent on macOS (as cswap's), an autostart entry on Linux, a Run key on Windows |
 | `purge` | 9: `claude-manager purge --yes` |
 | `upgrade`, update check (`updates.check`) | 10: a daily check and "Update to X…" in the menu bar, `claude-manager upgrade`, through MyGo's updates; they work once the app is built with an update feed (`mygo.config.ts`), which needs its signing key |
@@ -114,7 +115,6 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | `add-token` with a Console API key | 8b: Add Token… takes either kind |
 | `import-usage`, `--hold` | 3c: Import takes a `cswap list --json` file too, with "Don't read those accounts here for N minutes" |
 | `export --full` (a same-Mac backup) | 3b: the Export dialog's "Full backup for this Mac" |
-| `import --force` | Covered: an imported login replaces one only when newer; an older one never does |
 | `run --require-session` | Covered: Open in Terminal is never offered for the account in use |
 | `auto --interval` | 2c (the setting) |
 | `ui.theme` | 10: Appearance in the menu bar, `config set ui.theme` |

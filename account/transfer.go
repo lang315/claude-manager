@@ -49,7 +49,9 @@ var (
 // full is claude-swap's --full, a backup for this Mac: the account in use
 // goes with Claude Code's whole login (its MCP sign-ins too) and the whole
 // of ~/.claude.json. Import still takes only the login and oauthAccount.
-func (b *Book) Export(path string, full bool) (n, left int, err error) {
+//
+// keys, when given, are the only accounts written (cswap export --account).
+func (b *Book) Export(path string, full bool, keys ...string) (n, left int, err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if err := b.load(); err != nil {
@@ -66,6 +68,9 @@ func (b *Book) Export(path string, full bool) (n, left int, err error) {
 	now := b.Now().UTC().Format("2006-01-02T15:04:05Z")
 	f := exportFile{Version: 1, ExportedAt: now, ExportedFrom: "macos"}
 	for _, a := range b.added {
+		if len(keys) > 0 && !slices.Contains(keys, a.Key()) {
+			continue
+		}
 		blob, err := b.Vault.Get(ParkService, a.Key())
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return 0, 0, err
@@ -161,7 +166,12 @@ type Imported struct{ Added, Updated, Skipped int }
 // Import adds the accounts in the export file at path. The whole file is
 // checked before anything is written; nothing asks Anthropic, so a login
 // is not renewed here.
-func (b *Book) Import(path string) (Imported, error) {
+func (b *Book) Import(path string) (Imported, error) { return b.ImportWith(path, false) }
+
+// ImportWith is Import; force (cswap import --force) also replaces a saved
+// login no older than the file's, and the account in use's saved one,
+// which switch --force then puts in use.
+func (b *Book) ImportWith(path string, force bool) (Imported, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Imported{}, err
@@ -257,7 +267,7 @@ func (b *Book) Import(path string) (Imported, error) {
 	}
 	for _, e := range keys {
 		k := keyUUID + e.p.Email + "/"
-		if saved, err := b.Vault.Get(ParkService, k); err == nil && string(saved) == string(e.blob) {
+		if saved, err := b.Vault.Get(ParkService, k); err == nil && string(saved) == string(e.blob) && !force {
 			got.Skipped++
 			continue
 		}
@@ -273,7 +283,7 @@ func (b *Book) Import(path string) (Imported, error) {
 	}
 	for _, e := range in {
 		k := e.p.Key()
-		if k == inUse || k == liveKey { // follow keeps Claude Code's login; a file's copy would be a second renewer
+		if !force && (k == inUse || k == liveKey) { // follow keeps Claude Code's login; a file's copy would be a second renewer
 			got.Skipped++
 			continue
 		}
@@ -286,7 +296,7 @@ func (b *Book) Import(path string) (Imported, error) {
 		case errors.Is(err, ErrNotFound):
 		case err != nil:
 			return got, errors.Join(err, b.save())
-		case !newer(e.blob, saved):
+		case !force && !newer(e.blob, saved):
 			got.Skipped++
 			continue
 		}

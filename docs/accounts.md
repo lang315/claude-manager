@@ -55,6 +55,7 @@ claude-manager auto [--threshold P] [--weekly-threshold P] [--model M] [--strate
 claude-manager list --token-status
 claude-manager run <account> [folder] -- <claude args>
 claude-manager export - | import -              stdout, stdin
+claude-manager export <file> --account <account> | import <file> --force | switch <account> --force
 claude-manager menubar --install-service | --uninstall-service | --service-status | --auto-switch | --no-auto-switch
 claude-manager tui | watch | menubar [--foreground]   open the app
 claude-manager <command> --debug                each request made to Anthropic, never a token

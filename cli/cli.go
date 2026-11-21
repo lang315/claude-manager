@@ -77,6 +77,8 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 	keys := fs.Bool("include-api-key-accounts", false, "auto: fall back on an API key account")
 	tokenStatus := fs.Bool("token-status", false, "list: where each login is and when it lapses")
 	_ = fs.Bool("require-session", false, "run: never the account in use (always so here)")
+	exportAccount := fs.String("account", "", "export: only this account")
+	force := fs.Bool("force", false, "import: replace saved logins even when not older; switch: put the saved login in use even for the account in use")
 	svcStatus := fs.Bool("service-status", false, "menubar: does the app start at login, is auto-switch on")
 	svcInstall := fs.Bool("install-service", false, "menubar: start the app at login")
 	svcUninstall := fs.Bool("uninstall-service", false, "menubar: stop starting the app at login")
@@ -141,7 +143,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 			}
 			name = a.Key()
 		}
-		err = c.switchTo(ctx, name, *jsonOut)
+		err = c.switchTo(ctx, name, *jsonOut, *force)
 	case "auto":
 		if err = c.autoFlags(*threshold, *weeklyThreshold, *model, *strategy, *interval, *keys); err != nil {
 			break
@@ -159,8 +161,17 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 		err = c.purge(*yes)
 	case "export":
 		path := one(rest)
+		var keys []string
+		if *exportAccount != "" {
+			accts, _ := c.b.Blocks()
+			var a account.Account
+			if a, err = find(accts, *exportAccount); err != nil {
+				break
+			}
+			keys = []string{a.Key()}
+		}
 		if path != "-" {
-			err = c.export(path, *full)
+			err = c.export(path, *full, keys...)
 			break
 		}
 		var done func()
@@ -168,7 +179,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 			break
 		}
 		defer done()
-		if _, _, err = b.Export(path, *full); err == nil {
+		if _, _, err = b.Export(path, *full, keys...); err == nil {
 			var f *os.File
 			if f, err = os.Open(path); err == nil {
 				_, err = io.Copy(out, f)
@@ -184,7 +195,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 			}
 			defer done()
 		}
-		err = c.importFile(path, *hold)
+		err = c.importFile(path, *hold, *force)
 	case "run":
 		history := !*noHistory
 		if p, perr := b.Prefs(); perr == nil && p.NoShareHistory && !*shareHistory {
@@ -266,7 +277,7 @@ func reorder(args []string) []string {
 }
 
 func takesValue(f string) bool {
-	return slices.Contains([]string{"email", "hold", "purge", "slot", "alias", "strategy", "threshold", "weekly-threshold", "model", "interval"}, strings.TrimLeft(f, "-"))
+	return slices.Contains([]string{"email", "hold", "purge", "slot", "alias", "strategy", "threshold", "weekly-threshold", "model", "interval", "account"}, strings.TrimLeft(f, "-"))
 }
 
 func one(rest []string) string {
@@ -451,14 +462,18 @@ func (c *cmd) inUse() string {
 	return ""
 }
 
-func (c *cmd) switchTo(ctx context.Context, name string, asJSON bool) error {
+func (c *cmd) switchTo(ctx context.Context, name string, asJSON, force bool) error {
 	accts, _ := c.b.Blocks()
 	a, err := find(accts, name)
 	if err != nil {
 		return err
 	}
 	from := c.inUse()
-	if err := c.b.Switch(ctx, a.Key()); err != nil {
+	sw := c.b.Switch
+	if force {
+		sw = c.b.SwitchForce
+	}
+	if err := sw(ctx, a.Key()); err != nil {
 		return err
 	}
 	if asJSON {
@@ -562,11 +577,11 @@ func (c *cmd) purge(yes bool) error {
 	return errors.Join(errs...)
 }
 
-func (c *cmd) export(path string, full bool) error {
+func (c *cmd) export(path string, full bool, keys ...string) error {
 	if path == "" {
 		return errors.New("name the file to export to")
 	}
-	n, left, err := c.b.Export(path, full)
+	n, left, err := c.b.Export(path, full, keys...)
 	if err != nil {
 		return err
 	}
@@ -578,7 +593,7 @@ func (c *cmd) export(path string, full bool) error {
 	return nil
 }
 
-func (c *cmd) importFile(path string, hold int) error {
+func (c *cmd) importFile(path string, hold int, force bool) error {
 	if path == "" {
 		return errors.New("name the file to import")
 	}
@@ -594,7 +609,7 @@ func (c *cmd) importFile(path string, hold int) error {
 		fmt.Fprintf(c.out, "Readings: %d taken, %d kept, %d skipped.\n", got.Adopted, got.Kept, got.Skipped)
 		return nil
 	}
-	got, err := c.b.Import(path)
+	got, err := c.b.ImportWith(path, force)
 	if err != nil {
 		return err
 	}

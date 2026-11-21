@@ -192,3 +192,47 @@ func TestGUI(t *testing.T) {
 		}
 	}
 }
+
+// cswap export --account, import --force, switch --force.
+func TestForceAndOneAccount(t *testing.T) {
+	a := newApp(t)
+	a.run(t, "", "list") // alice is followed
+	path := filepath.Join(t.TempDir(), "one.json")
+	if code, out, errs := a.run(t, "", "export", path, "--account", "bob@example.com"); code != ok || !strings.Contains(out, "Exported 1 accounts") {
+		t.Fatalf("export --account: %d %s %s", code, out, errs)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "alice") {
+		t.Error("exported alice too")
+	}
+
+	// A login for alice, the account in use, from another Mac.
+	b := newApp(t)
+	b.run(t, "", "list")
+	other := newApp(t)
+	other.run(t, "", "list")
+	must(t, other.v.Put(account.ParkService, "alice/org", login("alice2")))
+	file := filepath.Join(t.TempDir(), "alice.json")
+	other.run(t, "", "export", file, "--account", "alice@example.com")
+	if _, out, _ := b.run(t, "", "import", file); !strings.Contains(out, "left 1") {
+		t.Errorf("import without --force: %s", out)
+	}
+	if _, out, _ := b.run(t, "", "import", file, "--force"); !strings.Contains(out, "updated 1") {
+		t.Errorf("import --force: %s", out)
+	}
+	if code, _, _ := b.run(t, "", "switch", "alice@example.com"); code != ok {
+		t.Fatal("plain switch to the account in use")
+	}
+	if live, _ := b.v.Get("Claude Code-credentials", "me"); strings.Contains(string(live), "alice2") {
+		t.Error("a plain switch to the account in use put the import in use")
+	}
+	if code, _, errs := b.run(t, "", "switch", "alice@example.com", "--force"); code != ok {
+		t.Fatal(errs)
+	}
+	if live, _ := b.v.Get("Claude Code-credentials", "me"); !strings.Contains(string(live), "alice2-at") {
+		t.Errorf("switch --force: live %s", live)
+	}
+	if saved, _ := b.v.Get(account.ParkService, "alice/org"); !strings.Contains(string(saved), "alice2-at") {
+		t.Errorf("the import was overwritten by the old login: %s", saved)
+	}
+}
