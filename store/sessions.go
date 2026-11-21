@@ -127,9 +127,10 @@ func (s *Store) live() (ids map[string]bool, since time.Time) {
 	}
 	for _, f := range files {
 		var r struct {
-			PID       int    `json:"pid"`
-			SessionID string `json:"sessionId"`
-			StartedAt int64  `json:"startedAt"` // epoch milliseconds
+			PID       int             `json:"pid"`
+			SessionID string          `json:"sessionId"`
+			StartedAt int64           `json:"startedAt"` // epoch milliseconds
+			ProcStart json.RawMessage `json:"procStart"`
 		}
 		b, err := os.ReadFile(f)
 		if err != nil {
@@ -140,7 +141,7 @@ func (s *Store) live() (ids map[string]bool, since time.Time) {
 		if err := json.Unmarshal(b, &r); err != nil && !errors.As(err, &typeErr) || r.SessionID == "" {
 			continue
 		}
-		if !s.Alive(r.PID) {
+		if !s.Alive(r.PID) || !SameProcess(r.PID, Stamp(r.ProcStart)) { // a crashed claude's pid, reused
 			continue
 		}
 		ids[r.SessionID] = true

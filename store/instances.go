@@ -40,11 +40,12 @@ func (s *Store) Instances() []Instance {
 		}
 		for _, f := range listFiles(filepath.Join(root, "sessions"), ".json") {
 			var r struct {
-				PID        int    `json:"pid"`
-				CWD        string `json:"cwd"`
-				Entrypoint string `json:"entrypoint"`
+				PID        int             `json:"pid"`
+				CWD        string          `json:"cwd"`
+				Entrypoint string          `json:"entrypoint"`
+				ProcStart  json.RawMessage `json:"procStart"`
 			}
-			if b, err := os.ReadFile(f); err != nil || json.Unmarshal(b, &r) != nil || !s.Alive(r.PID) {
+			if b, err := os.ReadFile(f); err != nil || json.Unmarshal(b, &r) != nil || !s.Alive(r.PID) || !SameProcess(r.PID, Stamp(r.ProcStart)) {
 				continue
 			}
 			kind := entrypoints[r.Entrypoint]

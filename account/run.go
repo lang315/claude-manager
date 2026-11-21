@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/lang315/claude-manager/store"
 )
 
 // Terminal marks an added account open in a terminal: Claude Code runs it
@@ -360,12 +362,13 @@ func ClaudeRunning(configDir string) (bool, error) {
 			continue
 		}
 		var r struct {
-			PID int `json:"pid"`
+			PID       int             `json:"pid"`
+			ProcStart json.RawMessage `json:"procStart"`
 		}
 		if err != nil || json.Unmarshal(data, &r) != nil {
 			return false, errors.Join(err, errors.New("a session record can't be read"))
 		}
-		if pidAlive(r.PID) {
+		if pidAlive(r.PID) && store.SameProcess(r.PID, store.Stamp(r.ProcStart)) { // not a crashed claude's pid, reused
 			return true, nil
 		}
 	}
@@ -391,15 +394,16 @@ func liveTranscripts(root string) func(rel string) bool {
 	}
 	for _, e := range es {
 		var r struct {
-			PID       int    `json:"pid"`
-			SessionID string `json:"sessionId"`
+			PID       int             `json:"pid"`
+			SessionID string          `json:"sessionId"`
+			ProcStart json.RawMessage `json:"procStart"`
 		}
 		data, err := os.ReadFile(filepath.Join(root, "sessions", e.Name()))
 		if err != nil || json.Unmarshal(data, &r) != nil {
 			known = false
 			continue
 		}
-		if pidAlive(r.PID) {
+		if pidAlive(r.PID) && store.SameProcess(r.PID, store.Stamp(r.ProcStart)) {
 			ids[r.SessionID] = true
 		}
 	}

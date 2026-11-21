@@ -159,3 +159,17 @@ func TestLiveTranscripts(t *testing.T) {
 		t.Error("an unreadable record must count as live")
 	}
 }
+
+// A crashed claude's record whose pid the system gave to another process
+// is no running claude: take-back and Open in Terminal don't wait on it.
+func TestClaudeRunningSkipsReusedPid(t *testing.T) {
+	dir := t.TempDir()
+	old := time.Now().Add(-24 * time.Hour).UTC().Format("Mon Jan _2 15:04:05 2006")
+	write(t, filepath.Join(dir, "sessions", "1.json"), `{"pid":`+strconv.Itoa(os.Getpid())+`,"sessionId":"s","procStart":"`+old+`"}`)
+	if running, err := ClaudeRunning(dir); err != nil || running {
+		t.Errorf("a reused pid: running %v, %v", running, err)
+	}
+	if liveTranscripts(dir)("p/s.jsonl") {
+		t.Error("a reused pid's session reads as live")
+	}
+}
