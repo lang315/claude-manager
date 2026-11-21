@@ -37,12 +37,13 @@ type anthropic struct {
 	usage     map[string]int
 	status    map[string]int
 	renewed   map[string]string
-	calls     []string // "profile <token>", "usage <token>", "renew <refresh token>"
+	resets    map[string]string // a token's session reset, where not t0+3h
+	calls     []string          // "profile <token>", "usage <token>", "renew <refresh token>"
 	onProfile func()
 }
 
 func newAnthropic() *anthropic {
-	return &anthropic{who: map[string]Profile{}, usage: map[string]int{}, status: map[string]int{}, renewed: map[string]string{}}
+	return &anthropic{who: map[string]Profile{}, usage: map[string]int{}, status: map[string]int{}, renewed: map[string]string{}, resets: map[string]string{}}
 }
 
 func (f *anthropic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +76,11 @@ func (f *anthropic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		fmt.Fprintf(w, `{"limits":[{"kind":"session","percent":%d,"resets_at":"2026-10-26T15:00:00Z"}]}`, pct)
+		reset, ok := f.resets[tok]
+		if !ok {
+			reset = "2026-10-26T15:00:00Z"
+		}
+		fmt.Fprintf(w, `{"limits":[{"kind":"session","percent":%d,"resets_at":%q}]}`, pct, reset)
 	case "/v1/oauth/token":
 		var body map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&body)

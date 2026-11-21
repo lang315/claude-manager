@@ -98,19 +98,28 @@ func (b *Book) Refresh(ctx context.Context, force bool) ([]Account, error) {
 		jobs = append(jobs, job{u, live.AccessToken})
 	}
 
-	var wg sync.WaitGroup
-	for _, j := range jobs {
-		a := j.acct
-		if now.Before(a.WaitUntil) || !force && !a.ReadAt.IsZero() && now.Sub(a.ReadAt) < floor {
-			continue
+	// The account in use first: how near its line it now is sets how
+	// closely the others are watched.
+	near := b.nearLine(now)
+	for _, active := range []bool{true, false} {
+		var wg sync.WaitGroup
+		for _, j := range jobs {
+			a := j.acct
+			if (a == b.inUse || a.InUse) != active {
+				continue
+			}
+			if now.Before(a.WaitUntil) || !force && !a.ReadAt.IsZero() && now.Before(b.due(a, active, near)) {
+				continue
+			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				b.read(ctx, a, j.token, live.RefreshToken, now)
+			}()
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			b.read(ctx, a, j.token, live.RefreshToken, now)
-		}()
+		wg.Wait()
+		near = b.nearLine(now)
 	}
-	wg.Wait()
 	return b.blocks(), errors.Join(followErr, backErr, b.save())
 }
 
@@ -219,7 +228,52 @@ func (b *Book) read(ctx context.Context, a *Account, token, held string, now tim
 		}
 		return
 	}
+	before, _ := stand(*a, Auto{Line: 100})
 	a.Limits, a.ReadAt, a.Err, a.WaitUntil = limits, now, "", time.Time{}
+	after, _ := stand(*a, Auto{Line: 100})
+	a.climbing = before.raw-after.raw >= 1
+}
+
+// nearLine reports whether auto-switch is on and the account in use, as
+// last read, is within 15 points of a line or can't be read: then every
+// account is watched closely (claude-swap's ESCALATION_MARGIN_PCT).
+func (b *Book) nearLine(now time.Time) bool {
+	if !b.auto.On {
+		return false
+	}
+	a := b.inUse
+	if i := slices.IndexFunc(b.added, func(a Account) bool { return a.InUse }); i >= 0 {
+		a = &b.added[i]
+	}
+	if a == nil {
+		return false
+	}
+	st, ok := stand(*a, b.auto)
+	return !ok || !usable(*a, now) || st.room <= 15
+}
+
+// due is when a is next read, claude-swap's poll_policy without its
+// jitter and movement scaling: the account in use every 3 minutes, every
+// minute while it climbs near a line; the others every 5, every 3 near a
+// line; a spent one every 10, though a minute after its window resets.
+func (b *Book) due(a *Account, active, near bool) time.Time {
+	every := 5 * time.Minute
+	switch {
+	case active && near && a.climbing:
+		every = time.Minute
+	case active || near:
+		every = floor
+	}
+	due := a.ReadAt.Add(every)
+	if st, ok := stand(*a, Auto{Line: 100}); ok && st.raw <= 0 {
+		due = a.ReadAt.Add(10 * time.Minute)
+		for _, l := range a.Limits {
+			if l.Percent >= 100 && !l.ResetsAt.IsZero() && l.ResetsAt.Add(time.Minute).Before(due) {
+				due = l.ResetsAt.Add(time.Minute)
+			}
+		}
+	}
+	return due
 }
 
 // readOwn reads an added account's limits with its own login: renewed

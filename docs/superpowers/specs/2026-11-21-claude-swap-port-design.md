@@ -208,11 +208,51 @@ Rules: claude-swap's `docs/auto-switch.md` and `autoswitch.py`
 - A manual switch starts the cooldown too (claude-swap counts only its own
   switches), so a strategy doesn't undo the user's choice a minute later.
   The cooldown is kept in memory: a restart clears it.
-- Not ported: the no-return bar, failover when the account in use can't be
-  read, the idle hold, adaptive polling, `--model`.
+- The no-return bar, failover, the idle hold, trust in a failing account's
+  last reading and adaptive polling came in part 2b; `--model` in part 5.
 
 Tested by `TestDecide` (cases from `docs/auto-switch.md`), `TestAutoSwitch`,
 `TestAccountAutoSurvivesSwitches`, and view tests.
+
+## 2b. The rest of auto-switch
+
+From claude-swap's `autoswitch.py`, `usage_store.py` and `poll_policy.py`:
+
+- Trust (`decision_value`, `TRUST_MAX_AGE_S`, `RATE_LIMIT_TRUST_MAX_AGE_S`):
+  a reading is decided on when under 5 minutes old; while reads of the
+  account fail, its last good one for an hour, two when Anthropic asked to
+  wait. A spent or lapsed login (`invalid_grant`, Claude Code's or a
+  terminal's lapsed token) never is.
+- Idle hold (`IDLE_HOLD_MAX_S`): Claude Code's lapsed login on the account
+  in use holds auto-switch for 30 minutes ("it renews on your next
+  message"); then it counts as unreadable.
+- Failover (`unhealthy_ticks`, default 3): the account in use unreadable for
+  3 ticks moves to the account with the most room, ranked as at its limit,
+  with no cooldown and no no-return bar.
+- No-return bar (`lastSwitchFrom`, `_left_account_recovered`,
+  `_all_above_margin_met`): after a move, while auto-switch's landing is in
+  use, a proactive or consume move doesn't land on the account it left until
+  that account recovered (its line headroom up 3 points, its binding reset 5
+  minutes nearer, or, left on a failover, under its lines) and leads the
+  account in use by min(2×, +3) of line headroom. A switch by hand lifts it;
+  at the limit and failover ignore it. Kept in memory, as the cooldown.
+- Polling (`poll_policy.plan_after_fetch`, in the large): the account in use
+  is read first, every 3 minutes, every minute while auto-switch is on and
+  it climbed a point within 15 of a line; the others every 5 minutes, every
+  3 while the account in use is within 15 of a line or unreadable; a spent
+  account (a 5h or 7d window at 100%) every 10, but a minute after that
+  window resets. Refresh by hand reads all. Not ported: movement scaling,
+  jitter, one candidate per tick, the 429 AIMD (Anthropic's Retry-After
+  already holds an account).
+- Model names (`_check_model_names`): once every added account has been
+  read, a Model windows name no account has a window for shows in the
+  auto-switch row, "… matches no account's windows: only the 5h and 7d
+  limits count for it (typo?)".
+
+Verified: `TestDecideMemo` (14 cases), `TestDecideBarMargin`,
+`TestAutoSwitchIdleHoldThenFailover`, `TestAutoSwitchSetsTheBar`,
+`TestRefreshPolling`, `TestUnseenModels`; mutation checks (23 of 23
+caught).
 
 ## 3. Export / import
 

@@ -143,6 +143,7 @@ func TestLimitsRefreshSkipsTheFloor(t *testing.T) {
 // The menu bar item reads the limits on any page, the floor kept.
 func TestTrayTickReadsOnAnyPage(t *testing.T) {
 	l := limitsApp(t)
+	l.weekly.Store("alice", 50) // not spent: read every 3 minutes, not 10
 	l.open(t)
 	must(t, l.tt.Click("Overview"))
 	l.tt.Frame()

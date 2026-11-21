@@ -3,6 +3,8 @@ package account
 import (
 	"encoding/json"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -90,7 +92,7 @@ func TestDecide(t *testing.T) {
 		{"a stale reading of the account in use holds", def, []Account{inUse(stale), acct("b", 0, 0, day)}, time.Time{}, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			d := decide(t0, c.s, c.accts, c.last)
+			d := decide(t0, c.s, c.accts, memo{last: c.last})
 			if d.Email != c.want || (d.To == "") != (c.want == "") || d.Why == "" {
 				t.Errorf("decide = %+v, want %q", d, c.want)
 			}
@@ -165,5 +167,123 @@ func TestAutoSwitchFailureWaits(t *testing.T) {
 	v.Fail = nil
 	if d, _ := b.AutoSwitch(ctx); d.To != "" || d.Why != "Waiting after a failed switch." {
 		t.Fatalf("retried at once: %+v", d)
+	}
+}
+
+// claude-swap's no-return bar, failover and trust in a failing account's
+// last good reading.
+func TestDecideMemo(t *testing.T) {
+	def := DefaultAuto()
+	a, b, c := acct("a", 92, 10, day), acct("b", 70, 10, day), acct("c", 79, 10, day)
+	failed := func(x Account, err string, age time.Duration) Account { x.Err, x.ReadAt = err, t0.Add(-age); return x }
+	throttled := failed(acct("t", 0, 0, day), "Anthropic asked to wait.", 90*time.Minute)
+	throttled.WaitUntil = t0.Add(time.Minute)
+	bar := memo{barTo: inUse(a).Key(), barFrom: b.Key(), leftLH: 29}
+	for _, x := range []struct {
+		name  string
+		accts []Account
+		m     memo
+		want  string
+	}{
+		{"the account left is barred until it recovers", []Account{inUse(a), b, c}, bar, "c"},
+		{"recovered by 3 points, it lands again", []Account{inUse(a), acct("b", 69, 10, day), c}, memo{barTo: bar.barTo, barFrom: bar.barFrom, leftLH: 28}, "b"},
+		{"recovered when its reset came nearer", []Account{inUse(a), b, c}, memo{barTo: bar.barTo, barFrom: bar.barFrom, leftLH: 40, leftResets: t0.Add(3 * time.Hour)}, "b"},
+		{"left on a failover: under its lines is recovered", []Account{inUse(a), b, c}, memo{barTo: bar.barTo, barFrom: bar.barFrom, leftLH: 40, leftWhy: "failover"}, "b"},
+		{"a manual switch lifts the bar", []Account{inUse(a), b, c}, memo{barTo: "other", barFrom: bar.barFrom, leftLH: 40}, "b"},
+		{"at the limit the bar doesn't apply", []Account{inUse(acct("a", 100, 10, day)), b, c}, bar, "b"},
+		{"failover moves off an unreadable account", []Account{inUse(failed(acct("a", 10, 10, day), "x", 3*time.Hour)), b, c}, memo{failover: true}, "b"},
+		{"failover skips the cooldown", []Account{inUse(failed(acct("a", 10, 10, day), "x", 3*time.Hour)), b}, memo{failover: true, last: t0}, "b"},
+		{"failover lands nowhere spent", []Account{inUse(failed(acct("a", 10, 10, day), "x", 3*time.Hour)), acct("s", 100, 10, day)}, memo{failover: true}, ""},
+		{"a failing in-use account is trusted an hour", []Account{inUse(failed(acct("a", 92, 10, day), "x", 50*time.Minute)), acct("f", 0, 0, day)}, memo{}, "f"},
+		{"but not past it", []Account{inUse(failed(acct("a", 92, 10, day), "x", 70*time.Minute)), acct("f", 0, 0, day)}, memo{}, ""},
+		{"a failing candidate is trusted an hour", []Account{inUse(a), failed(acct("f", 0, 0, day), "x", 50*time.Minute)}, memo{}, "f"},
+		{"two when Anthropic asked to wait", []Account{inUse(a), throttled}, memo{}, "t"},
+		{"a spent login is never trusted", []Account{inUse(a), failed(acct("f", 0, 0, day), ErrInvalidGrant.Error(), time.Minute)}, memo{}, ""},
+	} {
+		d := decide(t0, def, x.accts, x.m)
+		if d.To != x.want && !(x.want != "" && d.Email == x.want) {
+			t.Errorf("%s: %+v, want %q", x.name, d, x.want)
+		}
+	}
+}
+
+// Claude Code's lapsed login holds auto-switch for 30 minutes; any other
+// unreadable account in use is left after 3 ticks.
+func TestAutoSwitchIdleHoldThenFailover(t *testing.T) {
+	b, v, _, f := switchBook(t)
+	f.usage["alice-at"], f.usage["bob-at"] = 50, 10
+	b.Refresh(ctx, true)
+	s := DefaultAuto()
+	s.On = true
+	must(t, b.SetAuto(s))
+	now := t0.Add(2 * time.Hour)
+	b.Now = func() time.Time { return now }
+	f.renewed["bob-rt"] = "bob-at"
+	delete(f.usage, "alice-at")
+	for i := 0; i < 5; i++ {
+		b.Refresh(ctx, true)
+		if d, _ := b.AutoSwitch(ctx); d.To != "" || !strings.Contains(d.Why, "holds") {
+			t.Fatalf("tick %d: %+v", i, d)
+		}
+	}
+	now = now.Add(31 * time.Minute)
+	for i := 1; i <= 3; i++ {
+		b.Refresh(ctx, true)
+		d, err := b.AutoSwitch(ctx)
+		if i < 3 && d.To != "" {
+			t.Fatalf("left after %d ticks: %+v", i, d)
+		}
+		if i == 3 && (err != nil || d.Email != "bob@example.com") {
+			t.Fatalf("no failover: %+v %v", d, err)
+		}
+	}
+	if l, _ := parseLogin(get(t, v, liveDefault, "me")); l.AccessToken != "bob-at" {
+		t.Errorf("login in use %q", l.AccessToken)
+	}
+}
+
+func TestUnseenModels(t *testing.T) {
+	a := acct("a", 0, 0, day)
+	a.Limits = append(a.Limits, Limit{Kind: "weekly_scoped", Scope: "Fable"})
+	s := Auto{Model: "fable, Opus, all, opus"}
+	if got := s.Unseen([]Account{a, acct("b", 0, 0, day)}); !slices.Equal(got, []string{"Opus"}) {
+		t.Errorf("unseen %q", got)
+	}
+	unread := acct("c", 0, 0, day)
+	unread.Limits = nil
+	if got := s.Unseen([]Account{a, unread}); got != nil {
+		t.Errorf("before every account was read: %q", got)
+	}
+}
+
+// A move auto-switch makes bars a return to the account it left.
+func TestAutoSwitchSetsTheBar(t *testing.T) {
+	b, _, _, f := switchBook(t)
+	f.usage["alice-at"], f.usage["bob-at"] = 95, 10
+	b.Refresh(ctx, true)
+	s := DefaultAuto()
+	s.On = true
+	must(t, b.SetAuto(s))
+	if d, err := b.AutoSwitch(ctx); err != nil || d.To != bob.Key() {
+		t.Fatalf("%+v %v", d, err)
+	}
+	if m := b.bar; m.barTo != bob.Key() || m.barFrom != alice.Key() || m.leftLH != 5 || m.leftWhy != "proactive" {
+		t.Errorf("bar %+v", m)
+	}
+}
+
+// Recovered, the account left still lands only ahead by the all-over
+// margin: with no hysteresis margin, that is what holds it.
+func TestDecideBarMargin(t *testing.T) {
+	s := DefaultAuto()
+	s.Margin = 0
+	a, b := inUse(acct("a", 91, 10, day)), acct("b", 89, 10, day)
+	m := memo{barTo: a.Key(), barFrom: b.Key(), leftLH: 5}
+	if d := decide(t0, s, []Account{a, b}, m); d.To != "" {
+		t.Errorf("%+v", d)
+	}
+	m.leftLH, b = 5, acct("b", 85, 10, day)
+	if d := decide(t0, s, []Account{a, b}, m); d.To != b.Key() {
+		t.Errorf("%+v", d)
 	}
 }

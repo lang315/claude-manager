@@ -241,3 +241,59 @@ func TestRefreshOrder(t *testing.T) {
 		t.Fatalf("order %v", emails)
 	}
 }
+
+// claude-swap's poll_policy, in the large: the others every 5 minutes,
+// every 3 near a line; a spent one every 10, but a minute after its reset;
+// the one in use every minute while it climbs near a line.
+func TestRefreshPolling(t *testing.T) {
+	read := func(b *Book, f *anthropic, at time.Duration) []string {
+		b.Now = func() time.Time { return t0.Add(at) }
+		f.took()
+		b.Refresh(ctx, false)
+		return f.took()
+	}
+	has := func(c []string, s string) bool { return slices.Contains(c, s) }
+
+	b, _, _, f := switchBook(t)
+	f.usage["alice-at"], f.usage["bob-at"] = 10, 10
+	b.Refresh(ctx, true)
+	if c := read(b, f, 4*time.Minute); !has(c, "usage alice-at") || has(c, "usage bob-at") {
+		t.Errorf("4 minutes: %v", c)
+	}
+	if c := read(b, f, 5*time.Minute); !has(c, "usage bob-at") {
+		t.Errorf("5 minutes: %v", c)
+	}
+
+	b, _, _, f = switchBook(t)
+	s := DefaultAuto()
+	s.On = true
+	must(t, b.SetAuto(s))
+	f.usage["alice-at"], f.usage["bob-at"] = 70, 10
+	b.Refresh(ctx, true)
+	f.usage["alice-at"] = 80 // climbing, 10 points under the line
+	if c := read(b, f, 3*time.Minute); !has(c, "usage bob-at") {
+		t.Errorf("near the line, 3 minutes: %v", c)
+	}
+	if c := read(b, f, 4*time.Minute); !has(c, "usage alice-at") || has(c, "usage bob-at") {
+		t.Errorf("climbing, a minute on: %v", c)
+	}
+
+	b, _, _, f = switchBook(t)
+	f.usage["alice-at"], f.usage["bob-at"] = 10, 100
+	f.resets["bob-at"] = "2026-10-26T12:30:00Z"
+	b.Refresh(ctx, true)
+	if c := read(b, f, 9*time.Minute); has(c, "usage bob-at") {
+		t.Errorf("spent, 9 minutes: %v", c)
+	}
+	if c := read(b, f, 10*time.Minute); !has(c, "usage bob-at") {
+		t.Errorf("spent, 10 minutes: %v", c)
+	}
+	f.resets["bob-at"] = "2026-10-26T12:15:00Z"
+	b.Refresh(ctx, true)
+	if c := read(b, f, 15*time.Minute+30*time.Second); has(c, "usage bob-at") {
+		t.Errorf("before its reset and a minute: %v", c)
+	}
+	if c := read(b, f, 16*time.Minute); !has(c, "usage bob-at") {
+		t.Errorf("a minute after its reset: %v", c)
+	}
+}

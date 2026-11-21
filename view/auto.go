@@ -63,6 +63,8 @@ func (l *limits) autoRow(c *ui.Context, a *App, pal *palette) {
 		switch {
 		case !a.Accounts.CanSwitch():
 			ui.Text(c, account.ErrCantSwitch.Error()).FontSize(12).TextColor(pal.muted)
+		case u.s.On && len(u.s.Unseen(l.blocks)) > 0:
+			ui.Text(c, strings.Join(u.s.Unseen(l.blocks), ", ")+" matches no account's windows: only the 5h and 7d limits count for it (typo?).").FontSize(12).TextColor(pal.muted).SingleLine()
 		case u.s.On && u.why != "":
 			ui.Text(c, u.why).FontSize(12).TextColor(pal.muted).SingleLine()
 		case u.s.On:

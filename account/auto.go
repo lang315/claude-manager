@@ -58,6 +58,32 @@ func (s Auto) counts(model string) bool {
 	return false
 }
 
+// Unseen is the names in s.Model no account's readings have a window for,
+// as claude-swap warns of a likely typo; nil until every added account has
+// been read.
+func (s Auto) Unseen(accts []Account) []string {
+	seen := map[string]bool{}
+	for _, a := range accts {
+		if a.Added && len(a.Limits) == 0 {
+			return nil
+		}
+		for _, l := range a.Limits {
+			if l.Kind == "weekly_scoped" {
+				seen[strings.ToLower(l.Scope)] = true
+			}
+		}
+	}
+	var out []string
+	for _, m := range strings.Split(s.Model, ",") {
+		m = strings.TrimSpace(m)
+		if m != "" && !strings.EqualFold(m, "all") && !seen[strings.ToLower(m)] {
+			seen[strings.ToLower(m)] = true // named twice, said once
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 func clamp(v, lo, hi float64) float64 { return math.Min(math.Max(v, lo), hi) }
 
 // fresh is how old a reading may be for auto-switch to act on it
@@ -68,6 +94,68 @@ const fresh = 5 * time.Minute
 // stay; Why says why it stays or moves.
 type Decision struct {
 	To, Email, Why string
+
+	trigger    string    // at-limit, proactive, consume, priority or failover
+	from       string    // the account left
+	leftLH     float64   // its line headroom then
+	leftResets time.Time // its binding window's reset then
+}
+
+// memo is what auto-switch remembers between ticks, in memory as
+// claude-swap keeps it in its state file: the last switch, for the
+// cooldown; failover, when the account in use stayed unreadable; and the
+// no-return bar on the account it last left.
+type memo struct {
+	last       time.Time
+	failover   bool
+	barTo      string // the account auto-switch landed on
+	barFrom    string // the account it left
+	leftLH     float64
+	leftResets time.Time
+	leftWhy    string // the trigger it left on
+}
+
+const (
+	trustFor       = time.Hour        // a reading that failed since is trusted this long (TRUST_MAX_AGE_S)
+	trustThrottled = 2 * time.Hour    // when Anthropic asked to wait (RATE_LIMIT_TRUST_MAX_AGE_S)
+	unhealthyTicks = 3                // ticks the account in use stays unreadable before failover
+	idleHold       = 30 * time.Minute // Claude Code's lapsed login holds this long (IDLE_HOLD_MAX_S)
+	recoverySlack  = 5 * time.Minute  // RECOVERY_HYSTERESIS_S
+	spentHeadroom  = 3.0              // SPENT_HEADROOM_PCT
+)
+
+// usable reports whether a's limits may be decided on at now: read in the
+// last 5 minutes, or, while reads fail, the last good ones for an hour (two
+// when Anthropic asked to wait). A login that is spent or lapsed is not.
+func usable(a Account, now time.Time) bool {
+	if len(a.Limits) == 0 || a.ReadAt.IsZero() {
+		return false
+	}
+	age := now.Sub(a.ReadAt)
+	switch a.Err {
+	case "":
+		return age <= fresh
+	case ErrInvalidGrant.Error(), LiveExpired, InTerminalExpired:
+		return false
+	}
+	if !a.WaitUntil.IsZero() {
+		return age <= trustThrottled
+	}
+	return age <= trustFor
+}
+
+// released reports whether the account barred since auto-switch left it,
+// standing at st, may be landed on again from act: it recovered (its
+// headroom grew by 3 points, its binding reset came 5 minutes nearer, or,
+// left on a failover, it is under its lines) and leads by the all-over
+// margin. claude-swap's _left_account_recovered and _all_above_margin_met.
+func (m memo) released(st, act standing) bool {
+	recovered := st.lh >= m.leftLH+spentHeadroom ||
+		!m.leftResets.IsZero() && !st.resets.IsZero() && st.resets.Before(m.leftResets.Add(-recoverySlack))
+	if m.leftWhy == "failover" {
+		recovered = !st.over
+	}
+	return recovered && st.lh >= math.Min(2*act.lh, act.lh+spentHeadroom)
 }
 
 // standing is one account's readings against its lines.
@@ -144,34 +232,42 @@ func resetKey(t time.Time) float64 {
 }
 
 // decide is claude-swap's auto-switch tick (autoswitch.py _tick_inner and
-// _rank_candidates) over the accounts as last read, without its no-return
-// bar, failover and per-model windows. last is the time of the last switch.
-func decide(now time.Time, s Auto, accts []Account, last time.Time) Decision {
+// _rank_candidates) over the accounts as last read. m.failover moves off an
+// account in use that stayed unreadable, ranked as at its limit.
+func decide(now time.Time, s Auto, accts []Account, m memo) Decision {
 	i := slices.IndexFunc(accts, func(a Account) bool { return a.InUse })
-	if i < 0 || accts[i].Err != "" || now.Sub(accts[i].ReadAt) > fresh {
-		return Decision{Why: "Waiting for a fresh reading of the account in use."}
-	}
-	active := accts[i]
-	act, ok := stand(active, s)
-	if !ok {
-		return Decision{Why: "The account in use reports no limits."}
-	}
 	priority := s.Strategy == ByPriority
 	consume := s.Strategy == ConsumeFirst
+	var active Account
+	var act standing
 	var trigger string
-	switch {
-	case !act.over && !consume && !priority:
-		return Decision{Why: "The account in use is under its lines."}
-	case !act.over && priority:
-		trigger = "priority"
-	case !act.over:
-		trigger = "consume"
-	case act.raw <= 0:
-		trigger = "at-limit"
-	default:
-		trigger = "proactive"
+	if m.failover && i >= 0 {
+		active, trigger = accts[i], "failover"
+		act, _ = stand(active, s)
+	} else {
+		if i < 0 || !usable(accts[i], now) {
+			return Decision{Why: "Waiting for a fresh reading of the account in use."}
+		}
+		active = accts[i]
+		var ok bool
+		if act, ok = stand(active, s); !ok {
+			return Decision{Why: "The account in use reports no limits."}
+		}
+		switch {
+		case !act.over && !consume && !priority:
+			return Decision{Why: "The account in use is under its lines."}
+		case !act.over && priority:
+			trigger = "priority"
+		case !act.over:
+			trigger = "consume"
+		case act.raw <= 0:
+			trigger = "at-limit"
+		default:
+			trigger = "proactive"
+		}
 	}
-	if trigger != "at-limit" && now.Sub(last) < time.Duration(s.Cooldown)*time.Second {
+	escape := trigger == "at-limit" || trigger == "failover"
+	if !escape && now.Sub(m.last) < time.Duration(s.Cooldown)*time.Second {
 		return Decision{Why: "Waiting out the cooldown after the last switch."}
 	}
 
@@ -181,7 +277,7 @@ func decide(now time.Time, s Auto, accts []Account, last time.Time) Decision {
 	}
 	var cands []cand
 	for _, a := range accts {
-		if a.InUse || !a.Added || a.AutoOff || a.OAuthAccount == nil || a.Terminal.Dir != "" || a.Err != "" || now.Sub(a.ReadAt) > fresh {
+		if a.InUse || !a.Added || a.AutoOff || a.OAuthAccount == nil || a.Terminal.Dir != "" || !usable(a, now) {
 			continue
 		}
 		if st, ok := stand(a, s); ok && st.raw > 0 {
@@ -204,13 +300,17 @@ func decide(now time.Time, s Auto, accts []Account, last time.Time) Decision {
 		}
 	} else {
 		allAbove := len(cands) > 0 && !slices.ContainsFunc(cands, func(c cand) bool { return !c.st.over })
-		if trigger != "at-limit" {
+		if !escape {
 			allAbove = allAbove && act.over
 		}
 		weekly := s.Strategy == WeeklyFirst
 		for _, c := range cands {
 			st := c.st
 			if trigger == "proactive" || trigger == "consume" {
+				// The no-return bar holds only while auto-switch's own landing is in use.
+				if m.barTo == active.Key() && c.a.Key() == m.barFrom && !m.released(st, act) {
+					continue
+				}
 				switch {
 				case st.over && !allAbove:
 					continue
@@ -236,7 +336,7 @@ func decide(now time.Time, s Auto, accts []Account, last time.Time) Decision {
 			default:
 				key = []float64{-st.lh}
 			}
-			if trigger == "at-limit" && !allAbove {
+			if escape && !allAbove {
 				switch {
 				case !consume:
 					key = append([]float64{b2f(st.over)}, key...)
@@ -251,7 +351,7 @@ func decide(now time.Time, s Auto, accts []Account, last time.Time) Decision {
 	}
 	slices.SortStableFunc(out, func(x, y ranked) int { return slices.Compare(x.key, y.key) })
 	if len(out) == 0 {
-		if !act.over {
+		if !act.over && !escape {
 			return Decision{Why: "No account is ahead of the one in use."}
 		}
 		return Decision{Why: "No account has room."}
@@ -262,8 +362,9 @@ func decide(now time.Time, s Auto, accts []Account, last time.Time) Decision {
 		"proactive": "the account in use passed its line",
 		"consume":   "its weekly window resets sooner",
 		"priority":  "it is a higher priority",
+		"failover":  "the account in use could not be read",
 	}[trigger]
-	return Decision{To: to.Key(), Email: to.Email, Why: why}
+	return Decision{To: to.Key(), Email: to.Email, Why: why, trigger: trigger, from: active.Key(), leftLH: act.lh, leftResets: act.resets}
 }
 
 func b2f(b bool) float64 {
@@ -329,7 +430,30 @@ func (b *Book) AutoSwitch(ctx context.Context) (Decision, error) {
 	if now.Sub(b.lastFailed) < wait {
 		return Decision{Why: "Waiting after a failed switch."}, nil
 	}
-	d := decide(now, b.auto, b.blocks(), b.lastSwitch)
+	accts := b.blocks()
+	m := b.bar
+	m.last = b.lastSwitch
+	if i := slices.IndexFunc(accts, func(a Account) bool { return a.InUse }); i >= 0 && !usable(accts[i], now) {
+		// claude-swap's idle hold: Claude Code renews its lapsed login on the
+		// next message, so a quiet Mac is no reason to move.
+		if accts[i].Err == LiveExpired {
+			if b.idleSince.IsZero() {
+				b.idleSince = now
+			}
+			if now.Sub(b.idleSince) <= idleHold {
+				b.unhealthy = 0
+				return Decision{Why: "Claude Code's sign-in has lapsed; it renews on your next message, so auto-switch holds."}, nil
+			}
+		}
+		b.unhealthy++
+		if b.unhealthy < unhealthyTicks {
+			return Decision{Why: fmt.Sprintf("The account in use can't be read; moving on after %d more tries.", unhealthyTicks-b.unhealthy)}, nil
+		}
+		m.failover = true
+	} else {
+		b.unhealthy, b.idleSince = 0, time.Time{}
+	}
+	d := decide(now, b.auto, accts, m)
 	if d.To == "" {
 		return d, nil
 	}
@@ -337,5 +461,7 @@ func (b *Book) AutoSwitch(ctx context.Context) (Decision, error) {
 		b.lastFailed = now
 		return Decision{Why: fmt.Sprintf("The switch to %s failed: %v", d.Email, err)}, err
 	}
+	b.unhealthy, b.idleSince = 0, time.Time{}
+	b.bar = memo{barTo: d.To, barFrom: d.from, leftLH: d.leftLH, leftResets: d.leftResets, leftWhy: d.trigger}
 	return d, nil
 }

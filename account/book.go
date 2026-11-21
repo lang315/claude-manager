@@ -42,6 +42,7 @@ type Account struct {
 	InUse        bool            `json:"-"`                  // Claude Code is signed in to it
 	Added        bool            `json:"-"`                  // the app holds a login of its own for it
 	Source       string          `json:"-"`                  // "Pitboard" when Limits are Pitboard's reading
+	climbing     bool            // its fullest window rose a point or more at the last read
 }
 
 // Key names the account by Anthropic's account and organisation.
@@ -79,6 +80,9 @@ type Book struct {
 	auto       Auto
 	lastSwitch time.Time
 	lastFailed time.Time
+	bar        memo         // the no-return bar auto-switch set
+	unhealthy  int          // ticks the account in use has been unreadable
+	idleSince  time.Time    // when Claude Code's login in use was first seen lapsed
 	note       atomic.Value // string: why Pitboard's files could not be read; read without the lock
 }
 
