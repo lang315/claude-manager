@@ -207,6 +207,11 @@ func TestExportImportRun(t *testing.T) {
 	}
 	b := newApp(t)
 	must(t, b.b.Remove("bob/org"))
+	// import-usage takes readings only, never logins (cswap's
+	// "unsupported usage document").
+	if code, out, _ := b.run(t, "", "import-usage", path); code != failed || strings.Contains(out, "Added") {
+		t.Errorf("import-usage of an export: %d %s", code, out)
+	}
 	if code, out, _ := b.run(t, "", "import", path); code != ok || !strings.Contains(out, "Added 1") {
 		t.Errorf("import: %d %s", code, out)
 	}

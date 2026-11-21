@@ -219,7 +219,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 			}
 			defer done()
 		}
-		err = c.importFile(path, *hold, *force)
+		err = c.importFile(path, *hold, *force, args[0] == "import-usage")
 	case "run":
 		history := !*noHistory
 		if p, perr := b.Prefs(); perr == nil && p.NoShareHistory && !*shareHistory {
@@ -742,7 +742,7 @@ func (c *cmd) export(path string, full bool, keys ...string) error {
 	return nil
 }
 
-func (c *cmd) importFile(path string, hold int, force bool) error {
+func (c *cmd) importFile(path string, hold int, force, usageOnly bool) error {
 	if path == "" {
 		return errors.New("name the file to import")
 	}
@@ -750,7 +750,7 @@ func (c *cmd) importFile(path string, hold int, force bool) error {
 	if err != nil {
 		return err
 	}
-	if account.IsReadings(data) {
+	if usageOnly || account.IsReadings(data) { // ImportUsage refuses what isn't readings
 		got, err := c.b.ImportUsage(path, time.Duration(hold)*time.Second)
 		if err != nil {
 			return err
