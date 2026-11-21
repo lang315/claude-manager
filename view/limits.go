@@ -37,6 +37,7 @@ type limits struct {
 	run       runUI
 	export    exportUI
 	importing importUI
+	token     tokenUI
 
 	auto autoUI
 }
@@ -144,7 +145,7 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 				name = "Claude Code"
 			}
 			ui.Text(c, name).Bold().SingleLine()
-			if s := planText(b); s != "" {
+			if s := planText(b) + tokenPlan(b); s != "" {
 				ui.Text(c, s).TextColor(pal.muted).SingleLine()
 			}
 			if b.InUse {
@@ -349,6 +350,7 @@ func (l *limits) dialogs(c *ui.Context, a *App, pal *palette) {
 	l.runDialog(c, a)
 	l.exportDialog(c, a)
 	l.importDialog(c, a)
+	l.tokenDialog(c, a)
 	was := l.adding
 	ui.Modal(c, &l.adding, func() {
 		ui.Column(c).Gap(12).Padding(20).Width(440).Children(func() {
@@ -431,11 +433,11 @@ func (l *limits) menu(c *ui.Context, a *App, b account.Account) {
 		if switchable && m.Item("Switch to This Account").Disabled(l.switching != "").Chosen() {
 			l.startSwitch(a, b)
 		}
-		if a.Accounts.CanSwitch() && !b.InUse && m.Item("Open in Terminal…").Chosen() {
+		if a.Accounts.CanSwitch() && !b.InUse && !b.Token && m.Item("Open in Terminal…").Chosen() {
 			l.startRun(a, b)
 		}
 		l.autoMenu(m, a, b)
-		if !inTerminal && m.Item("Sign In Again").Chosen() {
+		if !inTerminal && !b.Token && m.Item("Sign In Again").Chosen() {
 			l.startAdd(a)
 		}
 		if !(b.InUse && a.Accounts.CanSwitch()) && !inTerminal && m.Item("Remove…").Destructive(true).Chosen() {

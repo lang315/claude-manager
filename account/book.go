@@ -40,6 +40,7 @@ type Account struct {
 	Line         float64         `json:"line,omitempty"`     // its own five-hour line; 0 for the global one
 	Priority     int             `json:"priority,omitempty"` // its tier for priority-consume-first
 	Terminal     Terminal        `json:"terminal,omitzero"`  // open in a terminal from its own profile
+	Token        bool            `json:"token,omitempty"`    // a setup-token account: no refresh token, read by the header probe
 	InUse        bool            `json:"-"`                  // Claude Code is signed in to it
 	Added        bool            `json:"-"`                  // the app holds a login of its own for it
 	Source       string          `json:"-"`                  // "Pitboard" when Limits are Pitboard's reading
@@ -250,7 +251,7 @@ func (b *Book) keepLocked(blob []byte, p Profile, oauthAccount json.RawMessage) 
 	}
 	if was != nil {
 		a.Limits, a.ReadAt = was.Limits, was.ReadAt
-		a.AutoOff, a.Line, a.Priority, a.Terminal = was.AutoOff, was.Line, was.Priority, was.Terminal
+		a.AutoOff, a.Line, a.Priority, a.Terminal, a.Token = was.AutoOff, was.Line, was.Priority, was.Terminal, was.Token
 		if a.OAuthAccount == nil {
 			a.OAuthAccount = was.OAuthAccount
 		}

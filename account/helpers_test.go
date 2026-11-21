@@ -37,13 +37,14 @@ type anthropic struct {
 	usage     map[string]int
 	status    map[string]int
 	renewed   map[string]string
-	resets    map[string]string // a token's session reset, where not t0+3h
-	calls     []string          // "profile <token>", "usage <token>", "renew <refresh token>"
+	resets    map[string]string      // a token's session reset, where not t0+3h
+	probe     map[string]probeAnswer // "<token> <model>": the header probe's answer; none is 401
+	calls     []string               // "profile <token>", "usage <token>", "renew <refresh token>"
 	onProfile func()
 }
 
 func newAnthropic() *anthropic {
-	return &anthropic{who: map[string]Profile{}, usage: map[string]int{}, status: map[string]int{}, renewed: map[string]string{}, resets: map[string]string{}}
+	return &anthropic{who: map[string]Profile{}, usage: map[string]int{}, status: map[string]int{}, renewed: map[string]string{}, resets: map[string]string{}, probe: map[string]probeAnswer{}}
 }
 
 func (f *anthropic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +82,24 @@ func (f *anthropic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			reset = "2026-10-26T15:00:00Z"
 		}
 		fmt.Fprintf(w, `{"limits":[{"kind":"session","percent":%d,"resets_at":%q}]}`, pct, reset)
+	case "/v1/messages":
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.calls = append(f.calls, "probe "+tok+" "+body.Model)
+		ans, ok := f.probe[tok+" "+body.Model]
+		if !ok {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		for k, v := range ans.headers {
+			w.Header().Set(k, v)
+		}
+		if ans.status != 0 {
+			w.WriteHeader(ans.status)
+		}
+		io.WriteString(w, `{}`)
 	case "/v1/oauth/token":
 		var body map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -142,4 +161,11 @@ func blockOf(t *testing.T, got []Account, email string) Account {
 	}
 	t.Fatalf("no block for %s in %+v", email, got)
 	return Account{}
+}
+
+// probeAnswer is the fake's answer to a header probe: its status (200 when
+// 0) and headers.
+type probeAnswer struct {
+	status  int
+	headers map[string]string
 }

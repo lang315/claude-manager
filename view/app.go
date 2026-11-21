@@ -169,6 +169,9 @@ func (a *App) header(c *ui.Context, pal *palette, live int) {
 			if ui.Button(c, "Add Account…").Disabled(a.Accounts == nil || a.limits.switching != "").Clicked() {
 				a.limits.startAdd(a)
 			}
+			if ui.Button(c, "Add Token…").Disabled(a.Accounts == nil || a.limits.switching != "").Clicked() {
+				a.limits.startToken()
+			}
 			if ui.Button(c, "Refresh").Disabled(a.Accounts == nil || a.limits.loading || a.limits.switching != "").Clicked() {
 				a.limits.load(a, true)
 			}

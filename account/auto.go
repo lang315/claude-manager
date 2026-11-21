@@ -35,6 +35,9 @@ type Auto struct {
 	// default: 60 and 3.
 	Interval int `json:"interval,omitempty"`
 	Ticks    int `json:"ticks,omitempty"`
+	// Probe reads setup-token accounts' limits with 1-token requests
+	// (usage.headerProbe): each is a real request on the account.
+	Probe bool `json:"headerProbe,omitempty"`
 }
 
 // Every is the time between auto-switch's ticks.

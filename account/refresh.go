@@ -174,6 +174,9 @@ func (b *Book) identify(ctx context.Context, now time.Time) (Login, *Profile, er
 	if err != nil {
 		return l, nil, err
 	}
+	if p := b.tokenOwner(l); p != nil {
+		return l, p, nil // a setup-token: no account to ask about, and no expiry
+	}
 	if l.expiresBy(now) {
 		return l, nil, errLiveExpired
 	}
@@ -208,7 +211,9 @@ func (b *Book) profileOf(ctx context.Context, token string) (Profile, error) {
 func (b *Book) read(ctx context.Context, a *Account, token, held string, now time.Time) {
 	var limits []Limit
 	var err error
-	if token != "" {
+	if a.Token {
+		limits, err = b.readToken(ctx, a, now)
+	} else if token != "" {
 		limits, err = b.API.Usage(ctx, token)
 		switch {
 		case !errors.Is(err, ErrUnauthorized):

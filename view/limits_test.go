@@ -62,6 +62,9 @@ func limitsApp(t *testing.T) *lim {
 				pct = p.(int)
 			}
 			fmt.Fprintf(w, `{"limits":[{"kind":"session","percent":62,"resets_at":"2026-10-26T15:00:00Z"},{"kind":"weekly_all","percent":%d,"resets_at":%q}],"extra_usage":%s}`, pct, weeklyReset.Load(), extra.Load())
+		case "/v1/messages": // the header probe: a setup-token at 37% and 12%
+			w.Header().Set("anthropic-ratelimit-unified-5h-utilization", "0.37")
+			w.Header().Set("anthropic-ratelimit-unified-7d-utilization", "0.12")
 		case "/v1/oauth/token":
 			w.WriteHeader(http.StatusBadRequest)
 			io.WriteString(w, `{"error":"invalid_grant"}`)

@@ -480,6 +480,33 @@ wiring has no test).
 Verified: `TestParseUsageExtraUsage`, `TestLimitsExtraUsage`; mutation
 checks (7 of 7 caught).
 
+## 8. Setup-token accounts and the header probe
+
+- "Add Token…" (toolbar): a setup-token (`sk-ant-oat…`, from `claude
+  setup-token`), an optional email as its label (else
+  `setup-token-N@token.local`), and "Read setup-token usage". Nothing is
+  asked of Anthropic. As claude-swap's `add-token`: the saved login is
+  `{"claudeAiOauth":{"accessToken":…,"scopes":["user:inference"]}}`, the
+  `oauthAccount` `{"emailAddress":…,"accountUuid":"",…}`; the account key is
+  `token:<email>/`; adding the same label again replaces its token.
+- Identity: a login with no refresh token is a setup-token's when it is a
+  setup-token account's saved access token (`tokenOwner`), in `identify`
+  and `whose`, before Anthropic is asked; no other tokenless login is ever
+  filed under one (the refresh-token match needs a refresh token).
+- Reading (`oauth.py` `request_usage_via_probe`, `usage.headerProbe`): off,
+  a setup-token account shows why and nothing is asked. On, a 1-token Haiku
+  `/v1/messages` request's `anthropic-ratelimit-unified-5h/7d-*` headers
+  give its session and weekly windows, and a 1-token Fable request its
+  `7d_oi` window. A 429 with `unified-status: rejected` reads as the window
+  at 100% until Retry-After, else the reset header; a refused Haiku probe
+  stops there. A setup-token is never renewed.
+- Not offered for a setup-token: Sign In Again, Open in Terminal, Export
+  (left out: no refresh token).
+
+Verified: `TestAddToken`, `TestProbe`, `TestRefreshSetupToken`,
+`TestSwitchSetupTokens`, `TestSwitchUnknownTokenlessLogin`,
+`TestLimitsAddToken`; mutation checks (21 of 21 caught).
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported

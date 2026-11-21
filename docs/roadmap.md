@@ -86,7 +86,8 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | Linux, Windows, WSL | Not applicable: macOS app |
 | Spend (extra usage) on each account | 7: an "Extra usage" row, and "extra N%" in the menu bar |
 | `switch` with no account: rotate, best, next-available | Covered: the window and the menu bar list every account with its windows, and a click switches to it; auto-switch picks the best |
-| `add-token`: setup-tokens, Console API keys; `usage.headerProbe` | Not ported: Anthropic's usage endpoint doesn't answer setup-tokens, and the probe spends a real request on the account each poll; API keys have no subscription limits |
+| `add-token` with a setup-token; `usage.headerProbe` | 8: Add Token…, and "Read setup-token usage" |
+| `add-token` with a Console API key | 8b |
 | `import-usage`, `--hold` | 3c: Import takes a `cswap list --json` file too, with "Don't read those accounts here for N minutes" |
 | `list --token-status` | Covered: each block shows its sign-in's end ("good until") and why a read failed |
 | `export --full` (a same-Mac backup) | 3b: the Export dialog's "Full backup for this Mac" |
@@ -100,7 +101,7 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | Setting `autoswitch.includeApiKeyAccounts` | Not applicable: no API-key accounts |
 | Setting `run.shareHistory` | Covered: the Open in Terminal dialog's history checkbox (4b), asked each time |
 | Setting `updates.check`, `ui.theme` | Not applicable: app updates; macOS appearance |
-| Setting `usage.headerProbe` | Not ported (see `add-token`) |
+| Setting `usage.headerProbe` | 8: "Read setup-token usage" in Add Token |
 | README "How it works": a target's token freshened before a switch | Covered in part: auto-switch lands only on an account its own login read well in the last 5 minutes (an hour while Anthropic is out of reach); the login itself is not renewed first |
 | README "How it works": plan refreshed every six hours | Covered: the plan comes with each login (its `subscriptionType`) |
 | README "Tips", "Data locations", "JSON output", "Uninstall" | Not applicable: CLI and Python package |

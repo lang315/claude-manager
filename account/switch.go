@@ -135,6 +135,9 @@ func (b *Book) whose(ctx context.Context, blob []byte) (*Profile, error) {
 	if err != nil {
 		return nil, nil
 	}
+	if p := b.tokenOwner(l); p != nil {
+		return p, nil
+	}
 	lapsed := l.expiresBy(b.Now())
 	if !lapsed {
 		p, err := b.profileOf(ctx, l.AccessToken)
@@ -164,7 +167,7 @@ func (b *Book) whose(ctx context.Context, blob []byte) (*Profile, error) {
 		if err != nil {
 			continue
 		}
-		if s, err := parseLogin(saved); err == nil && s.RefreshToken == l.RefreshToken {
+		if s, err := parseLogin(saved); err == nil && l.RefreshToken != "" && s.RefreshToken == l.RefreshToken {
 			return &Profile{AccountUUID: a.AccountUUID, Email: a.Email, OrgUUID: a.OrgUUID, OrgName: a.OrgName}, nil
 		}
 	}
