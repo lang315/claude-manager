@@ -303,6 +303,27 @@ through `sh` with `'`, `"`, `$` and spaces; mutation checks (21 account,
 on a profile; that Claude Code reads the seeded `.credentials.json` on this
 Mac (claude-swap relies on it).
 
+## 5. Weekly pace and per-model windows
+
+- Pace (`pace.py` `compute_pace`): a weekly window (`weekly_all`,
+  `seven_day`, `weekly_scoped`) read at `ReadAt` is in its cycle by the reset
+  rolled by whole 7-day steps; expected use is the elapsed share of the week.
+  Nothing in the first 24 hours of a cycle. "Ahead of pace", muted, in the
+  row's status slot, at 15 points or more over expected; "Limit reached"
+  takes the slot first. The projection fields (`willLastToReset`, ETA) stay
+  out, as claude-swap keeps them out of its UI.
+- Per-model windows (`--model`, `autoswitch.model`): `Auto.Model`, a comma
+  list matched case-insensitively on the scoped window's name, `all` for
+  every one. A named window is one more window in `stand`, on the weekly line
+  when one is set, else the account's line; its reset does not stand in for
+  the 7-day reset in the weekly strategies. Set in Auto-Switch Settings,
+  "Model windows".
+- Not ported: the one-shot warning for a model name no account reports.
+
+Verified: `TestPace` (rolling both ways, the first day, the 15-point edge,
+kinds), `TestDecide` (named, `all`, unnamed, a spent model window as no
+landing, the weekly line), view tests; mutation checks (10 of 10 caught).
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported

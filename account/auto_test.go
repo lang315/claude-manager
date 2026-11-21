@@ -37,6 +37,10 @@ func TestDecide(t *testing.T) {
 	ownLine.Line = 80
 	tier := func(a Account, p int) Account { a.Priority = p; return a }
 	line := func(a Account, l float64) Account { a.Line = l; return a }
+	model := func(a Account, pct float64) Account {
+		a.Limits = append(a.Limits, Limit{Kind: "weekly_scoped", Scope: "Fable", Percent: pct})
+		return a
+	}
 	over := func(a Account) Account {
 		a.Limits = append(a.Limits, Limit{Kind: "weekly_scoped", Scope: "Fable", Percent: 100})
 		return a
@@ -57,6 +61,11 @@ func TestDecide(t *testing.T) {
 		{"weekly line holds 7d 93 under 97", with(func(s *Auto) { s.Line, s.WeeklyLine = 85, 97 }), []Account{inUse(acct("a", 10, 93, day)), acct("b", 0, 0, day)}, time.Time{}, ""},
 		{"five-hour 95 under 85 switches", with(func(s *Auto) { s.Line, s.WeeklyLine = 85, 97 }), []Account{inUse(acct("a", 95, 10, day)), acct("b", 0, 0, day)}, time.Time{}, "b"},
 		{"per-model windows don't count", def, []Account{inUse(over(acct("a", 10, 10, day))), acct("b", 0, 0, day)}, time.Time{}, ""},
+		{"a named model's spent window switches", with(func(s *Auto) { s.Model = "opus, fable" }), []Account{inUse(over(acct("a", 10, 10, day))), acct("b", 0, 0, day)}, time.Time{}, "b"},
+		{"all names every model", with(func(s *Auto) { s.Model = "all" }), []Account{inUse(over(acct("a", 10, 10, day))), acct("b", 0, 0, day)}, time.Time{}, "b"},
+		{"another model's window doesn't count", with(func(s *Auto) { s.Model = "Opus" }), []Account{inUse(over(acct("a", 10, 10, day))), acct("b", 0, 0, day)}, time.Time{}, ""},
+		{"a model window spent is no landing", with(func(s *Auto) { s.Model = "Fable" }), []Account{inUse(acct("a", 95, 10, day)), over(acct("b", 0, 0, day)), acct("c", 30, 10, day)}, time.Time{}, "c"},
+		{"a model window takes the weekly line", with(func(s *Auto) { s.Model, s.Line, s.WeeklyLine = "Fable", 85, 97 }), []Account{inUse(model(acct("a", 10, 10, day), 93)), acct("b", 0, 0, day)}, time.Time{}, ""},
 		{"own line", def, []Account{ownLine, acct("b", 0, 0, day)}, time.Time{}, "b"},
 		{"all over: 2 points more is not enough", def, []Account{inUse(acct("a", 95, 10, day)), acct("b", 93, 10, day)}, time.Time{}, ""},
 		{"all over: 3 points more moves", def, []Account{inUse(acct("a", 95, 10, day)), acct("b", 92, 10, day)}, time.Time{}, "b"},

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -24,6 +25,10 @@ type Auto struct {
 	Cooldown   int     `json:"cooldown"`   // seconds
 	Margin     float64 `json:"margin"`
 	Strategy   string  `json:"strategy"`
+	// Model names the per-model weekly windows that count too, comma
+	// separated, matched case-insensitively; "all" for every one, "" for
+	// none (claude-swap's --model).
+	Model string `json:"model,omitempty"`
 }
 
 // DefaultAuto is auto-switch as first set: off.
@@ -40,6 +45,17 @@ func (s Auto) clamped() Auto {
 		s.Strategy = Best
 	}
 	return s
+}
+
+// counts reports whether model's weekly window is one of s.Model's.
+func (s Auto) counts(model string) bool {
+	for _, m := range strings.Split(s.Model, ",") {
+		m = strings.TrimSpace(m)
+		if m != "" && (strings.EqualFold(m, "all") || strings.EqualFold(m, model)) {
+			return true
+		}
+	}
+	return false
 }
 
 func clamp(v, lo, hi float64) float64 { return math.Min(math.Max(v, lo), hi) }
@@ -83,6 +99,13 @@ func stand(a Account, s Auto) (standing, bool) {
 				w = s.WeeklyLine
 			}
 			st.weekly = l.ResetsAt
+		case "weekly_scoped":
+			if !s.counts(l.Scope) {
+				continue
+			}
+			if s.WeeklyLine != 0 {
+				w = s.WeeklyLine
+			}
 		default:
 			continue
 		}

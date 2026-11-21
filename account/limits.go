@@ -33,6 +33,36 @@ func (l Limit) Label() string {
 	return name
 }
 
+// Pace is claude-swap's weekly pace (pace.py): expected is the share of a
+// weekly window used on schedule, read at readAt, from how far into its
+// 7-day cycle it is; ahead is 15 points or more past it. ok is false for
+// a window that isn't weekly, has no reset, or reset less than a day ago,
+// when nearly any use reads as ahead.
+func (l Limit) Pace(readAt time.Time) (expected float64, ahead, ok bool) {
+	switch l.Kind {
+	case "weekly_all", "seven_day", "weekly_scoped":
+	default:
+		return 0, false, false
+	}
+	if l.ResetsAt.IsZero() || readAt.IsZero() {
+		return 0, false, false
+	}
+	const week = 7 * 24 * time.Hour
+	left := l.ResetsAt.Sub(readAt) % week
+	if left < 0 {
+		left += week
+	}
+	elapsed := week - left
+	if left == 0 {
+		elapsed = 0
+	}
+	if elapsed < 24*time.Hour {
+		return 0, false, false
+	}
+	expected = min(100, 100*float64(elapsed)/float64(week))
+	return expected, l.Percent-expected >= 15, true
+}
+
 var errNoLimits = errors.New("Anthropic's answer holds no limits.")
 
 type scoped struct {

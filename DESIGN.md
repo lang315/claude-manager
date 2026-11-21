@@ -178,6 +178,7 @@ A grey instrument with two signal colours, each bound to one meaning.
   - From 80% it takes MyGo's Warning amber, and from 95% its Danger red.
   - Amber and red mean "near a limit", and appear nowhere else.
   - The percentage is always printed beside the meter, with "Limit reached" at 100%, so colour is never the only signal.
+  - Below 100%, a weekly row used 15 points or more faster than its week has gone shows a muted "Ahead of pace" in that slot, with the on-pace share as its tooltip; never in a cycle's first day.
   - Green stays the lamp's.
 
 ### Named Rules
@@ -283,7 +284,7 @@ MyGo's native data table, with the File column filling the width. Its footer mat
 On the Limits page's toolbar, after Refresh: "Export…" opens a save panel on the Desktop ("Claude accounts.json", JSON) and "Import…" an open panel (JSON, or all files: claude-swap's exports go by any name), both off while a switch runs. The save panel's message is both warnings (the file holds sign-ins, unencrypted; one Mac per account), the open panel's the second, and the toast after repeats them with what was done: "Exported 2 accounts. Left out 1: sign in again to it first.", "Imported: added 1 account, updated 1, left 1 as they were."
 
 ### Auto-Switch Row
-First on the Limits page, above the account blocks: the "Auto-switch" checkbox, then a muted 12px status (why it stays, or whom it last switched to; "Checks every minute while the app is open." with nothing to report; the reason it is off outside Claude Code's default folder), then, at the right, "Auto-Switch Settings…", which opens a modal: five-hour line, an optional weekly line, cooldown in minutes, margin in points, strategy (Most left, Weekly reset first, Spend soonest reset, By priority).
+First on the Limits page, above the account blocks: the "Auto-switch" checkbox, then a muted 12px status (why it stays, or whom it last switched to; "Checks every minute while the app is open." with nothing to report; the reason it is off outside Claude Code's default folder), then, at the right, "Auto-Switch Settings…", which opens a modal: five-hour line, an optional weekly line, cooldown in minutes, margin in points, strategy (Most left, Weekly reset first, Spend soonest reset, By priority), and Model windows: the per-model weekly windows that count too, comma separated, or "all".
 
 ### Account Block
 A face per account on the Limits page, padded 14 by 16.

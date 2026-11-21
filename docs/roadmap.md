@@ -58,7 +58,7 @@ Every feature in claude-swap's README and `src/`, and where it went.
 | `add` (capture the live login), `remove`, `list`, `status` | Ported: Add Account, follow (1b), Remove, the Limits page |
 | `switch` | Ported: 1 |
 | `auto`: strategies, lines, weekly line, cooldown, margin, `disable`/`enable`, `threshold`, `priority` | Ported: 2 |
-| `auto --model` per-model windows | 5 |
+| `auto --model` per-model windows | 5 (Model windows in Auto-Switch Settings) |
 | `auto`: no-return bar, failover on failed reads, idle hold, adaptive polling | Not ported: the app reads every 5 minutes (1 while auto-switch is on) and only acts on readings under 5 minutes old, so it holds instead of failing over |
 | `auto --once`, `--dry-run`, `--json`, exit codes | Not applicable: CLI and cron only |
 | Dead-token quarantine | Covered: a refused login shows its error and is never an auto-switch candidate; Sign In Again replaces it |

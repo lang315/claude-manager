@@ -160,6 +160,8 @@ func (l *limits) autoDialogs(c *ui.Context, a *App) {
 			field("Cooldown (minutes)", func() { ui.NumberInput(c, &u.cooldown, 0, 1440, 1) })
 			field("Margin (points)", func() { ui.NumberInput(c, &u.draft.Margin, 0, 50, 1) })
 			field("Strategy", func() { ui.Select(c, &u.strategy, strategyLabels) })
+			field("Model windows", func() { ui.TextInput(c, &u.draft.Model).Placeholder("None; e.g. Fable, or all").Grow(1) })
+			ui.Text(c, "Their weekly windows count too, on the weekly line: the names on the Weekly rows, comma separated.").FontSize(12).Wrap()
 			ui.Row(c).Gap(8).Children(func() {
 				ui.Spacer(c)
 				if ui.Button(c, "Cancel").Clicked() {

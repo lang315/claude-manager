@@ -173,7 +173,7 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 			ui.Text(c, "No figures yet.").TextColor(pal.muted)
 		}
 		for _, x := range b.Limits {
-			limitRow(c, pal, x, now)
+			limitRow(c, pal, x, b.ReadAt, now)
 		}
 		if len(b.Limits) > 0 && b.Err != "" {
 			ui.Text(c, b.Err+" Showing numbers from "+clock(b.ReadAt, now)+".").TextColor(pal.muted).Wrap()
@@ -196,18 +196,24 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 	})
 }
 
-// limitRow is one limit: its name, a meter, the share used and the reset.
-func limitRow(c *ui.Context, pal *palette, x account.Limit, now time.Time) {
+// limitRow is one limit: its name, a meter, the share used and the reset,
+// then "Limit reached" or, for a weekly window used faster than its week
+// goes, "Ahead of pace".
+func limitRow(c *ui.Context, pal *palette, x account.Limit, readAt, now time.Time) {
 	ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, x.Label()).Width(150).SingleLine()
 		meter(c, pal, x.Percent).Grow(1).Label(x.Label())
 		num(c, fmt.Sprintf("%.0f%%", x.Percent)).Width(44)
 		ui.Text(c, resets(x.ResetsAt, now)).TextColor(pal.muted).Width(150).SingleLine()
-		reached := "" // its slot stays, so every row's meter is as long
 		if x.Percent >= 100 {
-			reached = "Limit reached"
+			ui.Text(c, "Limit reached").Bold().Width(100).SingleLine()
+			return
 		}
-		ui.Text(c, reached).Bold().Width(100).SingleLine()
+		if expected, ahead, _ := x.Pace(readAt); ahead {
+			ui.Text(c, "Ahead of pace").TextColor(pal.muted).Width(100).SingleLine().Tooltip(fmt.Sprintf("On pace would be %.0f%% by now.", expected))
+		} else {
+			ui.Text(c, "").Width(100) // its slot stays, so every row's meter is as long
+		}
 	})
 }
 

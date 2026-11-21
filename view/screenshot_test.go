@@ -141,3 +141,26 @@ func TestLimitsScreenshot(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("Auto-Switch Settings") && tt.HasText("Strategy") })
 	shot("limits-auto-settings.png")
 }
+
+// TestLimitsPaceScreenshot writes limits-pace.png: alice ahead of pace.
+func TestLimitsPaceScreenshot(t *testing.T) {
+	dir := os.Getenv("SCREENSHOT_DIR")
+	if dir == "" {
+		t.Skip("set SCREENSHOT_DIR to write PNGs of the Limits page")
+	}
+	l := limitsApp(t)
+	l.weekly.Store("alice", 70)
+	l.weeklyReset.Store("2026-10-30T00:00:00Z")
+	tt := ui.NewTester(l.a.View, 1100, 720)
+	l.a.Update, l.tt = tt.Update, tt
+	l.open(t)
+	waitFor(t, tt, func() bool { return tt.HasText("Ahead of pace") })
+	f, err := os.Create(filepath.Join(dir, "limits-pace.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, tt.Image()); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+}

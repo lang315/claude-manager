@@ -32,6 +32,7 @@ type lim struct {
 	live           *account.Login // the login in use: alice's
 	usage          *atomic.Int32  // usage requests answered
 	weekly         *sync.Map      // a token's weekly percent, where not 100
+	weeklyReset    *atomic.Value  // string: when weekly windows reset
 	opened, copied *[]string
 }
 
@@ -40,6 +41,8 @@ func limitsApp(t *testing.T) *lim {
 	a, tt, _, _ := newApp(t)
 	var usage atomic.Int32
 	var weekly sync.Map
+	var weeklyReset atomic.Value
+	weeklyReset.Store("2026-11-03T02:00:00Z")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		switch r.URL.Path {
@@ -55,7 +58,7 @@ func limitsApp(t *testing.T) *lim {
 			if p, ok := weekly.Load(tok); ok {
 				pct = p.(int)
 			}
-			fmt.Fprintf(w, `{"limits":[{"kind":"session","percent":62,"resets_at":"2026-10-26T15:00:00Z"},{"kind":"weekly_all","percent":%d,"resets_at":"2026-11-03T02:00:00Z"}]}`, pct)
+			fmt.Fprintf(w, `{"limits":[{"kind":"session","percent":62,"resets_at":"2026-10-26T15:00:00Z"},{"kind":"weekly_all","percent":%d,"resets_at":%q}]}`, pct, weeklyReset.Load())
 		case "/v1/oauth/token":
 			w.WriteHeader(http.StatusBadRequest)
 			io.WriteString(w, `{"error":"invalid_grant"}`)
@@ -66,7 +69,7 @@ func limitsApp(t *testing.T) *lim {
 	api.Base, api.AuthBase = srv.URL, srv.URL
 	now := fixture.Now
 	live := account.Login{AccessToken: "alice", ExpiresAt: fixture.Now.Add(time.Hour).UnixMilli(), SubscriptionType: "max"}
-	l := &lim{a: a, tt: tt, vault: account.NewMemory(), now: &now, live: &live, usage: &usage, weekly: &weekly, opened: &[]string{}, copied: &[]string{}}
+	l := &lim{a: a, tt: tt, vault: account.NewMemory(), now: &now, live: &live, usage: &usage, weekly: &weekly, weeklyReset: &weeklyReset, opened: &[]string{}, copied: &[]string{}}
 	l.book = &account.Book{
 		Dir: t.TempDir(), Vault: l.vault, API: api,
 		Now:  func() time.Time { return now },
@@ -460,4 +463,16 @@ func TestLimitsSwitchError(t *testing.T) {
 	must(t, l.tt.ChooseMenuItem("Switch to This Account"))
 	waitFor(t, l.tt, func() bool { return l.tt.HasText(account.ErrInvalidGrant.Error()) })
 	waitFor(t, l.tt, func() bool { return !l.tt.HasText("Switching…") })
+}
+
+// Half way through the week at 70%: 20 points ahead of pace.
+func TestLimitsAheadOfPace(t *testing.T) {
+	l := limitsApp(t)
+	l.weekly.Store("alice", 70)
+	l.weeklyReset.Store("2026-10-30T00:00:00Z") // 3.5 days from fixture.Now
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Ahead of pace") })
+	l.weekly.Store("alice", 60)
+	must(t, l.tt.Click("Refresh"))
+	waitFor(t, l.tt, func() bool { return !l.tt.HasText("Ahead of pace") })
 }
