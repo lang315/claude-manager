@@ -43,7 +43,7 @@ type Keychain struct {
 
 func (k Keychain) Get(service, acct string) ([]byte, error) {
 	out, err := k.run("the read", "", k.in(args("find-generic-password", service, acct, "-w"))...)
-	for try := 0; try < 2 && err != nil && !errors.Is(err, ErrNotFound) && !errors.Is(err, errKeychainSlow); try++ {
+	for try := 0; try < 2 && err != nil && !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrKeychainSlow); try++ {
 		time.Sleep(300 * time.Millisecond) // claude-swap's retry of a read that failed once
 		out, err = k.run("the read", "", k.in(args("find-generic-password", service, acct, "-w"))...)
 	}
@@ -129,7 +129,7 @@ func (k Keychain) run(what, stdin string, arg ...string) ([]byte, error) {
 	text := msg.String()
 	switch {
 	case ctx.Err() != nil:
-		return nil, errKeychainSlow
+		return nil, ErrKeychainSlow
 	case strings.Contains(text, "could not be found"):
 		return nil, ErrNotFound
 	case strings.Contains(text, "User interaction is not allowed"), strings.Contains(text, "locked"):
@@ -146,7 +146,7 @@ func (k Keychain) run(what, stdin string, arg ...string) ([]byte, error) {
 // nobody answers can't hold the book.
 var keychainTimeout = 5 * time.Second
 
-var errKeychainSlow = errors.New("The keychain didn't answer in time: it may be locked, or waiting on a prompt.")
+var ErrKeychainSlow = errors.New("The keychain didn't answer in time: it may be locked, or waiting on a prompt.")
 
 // Memory is a Vault in memory, for tests. Fail, when set, fails every Put.
 type Memory struct {

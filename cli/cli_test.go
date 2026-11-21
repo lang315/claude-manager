@@ -266,8 +266,11 @@ func TestListUnavailable(t *testing.T) {
 	a := newApp(t)
 	delete(a.usage, "bob")
 	_, out, _ := a.run(t, "", "list", "--json")
-	if !strings.Contains(out, `"email":"bob@example.com","organizationUuid":"org","key":"bob/org","active":false,"added":true,"usageStatus":"unavailable"`) {
-		t.Errorf("list %s", out)
+	for _, want := range []string{`"email":"bob@example.com"`, `"organizationUuid":"org","isOrganization":true,"key":"bob/org","active":false,"added":true,"usageStatus":"unavailable"`,
+		`"duplicateAccountWarnings":[]`, `"lockstepUsageWarnings":[]`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %s in list %s", want, out)
+		}
 	}
 }
 

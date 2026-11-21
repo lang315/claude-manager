@@ -396,7 +396,10 @@ type usageJSON struct {
 type row struct {
 	Number      int        `json:"number"`
 	Email       string     `json:"email"`
+	OrgName     string     `json:"organizationName"`
 	OrgUUID     string     `json:"organizationUuid"`
+	IsOrg       bool       `json:"isOrganization"`
+	Alias       string     `json:"alias,omitempty"`
 	Key         string     `json:"key"`
 	Active      bool       `json:"active"`
 	Added       bool       `json:"added"`
@@ -434,8 +437,8 @@ func stamp(t time.Time) string {
 }
 
 func toRow(a account.Account, now time.Time) row {
-	r := row{Number: a.Slot, Email: a.Email, OrgUUID: a.OrgUUID, Key: a.Key(), Active: a.InUse, Added: a.Added,
-		Disabled: a.AutoOff, Threshold: a.Line, LoginExpiry: stamp(a.GoodUntil), Status: "unavailable", Error: a.Err}
+	r := row{Number: a.Slot, Email: a.Email, OrgName: a.OrgName, OrgUUID: a.OrgUUID, IsOrg: a.OrgUUID != "", Alias: a.Alias, Key: a.Key(), Active: a.InUse, Added: a.Added,
+		Disabled: a.AutoOff, Threshold: a.Line, LoginExpiry: stamp(a.GoodUntil), Status: usageStatus(a), Error: a.Err}
 	if a.PlanTier != "" {
 		r.Plan = &planJSON{Label: account.PlanLabel(a), Tier: a.PlanTier, OrgType: a.PlanOrg, Status: a.PlanStatus,
 			Name: a.PlanName, Expired: account.PlanLapsed(a), FetchedAt: stamp(a.PlanAt)}
@@ -516,6 +519,14 @@ func (c *cmd) list(ctx context.Context, asJSON bool) error {
 			rows = append(rows, r)
 		}
 		doc["accounts"] = rows
+		dup, lock := []string{}, []string{} // cswap's warning arrays
+		for _, d := range c.b.Duplicates() {
+			dup = append(dup, d[0]+" and "+d[1]+" hold the same login")
+		}
+		for _, d := range lockstep(accts) {
+			lock = append(lock, d[0]+" and "+d[1]+" report identical usage and resets")
+		}
+		doc["duplicateAccountWarnings"], doc["lockstepUsageWarnings"] = dup, lock
 		return json.NewEncoder(c.out).Encode(doc)
 	}
 	w := bufio.NewWriter(c.out)
@@ -1180,4 +1191,20 @@ func lockstep(accts []account.Account) [][2]string {
 		seen[k] = a.Email
 	}
 	return out
+}
+
+// usageStatus is cswap's usageStatus for an account without a usable
+// reading: why there is none.
+func usageStatus(a account.Account) string {
+	switch {
+	case a.APIKey:
+		return "api_key"
+	case a.Err == account.LiveExpired, a.Err == account.InTerminalExpired:
+		return "token_expired" // its holder renews it on the next message
+	case a.Err == account.ErrInvalidGrant.Error():
+		return "relogin_required"
+	case a.Err == account.ErrLocked.Error(), a.Err == account.ErrKeychainSlow.Error():
+		return "keychain_unavailable"
+	}
+	return "unavailable"
 }

@@ -166,3 +166,18 @@ func TestLockstep(t *testing.T) {
 		t.Errorf("lockstep %v", got)
 	}
 }
+
+// cswap's usageStatus kinds, for scripts to tell why there is no usage.
+func TestUsageStatus(t *testing.T) {
+	for want, a := range map[string]account.Account{
+		"api_key":              {APIKey: true},
+		"token_expired":        {Err: account.LiveExpired},
+		"relogin_required":     {Err: account.ErrInvalidGrant.Error()},
+		"keychain_unavailable": {Err: account.ErrLocked.Error()},
+		"unavailable":          {Err: "Anthropic answered 500."},
+	} {
+		if got := toRow(a, time.Now()).Status; got != want {
+			t.Errorf("%+v: %s, want %s", a, got, want)
+		}
+	}
+}
