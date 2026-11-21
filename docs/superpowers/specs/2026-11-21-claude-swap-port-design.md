@@ -786,9 +786,20 @@ Verified: `TestRankingAndAddInUse`, `TestDryRun`, `TestAddThisAccount`,
   "Couldn't Finish" with the whole error, selectable, and Copy. Its keys:
   j/k choose an account (its edge marked), s switches to it.
 
-Verified: the two above, `TestKeychainGuard`, `TestFailureDialog`,
-`TestViKeys`; mutation checks (6 of 6 caught). Not verified: Claude Code
-itself reading what the app wrote (it never runs here).
+- Claude Code itself (`TestClaudeCodeReadsWhatTheAppWrites`, opt in with
+  `CLAUDE_MANAGER_CLAUDE_E2E=1`): the real `claude auth status`, on folders
+  of the test's own with fake tokens, reads what the app wrote: after a
+  switch to an OAuth account (`claude.ai`, its email from `oauthAccount`),
+  to a setup-token (`claude.ai`, its label), to an API key (`api_key`, "/login
+  managed key" from `primaryApiKey`), and an Open in Terminal seed. Claude
+  Code 2.1.330 on 2026-11-21. A fake refresh token makes Claude Code drop
+  the login after its refresh fails, as claude-swap notes.
+
+Verified: the three above, `TestKeychainGuard`, `TestFailureDialog`,
+`TestViKeys`; mutation checks (6 of 6 caught). Not verified: the default
+folder's keychain items read by Claude Code (writing them would change the
+user's own Claude Code), and real Anthropic answers for an OAuth switch
+through the binary.
 
 ## Not ported
 
