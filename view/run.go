@@ -31,10 +31,11 @@ func (l *limits) runDialog(c *ui.Context, a *App) {
 				}
 				ui.Text(c, shown).Grow(1).MinWidth(0).SingleLine()
 				if ui.Button(c, "Choose Folder…").Clicked() {
+					key, email := u.acct.Key(), u.acct.Email // read here: the dialog may be another account's by the answer
 					a.Go(func() {
-						folder, err := a.ChooseFolder("Open Claude Code in this folder as " + u.acct.Email + ".")
+						folder, err := a.ChooseFolder("Open Claude Code in this folder as " + email + ".")
 						a.Update(func() {
-							if folder != "" {
+							if folder != "" && u.acct.Key() == key {
 								u.folder = folder
 							}
 							l.toast(a, err)

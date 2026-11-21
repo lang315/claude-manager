@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -137,6 +138,9 @@ var (
 // autoFlags applies cswap auto's flags over the saved settings for this
 // run.
 func (c *cmd) autoFlags(threshold, weekly float64, model, strategy string, interval float64, keys bool) error {
+	if math.IsNaN(threshold) || math.IsNaN(weekly) || math.IsNaN(interval) { // flag takes "nan"
+		return errors.New("--threshold, --weekly-threshold and --interval take numbers.")
+	}
 	s, err := c.b.AutoSettings()
 	if err != nil {
 		return err

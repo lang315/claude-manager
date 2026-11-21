@@ -112,6 +112,11 @@ func TestAutoLoopAndFlags(t *testing.T) {
 	if code, _, _ := a.run(t, "", "auto", "--once", "--strategy", "worst"); code != failed {
 		t.Error("worst strategy taken")
 	}
+	for _, f := range []string{"--threshold", "--weekly-threshold", "--interval"} {
+		if code, out, _ := a.run(t, "", "auto", "--once", f, "nan"); code != failed || strings.Contains(out, "Switched") {
+			t.Errorf("%s nan: %d %s", f, code, out)
+		}
+	}
 }
 
 func TestTokenStatusRunArgsStdio(t *testing.T) {
