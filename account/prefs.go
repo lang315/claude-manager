@@ -3,6 +3,7 @@ package account
 import (
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -142,7 +143,20 @@ func (b *Book) Set(key, value string) error {
 		}
 		return v, nil
 	}
+	whole := func(lo, hi float64) (float64, error) { // claude-swap: "expects an integer"
+		v, err := num(lo, hi)
+		if err == nil && v != math.Trunc(v) {
+			return 0, fmt.Errorf("%s takes a whole number from %g to %g.", key, lo, hi)
+		}
+		return v, err
+	}
 	boolean := func() (bool, error) {
+		switch strings.ToLower(value) { // claude-swap's yes and no too
+		case "yes":
+			return true, nil
+		case "no":
+			return false, nil
+		}
 		v, err := strconv.ParseBool(value)
 		if err != nil {
 			return false, fmt.Errorf("%s takes true or false.", key)
@@ -164,13 +178,13 @@ func (b *Book) Set(key, value string) error {
 	case "autoswitch.intervalSeconds":
 		var v float64
 		if !unset {
-			v, err = num(15, 3600)
+			v, err = whole(15, 3600)
 		}
 		s.Interval = int(v)
 	case "autoswitch.cooldownSeconds":
 		v := float64(d.Cooldown)
 		if !unset {
-			v, err = num(0, 86400)
+			v, err = whole(0, 86400)
 		}
 		s.Cooldown = int(v)
 	case "autoswitch.hysteresisPct":
@@ -194,7 +208,7 @@ func (b *Book) Set(key, value string) error {
 	case "autoswitch.unhealthyTicks":
 		var v float64
 		if !unset {
-			v, err = num(1, 100)
+			v, err = whole(1, 100)
 		}
 		s.Ticks = int(v)
 	case "autoswitch.model":

@@ -181,3 +181,24 @@ func TestUsageStatus(t *testing.T) {
 		}
 	}
 }
+
+// cswap's config: set and unset say what they did; yes and no are
+// booleans; a count takes a whole number; path names the file.
+func TestConfigAsCswap(t *testing.T) {
+	a := newApp(t)
+	if _, out, _ := a.run(t, "", "config", "set", "autoswitch.enabled", "yes"); out != "autoswitch.enabled = true\n" {
+		t.Errorf("set yes: %q", out)
+	}
+	if _, out, _ := a.run(t, "", "config", "unset", "autoswitch.enabled"); out != "autoswitch.enabled unset (default: false)\n" {
+		t.Errorf("unset: %q", out)
+	}
+	if code, _, errs := a.run(t, "", "config", "set", "autoswitch.unhealthyTicks", "3.5"); code != failed || !strings.Contains(errs, "whole number") {
+		t.Errorf("3.5 ticks: %d %s", code, errs)
+	}
+	if code, _, errs := a.run(t, "", "config", "set", "autoswitch.model", ""); code != failed || !strings.Contains(errs, "config unset") {
+		t.Errorf("empty model: %d %s", code, errs)
+	}
+	if _, out, _ := a.run(t, "", "config", "path"); !strings.HasSuffix(strings.TrimSpace(out), "accounts.json") {
+		t.Errorf("path: %q", out)
+	}
+}

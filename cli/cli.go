@@ -283,7 +283,7 @@ const usage = `claude-manager <command> [flags]
                                    a short name for an account, or list them
   map [<email> [folder]]           map a folder (and those below) to an account, or list
   unmap [folder]                   take a folder's mapping away
-  config [list | get <key> | set <key> <value> | unset <key>]
+  config [list | get <key> | set <key> <value> | unset <key> | path]
                                    settings, by claude-swap's names
   upgrade                          install a newer version of the app
   unclaimed [--purge ID]           logins in use kept as nobody's when switched off
@@ -975,16 +975,31 @@ func (c *cmd) config(rest []string) error {
 		if len(rest) < 3 {
 			return errors.New("config set <key> <value>")
 		}
+		if strings.TrimSpace(rest[2]) == "" {
+			return fmt.Errorf("config set %s takes a value: config unset %s clears it.", rest[1], rest[1])
+		}
 		if err := c.b.Set(rest[1], rest[2]); err != nil {
 			return err
+		}
+		all, _ = c.b.Settings()
+		if s, err := get(rest[1]); err == nil {
+			fmt.Fprintf(c.out, "%s = %s\n", s.Key, s.Value)
 		}
 	case "unset":
 		if len(rest) < 2 {
 			return errors.New("config unset <key>")
 		}
-		return c.b.Set(rest[1], "")
+		if err := c.b.Set(rest[1], ""); err != nil {
+			return err
+		}
+		all, _ = c.b.Settings()
+		if s, err := get(rest[1]); err == nil {
+			fmt.Fprintf(c.out, "%s unset (default: %s)\n", s.Key, s.Default)
+		}
+	case "path":
+		fmt.Fprintln(c.out, filepath.Join(c.b.Dir, "accounts.json")) // cswap's config path: where the settings live
 	default:
-		return errors.New("config list, get, set or unset")
+		return errors.New("config list, get, set, unset or path")
 	}
 	return nil
 }
