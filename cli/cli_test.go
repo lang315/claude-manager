@@ -288,6 +288,14 @@ func TestAliasMapRun(t *testing.T) {
 	if _, out, _ := a.run(t, "", "version"); out != "claude-manager 9.9\n" {
 		t.Errorf("version %q", out)
 	}
+	for _, h := range []string{"help", "-h", "--help"} {
+		if code, out, _ := a.run(t, "", h); code != ok || out != usage+"\n" {
+			t.Errorf("%s: %d %q", h, code, out)
+		}
+	}
+	if code, _, errs := a.run(t, "", "swtich"); code != failed || errs != usage+"\n" {
+		t.Errorf("a typo: %d %q", code, errs)
+	}
 }
 
 func TestConfigDebugUpgrade(t *testing.T) {

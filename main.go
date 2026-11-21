@@ -11,7 +11,7 @@ import (
 	osuser "os/user"
 	"path/filepath"
 	"runtime"
-	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -39,7 +39,9 @@ func main() {
 		root, claudeJSON = filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json")
 	}
 	gui := cli.GUI(os.Args[1:])
-	if !gui && len(os.Args) > 1 && slices.Contains(cli.Commands, os.Args[1]) {
+	// Anything but the app's own commands gets the usage, not the window;
+	// -psn_ is what Finder passed apps on old macOS.
+	if !gui && len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-psn_") {
 		cli.Version = version
 		cli.Upgrade = upgrade
 		st := &store.Store{Root: root, ClaudeJSON: claudeJSON, Alive: store.PIDAlive, Profiles: account.ProfilesDir(appDir(home))}

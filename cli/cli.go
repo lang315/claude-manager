@@ -35,7 +35,7 @@ const (
 
 // Commands are the commands Run knows; main opens the app for anything
 // else.
-var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "alias", "map", "unmap", "move", "swap", "unclaimed", "add", "disable", "enable", "threshold", "priority", "menubar", "history", "config", "upgrade", "version", "--version", "help"}
+var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "alias", "map", "unmap", "move", "swap", "unclaimed", "add", "disable", "enable", "threshold", "priority", "menubar", "history", "config", "upgrade", "version", "--version", "help", "-h", "--help"}
 
 // Upgrade installs a newer version of the app, if there is one, and says
 // what it did; main sets it.
@@ -100,7 +100,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 	var err error
 	code := ok
 	switch args[0] {
-	case "help":
+	case "help", "-h", "--help":
 		fmt.Fprintln(out, usage)
 	case "version", "--version":
 		fmt.Fprintln(out, "claude-manager", Version)
