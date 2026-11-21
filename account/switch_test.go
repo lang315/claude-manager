@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -349,5 +350,83 @@ func TestWithTokensKeepsFields(t *testing.T) {
 	got, _ := parseLogin(out)
 	if got.AccessToken != "a2" || got.RefreshToken != "r2" || !strings.Contains(string(out), `"extra":"keep"`) {
 		t.Fatalf("withTokens = %s", out)
+	}
+}
+
+// withUUIDs is blob with whose login it is inside claudeAiOauth, as Claude
+// Code writes it.
+func withUUIDs(t *testing.T, blob []byte, p Profile) []byte {
+	t.Helper()
+	o := map[string]any{}
+	must(t, json.Unmarshal(oauthOf(blob), &o))
+	o["accountUuid"], o["organizationUuid"] = p.AccountUUID, p.OrgUUID
+	raw, _ := json.Marshal(o)
+	out, err := withOAuth(blob, raw)
+	must(t, err)
+	return out
+}
+
+// bobLapsed switches to bob, then has Claude Code renew his login and leave
+// it to lapse: its refresh token is no longer the one the app saved.
+func bobLapsed(t *testing.T) (*Book, *Memory, *Home, *anthropic) {
+	t.Helper()
+	b, v, h, f := switchBook(t)
+	must(t, b.Switch(ctx, bob.Key()))
+	must(t, v.Put(liveDefault, "me", withUUIDs(t, stored(t, login("bob-at2", "bob-rt2", t0.Add(3*time.Hour))), bob)))
+	b.Now = func() time.Time { return t0.Add(4 * time.Hour) }
+	return b, v, h, f
+}
+
+func TestSwitchLapsedRenewedLogin(t *testing.T) {
+	b, v, _, _ := bobLapsed(t)
+	must(t, b.Switch(ctx, alice.Key()))
+	if l, _ := parseLogin(get(t, v, ParkService, bob.Key())); l.RefreshToken != "bob-rt2" {
+		t.Errorf("bob's saved login = %q, want Claude Code's latest", l.RefreshToken)
+	}
+	if l, _ := parseLogin(get(t, v, liveDefault, "me")); l.AccessToken != "alice-at" {
+		t.Errorf("login in use %q", l.AccessToken)
+	}
+}
+
+func TestSwitchLapsedLoginDisagreeing(t *testing.T) {
+	b, v, h, _ := bobLapsed(t)
+	must(t, os.WriteFile(h.ClaudeJSON, []byte(aliceConf), 0o600)) // ~/.claude.json names alice, the login says bob
+	before := get(t, v, liveDefault, "me")
+	if err := b.Switch(ctx, alice.Key()); !errors.Is(err, errLiveWhose) {
+		t.Fatalf("err = %v", err)
+	}
+	if string(get(t, v, liveDefault, "me")) != string(before) {
+		t.Error("the login in use changed")
+	}
+	if l, _ := parseLogin(get(t, v, ParkService, bob.Key())); l.RefreshToken != "bob-rt" {
+		t.Errorf("bob's saved login = %q", l.RefreshToken)
+	}
+}
+
+func TestSwitchLapsedLoginKeepsNewerSaved(t *testing.T) {
+	b, v, _, _ := bobLapsed(t)
+	_, err := b.keep(login("bob-new", "bob-rt-new", t0.Add(5*time.Hour)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	must(t, b.Switch(ctx, alice.Key()))
+	if l, _ := parseLogin(get(t, v, ParkService, bob.Key())); l.RefreshToken != "bob-rt-new" {
+		t.Errorf("bob's newer saved login was replaced by %q", l.RefreshToken)
+	}
+}
+
+// ~/.claude.json names another account, so the app can't tell bob is in
+// use; his saved login is still Claude Code's, and must not be renewed.
+func TestRefreshNeverRenewsClaudeCodesToken(t *testing.T) {
+	b, _, h, f := switchBook(t)
+	must(t, b.Switch(ctx, bob.Key()))
+	must(t, os.WriteFile(h.ClaudeJSON, []byte(aliceConf), 0o600))
+	b.Now = func() time.Time { return t0.Add(2 * time.Hour) }
+	f.renewed["bob-rt"], f.renewed["alice-rt"] = "bob-at3", "alice-at3"
+	f.took()
+	got, _ := b.Refresh(ctx, true)
+	if slices.Contains(f.took(), "renew bob-rt") {
+		t.Fatal("the app renewed the refresh token Claude Code holds")
+	}
+	if a := blockOf(t, got, "bob@example.com"); a.Err != LiveExpired {
+		t.Errorf("bob = %+v", a)
 	}
 }
