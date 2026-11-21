@@ -66,7 +66,7 @@ Every feature in claude-swap's README and `src/`, and where it went.
 | `run` (session mode), history and setup sharing, MCP mirror | 4 |
 | `map` / `unmap` (directory to account) | Not applicable: it picks the account for a bare `cswap run` typed in a folder; the app asks for the folder |
 | Weekly pace marker | 5 |
-| Menu bar, LaunchAgent, Start at login | 6 |
+| Menu bar, LaunchAgent, Start at login | 6 (the app itself stays in the menu bar; MyGo's open-at-login, no LaunchAgent) |
 | `alias`, slot numbers, `move`, `swap` | Not applicable: accounts are named by email in a GUI |
 | `unclaimed` stash | Not needed: an unknown outgoing login becomes an added account |
 | API-key accounts | Not ported: Claude Manager reads subscription limits, which API keys have none of; Import leaves them out |

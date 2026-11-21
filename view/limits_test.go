@@ -140,20 +140,21 @@ func TestLimitsRefreshSkipsTheFloor(t *testing.T) {
 	waitFor(t, l.tt, func() bool { return l.usage.Load() == n+1 })
 }
 
-func TestLimitsTicksOnlyOnItsPage(t *testing.T) {
+// The menu bar item reads the limits on any page, the floor kept.
+func TestTrayTickReadsOnAnyPage(t *testing.T) {
 	l := limitsApp(t)
 	l.open(t)
-	*l.now = l.now.Add(5 * time.Minute)
-	l.a.LimitsTick()
-	waitFor(t, l.tt, func() bool { return l.usage.Load() == 2 })
 	must(t, l.tt.Click("Overview"))
 	l.tt.Frame()
 	*l.now = l.now.Add(5 * time.Minute)
-	l.a.LimitsTick()
+	l.a.TrayTick()
+	waitFor(t, l.tt, func() bool { return l.usage.Load() == 2 })
+	*l.now = l.now.Add(time.Minute)
+	l.a.TrayTick()
 	l.tt.Frame()
 	l.tt.Frame()
 	if n := l.usage.Load(); n != 2 {
-		t.Fatalf("usage asked %d times, want 2: the tick reads only on the Limits page", n)
+		t.Fatalf("usage asked %d times, want 2: within the 3-minute floor", n)
 	}
 }
 

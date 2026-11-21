@@ -92,16 +92,6 @@ func (l *limits) toast(a *App, err error) {
 	}
 }
 
-// LimitsTick refreshes the Limits page while it is shown and the app is in
-// front. main calls it every 5 minutes.
-func (a *App) LimitsTick() {
-	a.Update(func() {
-		if a.page == "limits" && a.live.active {
-			a.limits.load(a, false)
-		}
-	})
-}
-
 func (l *limits) subtitle(now time.Time) string {
 	switch {
 	case l.loading:

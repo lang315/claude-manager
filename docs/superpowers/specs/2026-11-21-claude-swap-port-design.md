@@ -324,6 +324,28 @@ Verified: `TestPace` (rolling both ways, the first day, the 15-point edge,
 kinds), `TestDecide` (named, `all`, unnamed, a spent model window as no
 landing, the weekly line), view tests; mutation checks (10 of 10 caught).
 
+## 6. Menu bar and start at login
+
+- claude-swap's menu bar (`menubar.py`) runs under launchd from a wrapper
+  app; here the app itself stays up: closing the window hides it (unless a
+  quit is under way, so Quit still quits), the Dock icon shows it again.
+- The item (MyGo's `NewTray`, title only) shows the fullest five-hour or
+  7-day share of the account in use. Its menu, built by `view.App.Tray` and
+  set by main after every view update: a status row, one row per account
+  (switches on a click when Switch would be offered: added, not in use, not
+  in a terminal, no switch running, default folder), Auto-switch, Refresh,
+  Open Claude Manager, Start at Login (MyGo's `SetOpenAtLogin`), Quit.
+- Limits are read every 5 minutes on any page (`TrayTick`; the 3-minute
+  floor holds), where they were read only on the Limits page in front.
+- Not ported: rotate / best / next-available switch actions (auto-switch
+  covers them), add / disable / remove from the menu (in the window), the
+  ⚠ stopped-engine title, the wrapper app and LaunchAgent.
+
+Verified: `TestTray`, `TestTrayRows`, `TestTrayNoSwitchOutsideDefaultFolder`,
+`TestTrayTickReadsOnAnyPage`; mutation checks (9 of 9 caught). Not
+verified: the real menu bar item, hide-on-close and Start at Login (main's
+wiring has no test).
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported

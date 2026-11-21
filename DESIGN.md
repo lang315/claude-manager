@@ -301,6 +301,9 @@ A face per account on the Limits page, padded 14 by 16.
   - A block with no figures says why, in muted text.
   - A switch under way ends the block with "Switching…", muted, at 12px.
 
+### Menu Bar Item
+A text-only menu bar item: the account in use's fullest five-hour or 7-day share, "62%" ("–" before a reading). Its menu: a disabled status row (auto-switch's last reason, else "Updated …"), a separator, one row per account, "email  5h 62% · 7d 40%", checked on the account in use and "(in a terminal)" after one open there, a click switching to it; then Auto-switch (a checkbox) and Refresh; then Open Claude Manager, Start at Login (a checkbox) and Quit Claude Manager. Closing the window hides it: the item and auto-switch keep running until Quit.
+
 ## Do's and Don'ts
 
 ### Do:

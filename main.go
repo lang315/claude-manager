@@ -67,15 +67,43 @@ func main() {
 			Height:  720,
 			Content: ui.View(a.View),
 		})
-		a.Update = win.Update
+		// The window hides on close, so the menu bar item and auto-switch
+		// keep running; Quit still quits.
+		quitting := false
+		mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { quitting = true })
+		win.OnClose(func(e *mygo.CloseEvent) {
+			if !quitting {
+				e.PreventDefault()
+				win.Hide()
+			}
+		})
+		show := func() { win.Show(); win.Focus() }
+		mygo.App.OnActivate(func(visible bool) {
+			if !visible {
+				show()
+			}
+		})
+		tray, err := mygo.NewTray(mygo.TrayOptions{ID: "claude-manager", Title: "–", ToolTip: "Claude Manager"})
+		if err != nil {
+			log.Print(err)
+		}
+		a.Update = func(f func()) {
+			win.Update(func() {
+				f()
+				if tray != nil {
+					setTray(tray, a, show)
+				}
+			})
+		}
 		a.Rescan()
 		go a.Watch(context.Background(), root, claudeJSON)
 		mygo.App.OnDidBecomeActive(func() { a.SetActive(true) })
 		mygo.App.OnDidResignActive(func() { a.SetActive(false) })
 		a.SetActive(mygo.App.IsActive()) // launched in the background: hold reloads until it is in front
+		a.TrayTick()
 		go func() {
 			for range time.Tick(5 * time.Minute) {
-				a.LimitsTick()
+				a.TrayTick()
 			}
 		}()
 		a.AutoTick()
@@ -92,6 +120,40 @@ func main() {
 
 // accounts is the Limits page's book, in the app's folder, with logins in
 // the login keychain.
+// setTray puts the view's menu bar item on tray, with the app's own rows
+// after it: open the window, start at login, quit.
+func setTray(tray *mygo.Tray, a *view.App, show func()) {
+	title, items := a.Tray()
+	var menu []*mygo.MenuItem
+	for _, it := range items {
+		if it.Label == "" {
+			menu = append(menu, mygo.Separator())
+			continue
+		}
+		m := &mygo.MenuItem{Label: it.Label, Disabled: it.Disabled || it.Do == nil}
+		if it.Toggle || it.Checked {
+			m.Type, m.Checked = mygo.MenuItemCheckbox, it.Checked
+		}
+		if do := it.Do; do != nil {
+			m.Click = func(*mygo.MenuItem, *mygo.Window) { a.Update(do) }
+		}
+		menu = append(menu, m)
+	}
+	login := mygo.App.OpenAtLogin()
+	menu = append(menu, mygo.Separator(),
+		&mygo.MenuItem{Label: "Open Claude Manager", Click: func(*mygo.MenuItem, *mygo.Window) { show() }},
+		&mygo.MenuItem{Label: "Start at Login", Type: mygo.MenuItemCheckbox, Checked: login, Click: func(*mygo.MenuItem, *mygo.Window) {
+			if err := mygo.App.SetOpenAtLogin(!login); err != nil {
+				log.Print(err)
+			}
+			a.Update(func() {})
+		}},
+		&mygo.MenuItem{Label: "Quit Claude Manager", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
+	)
+	tray.SetTitle(title)
+	tray.SetMenu(mygo.NewMenu(menu))
+}
+
 // appDir is the app's folder: accounts.json, sign-in folders and profiles.
 func appDir(home string) string {
 	return filepath.Join(home, "Library", "Application Support", "Claude Manager")
