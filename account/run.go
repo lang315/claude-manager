@@ -68,57 +68,66 @@ func (b *Book) profile(key string) string {
 // share applies when the profile is seeded; opened again while claude may
 // run there, the profile is left as it is.
 func (b *Book) Run(key, folder string, share Share, args ...string) error {
+	dir, err := b.readyRun(key, share)
+	if err != nil {
+		return err
+	}
+	return b.Launch(folder, dir, args...) // unlocked: Terminal may wait on macOS's Automation prompt
+}
+
+// readyRun marks and seeds the profile Run opens, and returns its folder.
+func (b *Book) readyRun(key string, share Share) (string, error) {
 	h := b.Home
 	if h == nil {
-		return ErrCantSwitch
+		return "", ErrCantSwitch
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if err := b.load(); err != nil {
-		return err
+		return "", err
 	}
 	i := slices.IndexFunc(b.added, func(a Account) bool { return a.Key() == key })
 	if i < 0 {
-		return errNotAdded
+		return "", errNotAdded
 	}
 	a := &b.added[i]
 	if key == h.accountKey() {
-		return errRunInUse
+		return "", errRunInUse
 	}
 	if a.Terminal.Dir != "" {
 		// The profile holds the login now: open it again, with take-back
 		// waiting for this claude as for the first.
 		a.Terminal.Since, a.Terminal.Seen = b.Now(), false
 		if err := b.save(); err != nil {
-			return err
+			return "", err
 		}
-		return b.Launch(folder, a.Terminal.Dir, args...)
+		return a.Terminal.Dir, nil
 	}
 	if a.OAuthAccount == nil {
-		return errNoAccount
+		return "", errNoAccount
 	}
 	parked, err := b.Vault.Get(ParkService, key)
 	if errors.Is(err, ErrNotFound) {
-		return ErrInvalidGrant
+		return "", ErrInvalidGrant
 	}
 	if err != nil {
-		return err
+		return "", err
 	}
 	pl, ok := complete(parked)
 	if !ok {
-		return ErrInvalidGrant
+		return "", ErrInvalidGrant
 	}
 	// Claude Code's own login, whatever ~/.claude.json says: a seed of it
 	// would be a second renewer on Claude Code's chain.
 	if lb, err := h.readLive(b.Vault); err == nil {
 		if l, err := parseLogin(lb.data); keyOf(oauthOf(lb.data)) == key || err == nil && l.RefreshToken == pl.RefreshToken {
-			return errRunInUse
+			return "", errRunInUse
 		}
 	}
 	dir := b.profile(key)
 	if b.Running != nil { // its login there may be newer than the saved one
 		if running, err := b.Running(dir); running || err != nil {
-			return errProfileBusy
+			return "", errProfileBusy
 		}
 	}
 	// Marked before the seed: a seed without its mark would be a second
@@ -126,16 +135,16 @@ func (b *Book) Run(key, folder string, share Share, args ...string) error {
 	a.Terminal = Terminal{Dir: dir, Since: b.Now()}
 	if err := b.save(); err != nil {
 		a.Terminal = Terminal{}
-		return err
+		return "", err
 	}
 	if err := b.seed(dir, parked, a.OAuthAccount, share); err != nil {
 		if cerr := b.clearProfile(dir); cerr != nil {
-			return errors.Join(err, cerr) // the mark stays: the profile may still hold the login
+			return "", errors.Join(err, cerr) // the mark stays: the profile may still hold the login
 		}
 		a.Terminal = Terminal{}
-		return errors.Join(err, b.save())
+		return "", errors.Join(err, b.save())
 	}
-	return b.Launch(folder, dir, args...)
+	return dir, nil
 }
 
 func (b *Book) seed(dir string, parked []byte, acct json.RawMessage, share Share) error {

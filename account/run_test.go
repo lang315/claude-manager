@@ -475,3 +475,23 @@ func TestTakeBackDrifted(t *testing.T) {
 		t.Error("unreadable identity taken for drift")
 	}
 }
+
+// Terminal may wait on macOS's Automation prompt: refresh and the window
+// must not wait with it.
+func TestRunLaunchesUnlocked(t *testing.T) {
+	r := newRunBook(t)
+	locked := 0
+	r.b.Launch = func(string, string, ...string) error {
+		if !r.b.mu.TryLock() {
+			locked++
+		} else {
+			r.b.mu.Unlock()
+		}
+		return nil
+	}
+	must(t, r.b.Run(bob.Key(), "/a", both))
+	must(t, r.b.Run(bob.Key(), "/a", both)) // opened again
+	if locked != 0 {
+		t.Errorf("launched %d times holding the lock", locked)
+	}
+}
