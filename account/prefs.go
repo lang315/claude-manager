@@ -137,7 +137,7 @@ func (b *Book) Set(key, value string) error {
 	unset := value == ""
 	num := func(lo, hi float64) (float64, error) {
 		v, err := strconv.ParseFloat(value, 64)
-		if err != nil || v < lo || v > hi {
+		if err != nil || !(v >= lo && v <= hi) { // so NaN is out too
 			return 0, fmt.Errorf("%s takes a number from %g to %g.", key, lo, hi)
 		}
 		return v, nil

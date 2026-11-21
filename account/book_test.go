@@ -1,6 +1,7 @@
 package account
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,5 +105,23 @@ func TestUnreadableBookIsNeverSavedOver(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(b.path()); string(got) != string(bad) {
 		t.Fatalf("accounts.json = %s", got)
+	}
+}
+
+// NaN passes a range test written v < lo || v > hi: it would reach
+// accounts.json, which can't hold it, or make no account ever over.
+func TestSettingsRefuseNaN(t *testing.T) {
+	b, _, _, _ := newBook(t, &anthropic{})
+	for _, v := range []string{"nan", "NaN", "-nan"} {
+		if err := b.Set("autoswitch.threshold", v); err == nil {
+			t.Errorf("Set %s worked", v)
+		}
+	}
+	must(t, b.Set("autoswitch.threshold", "80"))
+	s := DefaultAuto()
+	s.Line = math.NaN()
+	must(t, b.Override(s))
+	if got := b.settings().Line; got != 50 {
+		t.Errorf("an override of NaN = %v", got)
 	}
 }

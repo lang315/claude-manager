@@ -79,7 +79,7 @@ func (c *cmd) tune(verb string, rest []string, unset bool) error {
 	case "threshold":
 		if unset {
 			line = 0
-		} else if line, err = strconv.ParseFloat(value, 64); err != nil || line < 50 || line > 99.9 {
+		} else if line, err = strconv.ParseFloat(value, 64); err != nil || !(line >= 50 && line <= 99.9) {
 			return errors.New("threshold takes a number from 50 to 99.9, or --unset")
 		}
 	case "priority":

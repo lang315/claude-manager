@@ -123,7 +123,12 @@ func (s Auto) Unseen(accts []Account) []string {
 	return out
 }
 
-func clamp(v, lo, hi float64) float64 { return math.Min(math.Max(v, lo), hi) }
+func clamp(v, lo, hi float64) float64 {
+	if math.IsNaN(v) {
+		return lo
+	}
+	return math.Min(math.Max(v, lo), hi)
+}
 
 // fresh is how old a reading may be for auto-switch to act on it
 // (claude-swap's STALE_OK_S).
