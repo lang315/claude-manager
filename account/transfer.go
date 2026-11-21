@@ -123,7 +123,7 @@ func (b *Book) Export(path string, full bool, keys ...string) (n, left int, err 
 	if err != nil {
 		return 0, 0, err
 	}
-	// writeAtomic keeps a replaced file's mode, and would follow a link's.
+	// writeAtomic would write through a link: an export makes a file of its own.
 	switch fi, err := os.Lstat(path); {
 	case errors.Is(err, fs.ErrNotExist):
 	case err != nil:

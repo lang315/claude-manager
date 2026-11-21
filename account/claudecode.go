@@ -340,9 +340,15 @@ func dropKey(doc []byte, key string) ([]byte, error) {
 
 var rename = os.Rename
 
+// writeAtomic replaces path's content at once, as claude-swap's
+// atomic_write_bytes: in mode (logins are 0600, whatever the old file
+// had), through a symlink to its target (a dotfile-managed link stays a
+// link), and synced to disk before the rename.
 func writeAtomic(path string, data []byte, mode fs.FileMode) error {
-	if fi, err := os.Stat(path); err == nil {
-		mode = fi.Mode().Perm()
+	if fi, err := os.Lstat(path); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		if real, err := filepath.EvalSymlinks(path); err == nil {
+			path = real
+		}
 	}
 	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-")
 	if err != nil {
@@ -350,7 +356,7 @@ func writeAtomic(path string, data []byte, mode fs.FileMode) error {
 	}
 	tmp := f.Name()
 	_, err = f.Write(data)
-	err = errors.Join(err, f.Chmod(mode), f.Close())
+	err = errors.Join(err, f.Chmod(mode), f.Sync(), f.Close())
 	if err == nil {
 		err = rename(tmp, path)
 	}
