@@ -35,6 +35,7 @@ type limits struct {
 	removing account.Account
 
 	switching string
+	switches  []account.Switched // the recent switches, the latest first
 	run       runUI
 	export    exportUI
 	importing importUI
@@ -64,6 +65,10 @@ func (l *limits) load(a *App, force bool) {
 			l.toast(a, err)
 		})
 		blocks, err := a.Accounts.Refresh(context.Background(), force)
+		defer func() {
+			sw, _ := a.Accounts.Switches()
+			a.Update(func() { l.switches = sw })
+		}()
 		var d account.Decision
 		var autoErr error
 		if autoOn {

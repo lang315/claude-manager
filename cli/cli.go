@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/lang315/claude-manager/account"
+	"github.com/lang315/claude-manager/store"
 )
 
 // Exit codes of auto --once, as cswap's: switched, error, nothing to do,
@@ -34,7 +35,7 @@ const (
 
 // Commands are the commands Run knows; main opens the app for anything
 // else.
-var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "alias", "map", "unmap", "move", "swap", "unclaimed", "add", "disable", "enable", "threshold", "priority", "menubar", "config", "upgrade", "version", "--version", "help"}
+var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "alias", "map", "unmap", "move", "swap", "unclaimed", "add", "disable", "enable", "threshold", "priority", "menubar", "history", "config", "upgrade", "version", "--version", "help"}
 
 // Upgrade installs a newer version of the app, if there is one, and says
 // what it did; main sets it.
@@ -107,6 +108,17 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 		err = c.unmap(one(rest))
 	case "config":
 		err = c.config(rest)
+	case "history":
+		var hs []account.Switched
+		if hs, err = b.Switches(); err == nil {
+			for _, h := range hs {
+				how := "by hand"
+				if h.Auto {
+					how = "auto"
+				}
+				fmt.Fprintf(out, "%s  %s -> %s  %s: %s\n", h.At.Local().Format("2006-01-02 15:04"), h.From, h.To, how, h.Why)
+			}
+		}
 	case "unclaimed":
 		err = c.unclaimed(*purgeID)
 	case "move", "swap":
@@ -249,6 +261,7 @@ const usage = `claude-manager <command> [flags]
   export - | import -              to stdout, from stdin
   menubar [--install-service | --uninstall-service | --service-status | --auto-switch | --no-auto-switch]
   tui | watch | menubar [--foreground]   open the app
+  history                          the recent switches
   version
   --debug                          with any command: print each request made to Anthropic
 
@@ -325,6 +338,12 @@ type window struct {
 	Used     *float64 `json:"used,omitempty"`
 	Limit    *float64 `json:"limit,omitempty"`
 	Currency string   `json:"currency,omitempty"`
+	// Pace on weekly windows, as cswap's: expectedPct and aheadOfPace once
+	// a day into the week; the projections, for --json only.
+	Expected  *float64 `json:"expectedPct,omitempty"`
+	Ahead     *bool    `json:"aheadOfPace,omitempty"`
+	Exhausted string   `json:"projectedExhaustionAt,omitempty"`
+	Lasts     *bool    `json:"willLastToReset,omitempty"`
 }
 
 type usageJSON struct {
@@ -348,6 +367,10 @@ type row struct {
 	Age         *float64   `json:"usageAgeSeconds,omitempty"`
 	Usage       *usageJSON `json:"usage"`
 	Error       string     `json:"usageError,omitempty"`
+	RetryAt     string     `json:"usageRetryAt,omitempty"`
+	LastGood    *usageJSON `json:"lastGoodUsage,omitempty"`
+	LastGoodAt  string     `json:"lastGoodFetchedAt,omitempty"`
+	LastGoodAge *float64   `json:"lastGoodAgeSeconds,omitempty"`
 	Disabled    bool       `json:"disabled,omitempty"`
 	Threshold   float64    `json:"threshold,omitempty"`
 	LoginExpiry string     `json:"loginExpiresAt,omitempty"`
@@ -379,12 +402,34 @@ func toRow(a account.Account, now time.Time) row {
 		r.Plan = &planJSON{Label: account.PlanLabel(a), Tier: a.PlanTier, OrgType: a.PlanOrg, Status: a.PlanStatus,
 			Name: a.PlanName, Expired: account.PlanLapsed(a), FetchedAt: stamp(a.PlanAt)}
 	}
+	age := now.Sub(a.ReadAt).Seconds()
 	if !a.Usable(now) {
+		// Display-grade, never decision-grade: cswap's lastGood fields.
+		if len(a.Limits) > 0 && !a.ReadAt.IsZero() {
+			r.LastGood, r.LastGoodAt, r.LastGoodAge = usageOf(a), stamp(a.ReadAt), &age
+		}
+		if !a.RetryAt().IsZero() {
+			r.RetryAt = stamp(a.RetryAt())
+		}
 		return r
 	}
+	r.Status, r.Usage, r.Age, r.FetchedAt, r.Error = "ok", usageOf(a), &age, stamp(a.ReadAt), ""
+	return r
+}
+
+func usageOf(a account.Account) *usageJSON {
 	u := &usageJSON{}
 	for _, l := range a.Limits {
 		w := &window{Pct: l.Percent, ResetsAt: stamp(l.ResetsAt)}
+		if e, ahead, ok := l.Pace(a.ReadAt); ok {
+			w.Expected, w.Ahead = &e, &ahead
+			if at, lasts, ok := l.Projection(a.ReadAt); ok {
+				if !at.IsZero() {
+					w.Exhausted = stamp(at)
+				}
+				w.Lasts = &lasts
+			}
+		}
 		switch l.Kind {
 		case "session", "five_hour":
 			u.FiveHour = w
@@ -399,9 +444,7 @@ func toRow(a account.Account, now time.Time) row {
 			u.Spend = w
 		}
 	}
-	age := now.Sub(a.ReadAt).Seconds()
-	r.Status, r.Usage, r.Age, r.FetchedAt, r.Error = "ok", u, &age, stamp(a.ReadAt), ""
-	return r
+	return u
 }
 
 // read refreshes the readings and lists the accounts by slot, as cswap's
@@ -474,11 +517,26 @@ func (c *cmd) status(ctx context.Context, asJSON bool) error {
 	}
 	if i < 0 {
 		fmt.Fprintln(c.out, "Not signed in to Claude Code.")
-		return nil
+	} else {
+		fmt.Fprintln(c.out, accts[i].Email)
 	}
-	fmt.Fprintln(c.out, accts[i].Email)
+	if Instances != nil {
+		if ins := Instances(); len(ins) > 0 {
+			fmt.Fprintln(c.out, "Running instances:")
+			for _, in := range ins {
+				where := in.Folder
+				if in.Profile != "" {
+					where += " (a terminal's profile)"
+				}
+				fmt.Fprintf(c.out, "  %-8s %s\n", in.Kind, where)
+			}
+		}
+	}
 	return nil
 }
+
+// Instances lists the running Claude Codes for status; main sets it.
+var Instances func() []store.Instance
 
 func (c *cmd) inUse() string {
 	accts, _ := c.b.Blocks()

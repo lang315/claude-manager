@@ -526,13 +526,23 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 		m.failover = true
 	}
 	d := decide(now, b.settings(), accts, m)
+	if d.Blocked && !dry {
+		b.event("all-exhausted", "All accounts exhausted", "No account has room; auto-switch waits for a reset.")
+	} else if !dry {
+		delete(b.told, "all-exhausted") // told again when it happens again
+	}
 	if d.To == "" || dry {
 		return d, nil
 	}
+	from := b.inUseEmail()
 	if err := b.switchLocked(ctx, d.To, false); err != nil {
 		b.lastFailed = now
+		b.logf("auto-switch to %s failed: %v", d.Email, err)
+		b.event("auto-failed", "Auto-switch failed", fmt.Sprintf("The switch to %s failed: %v", d.Email, err))
 		return Decision{Why: fmt.Sprintf("The switch to %s failed: %v", d.Email, err)}, err
 	}
+	b.record(from, d.Email, d.Why, true)
+	b.save()
 	b.unreadable = time.Time{}
 	b.bar = memo{barTo: d.To, barFrom: d.from, leftLH: d.leftLH, leftResets: d.leftResets, leftWhy: d.trigger}
 	return d, nil

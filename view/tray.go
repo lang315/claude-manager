@@ -68,6 +68,17 @@ func (a *App) Tray() (title string, items []TrayItem) {
 		TrayItem{Label: "Refresh", Disabled: l.loading, Do: func() { l.load(a, true) }},
 		TrayItem{},
 	)
+	if len(l.switches) > 0 { // claude-swap's recent switch history
+		items = append(items, TrayItem{Label: "Recent switches", Disabled: true})
+		for _, s := range l.switches[:min(5, len(l.switches))] {
+			how := "by hand"
+			if s.Auto {
+				how = "auto"
+			}
+			items = append(items, TrayItem{Label: s.At.Local().Format("Jan 2 15:04") + "  " + s.To + " (" + how + ")", Disabled: true})
+		}
+		items = append(items, TrayItem{})
+	}
 	for _, t := range []struct{ label, theme string }{{"Appearance: As macOS", ""}, {"Appearance: Light", "light"}, {"Appearance: Dark", "dark"}} {
 		on := a.prefs.Theme == t.theme || t.theme == "" && a.prefs.Theme == "auto"
 		items = append(items, TrayItem{Label: t.label, Toggle: true, Checked: on, Do: func() { a.setTheme(t.theme) }})

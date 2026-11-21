@@ -59,7 +59,7 @@ func newApp(t *testing.T) *app {
 	home := t.TempDir()
 	a.h = &account.Home{Root: filepath.Join(home, ".claude"), ClaudeJSON: filepath.Join(home, ".claude.json"), User: "me"}
 	must(t, os.Mkdir(a.h.Root, 0o700))
-	must(t, os.WriteFile(a.h.ClaudeJSON, []byte(`{"oauthAccount":{"accountUuid":"alice","organizationUuid":"org"}}`), 0o600))
+	must(t, os.WriteFile(a.h.ClaudeJSON, []byte(`{"oauthAccount":{"accountUuid":"alice","organizationUuid":"org","emailAddress":"alice@example.com"}}`), 0o600))
 	a.v = account.NewMemory()
 	must(t, a.v.Put("Claude Code-credentials", "me", login("alice")))
 	must(t, a.v.Put(account.ParkService, "bob/org", login("bob")))

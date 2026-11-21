@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lang315/claude-manager/account"
+	"github.com/lang315/claude-manager/store"
 )
 
 func TestAddAndTune(t *testing.T) {
@@ -234,5 +235,44 @@ func TestForceAndOneAccount(t *testing.T) {
 	}
 	if saved, _ := b.v.Get(account.ParkService, "alice/org"); !strings.Contains(string(saved), "alice2-at") {
 		t.Errorf("the import was overwritten by the old login: %s", saved)
+	}
+}
+
+func TestObserve(t *testing.T) {
+	a := newApp(t)
+	a.run(t, "", "switch", "bob@example.com")
+	if _, out, _ := a.run(t, "", "history"); !strings.Contains(out, "alice@example.com -> bob@example.com  by hand") {
+		t.Errorf("history %q", out)
+	}
+	Instances = func() []store.Instance {
+		return []store.Instance{{Kind: "VS Code", Folder: "/w"}, {Kind: "CLI", Folder: "/x", Profile: "/p"}}
+	}
+	t.Cleanup(func() { Instances = nil })
+	if _, out, _ := a.run(t, "", "status"); !strings.Contains(out, "Running instances:") || !strings.Contains(out, "VS Code  /w") || !strings.Contains(out, "/x (a terminal's profile)") {
+		t.Errorf("status %q", out)
+	}
+	// A failing account keeps its last reading, display-grade.
+	b := newApp(t)
+	b.run(t, "", "list")
+	delete(b.usage, "bob")
+	b.b.Now = func() time.Time { return t0.Add(2 * time.Hour) }
+	_, out, _ := b.run(t, "", "list", "--json")
+	if !strings.Contains(out, `"lastGoodUsage":{"fiveHour":{"pct":10`) || !strings.Contains(out, `"lastGoodAgeSeconds":7200`) || !strings.Contains(out, `"usageRetryAt"`) {
+		t.Errorf("lastGood %s", out)
+	}
+}
+
+func TestServiceDisabled(t *testing.T) {
+	goos = "darwin"
+	output = func(string, ...string) (string, error) {
+		return "disabled services = {\n\t\"" + label + "\" => disabled\n\t\"other\" => enabled\n}", nil
+	}
+	t.Cleanup(func() { output = func(string, ...string) (string, error) { return "", nil } })
+	if !serviceDisabled() {
+		t.Error("disabled missed")
+	}
+	output = func(string, ...string) (string, error) { return "\"" + label + "\" => enabled", nil }
+	if serviceDisabled() {
+		t.Error("enabled taken for disabled")
 	}
 }

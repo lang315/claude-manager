@@ -20,6 +20,7 @@ import (
 	"github.com/egoist/mygo/updates"
 	"github.com/lang315/claude-manager/account"
 	"github.com/lang315/claude-manager/cli"
+	"github.com/lang315/claude-manager/internal/logfile"
 	"github.com/lang315/claude-manager/store"
 	"github.com/lang315/claude-manager/view"
 )
@@ -41,6 +42,8 @@ func main() {
 	if !gui && len(os.Args) > 1 && slices.Contains(cli.Commands, os.Args[1]) {
 		cli.Version = version
 		cli.Upgrade = upgrade
+		st := &store.Store{Root: root, ClaudeJSON: claudeJSON, Alive: store.PIDAlive, Profiles: account.ProfilesDir(appDir(home))}
+		cli.Instances = st.Instances
 		os.Exit(cli.Run(context.Background(), os.Args[1:], accounts(home, configDir, root), os.Stdin, os.Stdout, os.Stderr))
 	}
 	a := view.New(&store.Store{
@@ -52,6 +55,12 @@ func main() {
 		Profiles:   account.ProfilesDir(appDir(home)),
 	})
 	a.Accounts = accounts(home, configDir, root)
+	a.Accounts.Events = func(title, body string) {
+		// claude-swap's menu bar notifications, through MyGo's.
+		if mygo.NotificationsSupported() {
+			mygo.NewNotification(mygo.NotificationOptions{ID: title, Title: title, Body: body, Group: "auto-switch"}).Show()
+		}
+	}
 	if gui && len(os.Args) > 1 && os.Args[1] == "watch" {
 		a.Show("limits") // cswap watch: the dashboard on its live page
 	}
@@ -272,6 +281,7 @@ func accounts(home, configDir, root string) *account.Book {
 		Pitboard:      func() ([]account.Account, error) { return account.ReadPitboard(filepath.Join(home, ".pitboard")) },
 		Home:          h,
 		Launch:        account.LaunchInTerminal,
+		Log:           &logfile.File{Path: filepath.Join(appDir(home), "claude-manager.log"), Max: 1 << 20, Keep: 3},
 		Running:       account.ClaudeRunning,
 	}
 }

@@ -359,6 +359,8 @@ func (b *Book) renew(ctx context.Context, a *Account, blob []byte, l Login, held
 			b.dead = map[string][32]byte{}
 		}
 		b.dead[a.Key()] = sha256.Sum256([]byte(l.RefreshToken))
+		b.logf("%s quarantined: its refresh token was refused", a.Email)
+		b.event("quarantined:"+a.Key(), "Account quarantined", a.Email+"'s sign-in was refused: sign in again to it.")
 	}
 	if err != nil {
 		return l, err
@@ -371,3 +373,6 @@ func (b *Book) renew(ctx context.Context, a *Account, blob []byte, l Login, held
 	}
 	return fresh, nil
 }
+
+// RetryAt is when a failed read is tried again; zero when none failed.
+func (a Account) RetryAt() time.Time { return a.retryAt }

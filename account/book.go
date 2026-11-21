@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -82,7 +83,13 @@ type Book struct {
 	// Launch opens a terminal at folder running claude on configDir:
 	// LaunchInTerminal in the app. Running says whether a claude runs on a
 	// profile: ClaudeRunning in the app.
-	Launch  func(folder, configDir string, args ...string) error
+	Launch func(folder, configDir string, args ...string) error
+	// Events, when set, is told what claude-swap's menu bar notifies:
+	// an auto-switch, an account quarantined, every account spent, an
+	// auto-switch that failed. Log, when set, gets a line per switch and
+	// event (claude-swap's claude-swap.log).
+	Events  func(title, body string)
+	Log     io.Writer
 	Running func(configDir string) (bool, error)
 
 	mu         sync.Mutex
@@ -98,7 +105,10 @@ type Book struct {
 	bar        memo              // the no-return bar auto-switch set
 	maps       map[string]string // folder → account key
 	prefs      Prefs
-	override   *Auto // auto-switch settings for this process only (Override)
+	history    []Switched
+	switched   int               // switches made, to tell one was
+	told       map[string]string // the last body told per event kind
+	override   *Auto             // auto-switch settings for this process only (Override)
 	unclaimed  []Unclaimed
 	unreadable time.Time           // since when the account in use can't be read
 	dead       map[string][32]byte // an account's refresh token Anthropic refused: its SHA-256
@@ -112,6 +122,7 @@ type saved struct {
 	Maps      map[string]string `json:"maps,omitempty"` // a folder to the account claude-manager run opens there
 	Prefs     *Prefs            `json:"prefs,omitempty"`
 	Unclaimed []Unclaimed       `json:"unclaimed,omitempty"` // logins in use kept as nobody's
+	History   []Switched        `json:"history,omitempty"`   // the recent switches
 }
 
 func (b *Book) path() string { return filepath.Join(b.Dir, "accounts.json") }
@@ -138,7 +149,7 @@ func (b *Book) load() error {
 	}
 	b.added, b.inUse = s.Accounts, s.InUse
 	b.ensureSlots()
-	b.maps, b.unclaimed = s.Maps, s.Unclaimed
+	b.maps, b.unclaimed, b.history = s.Maps, s.Unclaimed, s.History
 	if s.Prefs != nil {
 		b.prefs = *s.Prefs
 	}
@@ -157,7 +168,7 @@ func (b *Book) save() error {
 	if err := os.Chmod(b.Dir, 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(saved{Accounts: b.added, InUse: b.inUse, Auto: &b.auto, Maps: b.maps, Prefs: &b.prefs, Unclaimed: b.unclaimed}, "", "  ")
+	data, err := json.MarshalIndent(saved{Accounts: b.added, InUse: b.inUse, Auto: &b.auto, Maps: b.maps, Prefs: &b.prefs, Unclaimed: b.unclaimed, History: b.history}, "", "  ")
 	if err != nil {
 		return err
 	}

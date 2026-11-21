@@ -310,6 +310,9 @@ func (c *cmd) menubar(status, install, uninstall, on, off bool) error {
 	case status:
 		s, _ := c.b.AutoSettings()
 		fmt.Fprintf(c.out, "starts at login: %v\nauto-switch: %v\n", serviceInstalled(), s.On)
+		if serviceInstalled() && serviceDisabled() {
+			fmt.Fprintln(c.out, "macOS won't start it at login: turn Claude Manager back on in System Settings, General, Login Items & Extensions.")
+		}
 	default:
 		return errors.New("menubar takes --install-service, --uninstall-service, --service-status, --auto-switch or --no-auto-switch; with none, or --foreground, it opens the app")
 	}
@@ -411,4 +414,29 @@ func GUI(args []string) bool {
 		return len(args) == 1 || slices.Contains(args[1:], "--foreground")
 	}
 	return false
+}
+
+// serviceDisabled reports whether macOS was told not to start the
+// LaunchAgent (System Settings, Login Items), as cswap's launch_agent
+// checks with launchctl print-disabled.
+func serviceDisabled() bool {
+	if goos != "darwin" {
+		return false
+	}
+	out, err := output("launchctl", "print-disabled", fmt.Sprintf("gui/%d", os.Getuid()))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, `"`+label+`"`) && (strings.HasSuffix(line, "disabled") || strings.HasSuffix(line, "true")) {
+			return true
+		}
+	}
+	return false
+}
+
+var output = func(name string, args ...string) (string, error) {
+	b, err := exec.Command(name, args...).Output()
+	return string(b), err
 }

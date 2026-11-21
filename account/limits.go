@@ -72,6 +72,26 @@ func (l Limit) Pace(readAt time.Time) (expected float64, ahead, ok bool) {
 	return expected, l.Percent-expected >= 15, true
 }
 
+// Projection is pace.py's projected_exhaustion_ts and will_last_to_reset,
+// for --json only (too rough to show as fact): at the rate used so far in
+// this weekly cycle, when it reaches 100%, and whether it lasts to the
+// reset. ok is false where Pace is, or with no use to go by.
+func (l Limit) Projection(readAt time.Time) (at time.Time, lasts bool, ok bool) {
+	expected, _, ok := l.Pace(readAt)
+	if !ok || expected <= 0 || l.Percent <= 0 {
+		return time.Time{}, l.Percent <= 0, ok && l.Percent <= 0
+	}
+	const week = 7 * 24 * time.Hour
+	elapsed := time.Duration(expected / 100 * float64(week))
+	rate := l.Percent / elapsed.Seconds() // points a second
+	if l.Percent >= 100 {
+		at = readAt
+	} else {
+		at = readAt.Add(time.Duration((100 - l.Percent) / rate * float64(time.Second)))
+	}
+	return at, l.Percent+rate*(week-elapsed).Seconds() <= 100, true
+}
+
 var errNoLimits = errors.New("Anthropic's answer holds no limits.")
 
 type scoped struct {

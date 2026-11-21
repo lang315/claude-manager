@@ -700,6 +700,33 @@ Verified: `TestTakeBackDrifted`, `TestMergeHistory`,
 Verified: `TestPlan`, `TestTLSRefused`, `TestStoreNote`, `TestRefusals`,
 `TestPlanText`, `TestLimitsLapsedPlan`; mutation checks (10 of 10 caught).
 
+## 17. Notifications, history, log, instances, JSON
+
+- `Book.Events` (claude-swap's menu bar notifications): auto-switched,
+  account quarantined, all accounts exhausted (once until there is room
+  again), auto-switch failed; deduped per kind and body. main shows them as
+  MyGo notifications.
+- Switch history: each switch (by hand, forced, auto: when, from, to, why)
+  in `accounts.json` `history`, 50 kept; "Recent switches" (5) in the menu
+  bar; `claude-manager history`.
+- `Book.Log` (claude-swap's `claude-swap.log`): a line per switch, failure
+  and quarantine, never a token; main writes `claude-manager.log` in the
+  app's folder, rotated at 1 MB, 3 kept (`internal/logfile`).
+- `status` lists the running instances (`process_detection`): sessions from
+  `sessions/<pid>.json` in `~/.claude` and each profile with claude-swap's
+  entrypoint labels, and IDEs from `~/.claude/ide/*.lock`.
+- `menubar --service-status` says when macOS was told not to start it
+  (`launchctl print-disabled`).
+- `--json`: weekly windows carry `expectedPct`, `aheadOfPace`,
+  `projectedExhaustionAt`, `willLastToReset` (pace.py's projections); a row
+  without decision-grade usage carries `lastGoodUsage`, `lastGoodFetchedAt`,
+  `lastGoodAgeSeconds` and `usageRetryAt`.
+
+Verified: `TestHistoryEventsLog`, `TestQuarantineTold`, `TestHistoryCapped`,
+`TestProjection`, `TestRotates`, `TestInstances`, `TestObserve`,
+`TestServiceDisabled`, `TestTrayRecentSwitches`; mutation checks (14 of 14
+caught).
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported

@@ -66,6 +66,7 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **14. Command line on par with cswap's "Other commands"** (#33, draft).
 - [x] **15. Terminal identity check and history merge** (#34, draft).
 - [x] **16. Plan labels, lapsed subscriptions, error notes** (#35, draft).
+- [x] **17. Notifications, switch history, log, running instances, JSON pace and last-good** (#36, draft).
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an
@@ -91,6 +92,9 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | Dead-token quarantine | 2b: a refused refresh token is never an auto-switch candidate and is not posted again until the saved login changes; Sign In Again replaces it |
 | `export` / `import` | Ported: 3; `claude-manager export|import` (9) |
 | Plan from the profile every 6 hours: Max 5x / 20x, Team, Pro, the server's name; a lapsed subscription; plan age; `list --json` `plan` | 16 |
+| Menu bar notifications (auto-switched, quarantined, all exhausted, auto-switch failed), recent switch history, `claude-swap.log` | 17: MyGo notifications, "Recent switches" in the menu bar and `claude-manager history`, `claude-manager.log` (1 MB × 3) |
+| `status`'s running instances (sessions, IDEs, entrypoint labels); start at login turned off in System Settings | 17 |
+| `--json` pace (`expectedPct`, `aheadOfPace`, `projectedExhaustionAt`, `willLastToReset`), `lastGoodUsage`, `usageRetryAt` | 17 |
 | Error notes: an organization barring OAuth, a refused TLS certificate, `CLAUDE_SECURESTORAGE_CONFIG_DIR` | 16 |
 | `run`: a terminal signed in to another account (identity drift); a profile's own history merged into `~/.claude` | 15 |
 | `run` (session mode), history and setup sharing, MCP mirror | 4; `claude-manager run <email> [folder] [--no-share] [--no-share-history]` (9); `--no-share` / `--no-share-history` as the dialog's two checkboxes (4b) |

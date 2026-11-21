@@ -291,3 +291,37 @@ func TestLiveIDsInProfiles(t *testing.T) {
 		t.Errorf("LiveIDs %v", got)
 	}
 }
+
+func TestInstances(t *testing.T) {
+	s, _, _ := newStore(t)
+	s.Profiles = t.TempDir()
+	dir := filepath.Join(s.Profiles, "abc", "sessions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "4242.json"), []byte(`{"pid":4242,"sessionId":"x","cwd":"/w","entrypoint":"claude-vscode"}`), 0o600)
+	os.MkdirAll(filepath.Join(s.Root, "ide"), 0o700)
+	os.WriteFile(filepath.Join(s.Root, "ide", "1.lock"), []byte(`{"pid":4242,"ideName":"Visual Studio Code","workspaceFolders":["/a","/b"]}`), 0o600)
+	os.WriteFile(filepath.Join(s.Root, "ide", "2.lock"), []byte(`{"pid":9,"ideName":"Gone"}`), 0o600)
+	got := s.Instances()
+	var kinds []string
+	for _, i := range got {
+		kinds = append(kinds, i.Kind+"@"+i.Folder)
+	}
+	want := map[string]bool{"VS Code@/w": false, "VS Code@/a, /b": false}
+	for _, k := range kinds {
+		if _, ok := want[k]; ok {
+			want[k] = true
+		}
+	}
+	for k, seen := range want {
+		if !seen {
+			t.Errorf("%s missing in %q", k, kinds)
+		}
+	}
+	for _, i := range got {
+		if i.Kind == "Gone" {
+			t.Error("a dead IDE listed")
+		}
+	}
+}

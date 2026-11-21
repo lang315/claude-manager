@@ -1,6 +1,7 @@
 package view
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -135,4 +136,19 @@ func TestTrayAppearance(t *testing.T) {
 	if r, _, _, _ := l.tt.Image().At(4, 700).RGBA(); r>>8 > 0x40 {
 		t.Errorf("the window is not drawn dark: red %#x", r>>8)
 	}
+}
+
+func TestTrayRecentSwitches(t *testing.T) {
+	l := limitsApp(t)
+	h := canSwitch(t, l)
+	_ = h
+	l.a.TrayTick()
+	waitFor(t, l.tt, func() bool { return l.a.limits.loaded })
+	must(t, l.book.Switch(context.Background(), "bob/org"))
+	l.a.TrayTick()
+	waitFor(t, l.tt, func() bool { return len(l.a.limits.switches) == 1 })
+	if it := trayItem(t, l, "Recent switches"); !it.Disabled {
+		t.Error("header")
+	}
+	trayItem(t, l, l.a.limits.switches[0].At.Local().Format("Jan 2 15:04")+"  bob@example.com (by hand)")
 }

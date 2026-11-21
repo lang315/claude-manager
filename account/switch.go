@@ -33,7 +33,22 @@ func (b *Book) Switch(ctx context.Context, key string) error {
 	if err := b.load(); err != nil {
 		return err
 	}
-	return b.switchLocked(ctx, key, false)
+	return b.switchRecorded(ctx, key, false, "by hand")
+}
+
+// switchRecorded is switchLocked, recorded when it switches.
+func (b *Book) switchRecorded(ctx context.Context, key string, force bool, why string) error {
+	from, to := b.inUseEmail(), b.emailOf(key)
+	before := b.switched
+	if err := b.switchLocked(ctx, key, force); err != nil {
+		b.logf("switch to %s failed: %v", to, err)
+		return err
+	}
+	if b.switched != before {
+		b.record(from, to, why, false)
+		return b.save()
+	}
+	return nil
 }
 
 // SwitchForce is Switch, also onto the account in use: its saved login,
@@ -47,7 +62,7 @@ func (b *Book) SwitchForce(ctx context.Context, key string) error {
 	if err := b.load(); err != nil {
 		return err
 	}
-	return b.switchLocked(ctx, key, true)
+	return b.switchRecorded(ctx, key, true, "by hand, forced")
 }
 
 func (b *Book) switchLocked(ctx context.Context, key string, force bool) error {
@@ -194,6 +209,7 @@ func (b *Book) switchLocked(ctx context.Context, key string, force bool) error {
 	}
 	b.inUse = nil
 	b.lastSwitch = b.Now()
+	b.switched++
 	return b.save()
 }
 
