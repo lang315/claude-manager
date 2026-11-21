@@ -245,7 +245,7 @@ func (b *Book) read(ctx context.Context, a *Account, token, held string, now tim
 		a.Err, a.WaitUntil = err.Error(), time.Time{}
 		var rl *RateLimited
 		if errors.As(err, &rl) {
-			a.WaitUntil = now.Add(rl.Wait)
+			a.WaitUntil = now.Add(rateLimitWait(rl.Wait, a.Failures+1))
 		}
 		a.Failures++
 		a.Retry = now.Add(backoff(a.Failures))
@@ -266,6 +266,20 @@ func backoff(n int) time.Duration {
 		return 10 * time.Minute
 	}
 	return min(30*time.Second<<(n-1), 10*time.Minute)
+}
+
+// rateLimitWait is how long a read Anthropic answered 429 waits, as
+// claude-swap's _failure_backoff_s: an ask longer than the back-off's cap
+// gets 15 minutes more (an hour-scale block retried at its deadline is
+// re-armed for another hour), no wait passes 75 minutes, and none falls
+// under the back-off of the nth failure.
+func rateLimitWait(asked time.Duration, n int) time.Duration {
+	const margin, bound = 15 * time.Minute, 75 * time.Minute
+	w := asked
+	if asked > 10*time.Minute {
+		w = asked + margin
+	}
+	return min(max(w, backoff(n)), bound)
 }
 
 // nearLine reports whether auto-switch is on and the account in use, as

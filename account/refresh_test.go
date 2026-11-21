@@ -370,3 +370,25 @@ func TestRenewedLoginOutlivesFailedSave(t *testing.T) {
 		}
 	}
 }
+
+// claude-swap's _failure_backoff_s for a 429: an hour-scale ask is waited
+// out with 15 minutes to spare (blocks re-armed at their deadline), any
+// wait is bounded at 75 minutes, and a short ask never undercuts the
+// back-off.
+func TestRateLimitWait(t *testing.T) {
+	for _, c := range []struct {
+		asked time.Duration
+		n     int
+		want  time.Duration
+	}{
+		{time.Hour, 1, 75 * time.Minute},
+		{20 * time.Minute, 1, 35 * time.Minute},
+		{3 * time.Hour, 1, 75 * time.Minute},
+		{2 * time.Minute, 1, 2 * time.Minute},
+		{10 * time.Second, 3, 2 * time.Minute}, // backoff(3) = 2 minutes
+	} {
+		if got := rateLimitWait(c.asked, c.n); got != c.want {
+			t.Errorf("asked %v, failure %d: %v, want %v", c.asked, c.n, got, c.want)
+		}
+	}
+}
