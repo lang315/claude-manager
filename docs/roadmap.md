@@ -95,6 +95,16 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | `auto --interval` | Not ported: polling follows 2b's policy |
 | `ui.theme` | Not applicable: the app follows macOS's appearance |
 | `--version`, `--debug`, `help` | Not applicable: CLI |
+| Setting `autoswitch.threshold`, `weeklyThreshold`, `cooldownSeconds`, `hysteresisPct`, `strategy`, `model` | Ported: Auto-Switch Settings (2, 5) |
+| Setting `autoswitch.intervalSeconds` | Not ported: auto-switch ticks every minute; reads follow 2b's policy |
+| Setting `autoswitch.unhealthyTicks` | Not ported as a setting: fixed at claude-swap's default, 3 one-minute ticks |
+| Setting `autoswitch.includeApiKeyAccounts` | Not applicable: no API-key accounts |
+| Setting `run.shareHistory` | Covered: the Open in Terminal dialog's history checkbox (4b), asked each time |
+| Setting `updates.check`, `ui.theme` | Not applicable: app updates; macOS appearance |
+| Setting `usage.headerProbe` | Not ported (see `add-token`) |
+| README "How it works": a target's token freshened before a switch | Covered in part: auto-switch lands only on an account its own login read well in the last 5 minutes (an hour while Anthropic is out of reach); the login itself is not renewed first |
+| README "How it works": plan refreshed every six hours | Covered: the plan comes with each login (its `subscriptionType`) |
+| README "Tips", "Data locations", "JSON output", "Uninstall" | Not applicable: CLI and Python package |
 
 ## v3 — editing configuration
 
