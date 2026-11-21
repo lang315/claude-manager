@@ -3,6 +3,8 @@ package account
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,7 +26,25 @@ var (
 	ErrInvalidGrant = errors.New("Sign-in expired.")
 	// ErrUnreachable says no answer came.
 	ErrUnreachable = errors.New("Couldn't reach Anthropic.")
+	// ErrTLS says Anthropic's certificate was refused (claude-swap's
+	// tls-cert note).
+	ErrTLS = errors.New("Anthropic's TLS certificate was refused: if a proxy re-signs traffic, trust its CA in the system's certificates or set SSL_CERT_FILE; otherwise check for a captive portal or a wrong clock.")
 )
+
+// orgNote is claude-swap's note on oauth_not_allowed_for_organization.
+const orgNote = " A lapsed plan or the organization's policy bars OAuth sign-in, so its usage can't be read; renewing the plan restores it."
+
+// unreachable is ErrTLS for a refused certificate, else ErrUnreachable.
+func unreachable(err error) error {
+	var unknown x509.UnknownAuthorityError
+	var invalid x509.CertificateInvalidError
+	var host x509.HostnameError
+	var verify *tls.CertificateVerificationError
+	if errors.As(err, &unknown) || errors.As(err, &invalid) || errors.As(err, &host) || errors.As(err, &verify) {
+		return ErrTLS
+	}
+	return ErrUnreachable
+}
 
 // Refused is a refusal no renewal mends, in Anthropic's words.
 type Refused struct{ Message string }
@@ -37,7 +57,13 @@ type RateLimited struct{ Wait time.Duration }
 func (e *RateLimited) Error() string { return "Rate limited by Anthropic." }
 
 // Profile is whose a login is.
-type Profile struct{ AccountUUID, Email, OrgUUID, OrgName string }
+type Profile struct {
+	AccountUUID, Email, OrgUUID, OrgName string
+	// The plan, as claude-swap's subscription.fetch_plan reads it: the
+	// organization's rate-limit tier, type, subscription status and the
+	// server's own name for the plan. Empty where the answer gave none.
+	Tier, OrgType, Status, PlanName string
+}
 
 // Key names the account as Account.Key does.
 func (p Profile) Key() string { return p.AccountUUID + "/" + p.OrgUUID }
@@ -82,8 +108,12 @@ func (a *API) Profile(ctx context.Context, token string) (Profile, error) {
 			EmailAddress string `json:"email_address"`
 		} `json:"account"`
 		Organization struct {
-			UUID string `json:"uuid"`
-			Name string `json:"name"`
+			UUID     string `json:"uuid"`
+			Name     string `json:"name"`
+			Tier     string `json:"rate_limit_tier"`
+			OrgType  string `json:"organization_type"`
+			Status   string `json:"subscription_status"`
+			PlanName string `json:"plan_display_name"`
 		} `json:"organization"`
 	}
 	if json.Unmarshal(body, &p) != nil || p.Account.UUID == "" || p.Organization.UUID == "" {
@@ -93,7 +123,9 @@ func (a *API) Profile(ctx context.Context, token string) (Profile, error) {
 	if email == "" { // the token endpoint's answer names it so
 		email = p.Account.EmailAddress
 	}
-	return Profile{AccountUUID: p.Account.UUID, Email: email, OrgUUID: p.Organization.UUID, OrgName: p.Organization.Name}, nil
+	o := p.Organization
+	return Profile{AccountUUID: p.Account.UUID, Email: email, OrgUUID: o.UUID, OrgName: o.Name,
+		Tier: o.Tier, OrgType: o.OrgType, Status: o.Status, PlanName: o.PlanName}, nil
 }
 
 // Renew asks for fresh tokens for l, as Claude Code renews its own login,
@@ -158,7 +190,7 @@ func (a *API) do(req *http.Request, refused func(int, []byte) error) ([]byte, er
 	resp, err := a.Client.Do(req)
 	a.debug(req, resp, start)
 	if err != nil {
-		return nil, ErrUnreachable
+		return nil, unreachable(err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -198,6 +230,9 @@ func refusal(status int, body []byte) error {
 	switch {
 	case status == http.StatusForbidden && e.Error.Type == "permission_error" && e.Error.Details.ErrorCode == "verification_required",
 		strings.Contains(e.Error.Message, "OAuth authentication is currently not allowed for this organization"):
+		if strings.Contains(e.Error.Message, "OAuth authentication is currently not allowed for this organization") {
+			return &Refused{Message: e.Error.Message + orgNote}
+		}
 		return &Refused{Message: e.Error.Message}
 	case status == http.StatusUnauthorized, status == http.StatusForbidden:
 		return ErrUnauthorized

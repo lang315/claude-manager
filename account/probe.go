@@ -82,7 +82,7 @@ func (a *API) probe(ctx context.Context, token, model string) (http.Header, int,
 	resp, err := a.Client.Do(req)
 	a.debug(req, resp, start)
 	if err != nil {
-		return nil, 0, ErrUnreachable
+		return nil, 0, unreachable(err)
 	}
 	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 	resp.Body.Close()

@@ -504,3 +504,32 @@ func TestLimitsExtraUsage(t *testing.T) {
 		t.Errorf("tray %q", it.Label)
 	}
 }
+
+func TestPlanText(t *testing.T) {
+	now := fixture.Now
+	for _, c := range []struct {
+		a    account.Account
+		want string
+	}{
+		{account.Account{Plan: "max"}, "Max"},
+		{account.Account{Plan: "max", PlanTier: "default_claude_max_20x"}, "Max 20x"},
+		{account.Account{PlanTier: "default_claude_ai", PlanOrg: "claude_team", OrgName: "Acme"}, "Team · Acme"},
+	} {
+		if got := planText(c.a); got != c.want {
+			t.Errorf("%+v: %q", c.a, got)
+		}
+	}
+	if planAge(account.Account{PlanAt: now.Add(-11 * time.Hour)}, now) != "" || planAge(account.Account{PlanAt: now.Add(-13 * time.Hour)}, now) == "" {
+		t.Error("planAge")
+	}
+}
+
+// A lapsed subscription shows a highlighted Free, as claude-swap's.
+func TestLimitsLapsedPlan(t *testing.T) {
+	l := limitsApp(t)
+	seedBob(t, l, "bob")
+	must(t, os.WriteFile(filepath.Join(l.book.Dir, "accounts.json"), []byte(`{"accounts":[{"accountUuid":"bob","orgUuid":"org","email":"bob@example.com",`+
+		`"planTier":"default_claude_ai","planStatus":"canceled","planAt":"2026-10-26T11:00:00Z"}]}`), 0o600))
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") && l.tt.HasText("Free (lapsed)") })
+}

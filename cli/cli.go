@@ -351,6 +351,18 @@ type row struct {
 	Disabled    bool       `json:"disabled,omitempty"`
 	Threshold   float64    `json:"threshold,omitempty"`
 	LoginExpiry string     `json:"loginExpiresAt,omitempty"`
+	Plan        *planJSON  `json:"plan,omitempty"`
+}
+
+// planJSON is cswap's plan object.
+type planJSON struct {
+	Label     string `json:"label"`
+	Tier      string `json:"tier"`
+	OrgType   string `json:"organizationType,omitempty"`
+	Status    string `json:"subscriptionStatus,omitempty"`
+	Name      string `json:"planDisplayName,omitempty"`
+	Expired   bool   `json:"expired"`
+	FetchedAt string `json:"fetchedAt"`
 }
 
 func stamp(t time.Time) string {
@@ -363,6 +375,10 @@ func stamp(t time.Time) string {
 func toRow(a account.Account, now time.Time) row {
 	r := row{Number: a.Slot, Email: a.Email, OrgUUID: a.OrgUUID, Key: a.Key(), Active: a.InUse, Added: a.Added,
 		Disabled: a.AutoOff, Threshold: a.Line, LoginExpiry: stamp(a.GoodUntil), Status: "unavailable", Error: a.Err}
+	if a.PlanTier != "" {
+		r.Plan = &planJSON{Label: account.PlanLabel(a), Tier: a.PlanTier, OrgType: a.PlanOrg, Status: a.PlanStatus,
+			Name: a.PlanName, Expired: account.PlanLapsed(a), FetchedAt: stamp(a.PlanAt)}
+	}
 	if !a.Usable(now) {
 		return r
 	}
@@ -401,6 +417,9 @@ func (c *cmd) list(ctx context.Context, asJSON bool) error {
 	if err != nil && len(accts) == 0 {
 		return err
 	}
+	if n := account.StoreNote(os.Getenv); n != "" {
+		fmt.Fprintln(c.errs, n)
+	}
 	now := c.b.Now()
 	if asJSON {
 		doc := map[string]any{"schemaVersion": 1, "activeAccountNumber": nil}
@@ -422,7 +441,14 @@ func (c *cmd) list(ctx context.Context, asJSON bool) error {
 		if a.InUse {
 			mark = "*"
 		}
-		fmt.Fprintf(w, "%s %2s %s\n", mark, slotOf(a), a.Email)
+		plan := account.PlanLabel(a)
+		if account.PlanLapsed(a) {
+			plan = "Free (lapsed)"
+		}
+		if plan != "" {
+			plan = " · " + plan
+		}
+		fmt.Fprintf(w, "%s %2s %s%s\n", mark, slotOf(a), a.Email, plan)
 		for _, l := range a.Limits {
 			fmt.Fprintf(w, "    %-22s %5.0f%%\n", l.Label(), l.Percent)
 		}

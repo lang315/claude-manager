@@ -677,6 +677,29 @@ Run key and autostart for real.
 Verified: `TestTakeBackDrifted`, `TestMergeHistory`,
 `TestRunMergesProfileHistory`; mutation checks (11 of 11 caught).
 
+## 16. Plans and error notes
+
+- Plan (`subscription.py`): after a good read of an account, its profile
+  (`/api/oauth/profile`: `rate_limit_tier`, `organization_type`,
+  `subscription_status`, `plan_display_name`) is read when 6 hours old, kept
+  only when its account (and organization, when known) uuid is the
+  account's (`matches_slot`), else tried again in 15 minutes; the login in
+  use's comes from the answer that said whose it is. `PlanLabel` is
+  `plan_label` (organization type, else the server's name unless the
+  tier's label begins with it, else the tier's label, else the raw tier);
+  `PlanLapsed` is `is_expired` (canceled, on the free tier), shown as a bold
+  orange "Free (lapsed)"; a plan read more than 12 hours ago shows its age.
+  `list` shows the label; `list --json` has cswap's `plan` object.
+- Error notes (`ERROR_NOTES`): an organization barring OAuth sign-in says a
+  lapsed plan or its policy is why and that renewing restores it; a refused
+  certificate (`x509` errors) is `ErrTLS`, with the proxy, `SSL_CERT_FILE`,
+  captive portal and clock advice, not "Couldn't reach Anthropic";
+  `CLAUDE_SECURESTORAGE_CONFIG_DIR` set says Claude Code keeps its login
+  elsewhere (Limits footer, `list` on stderr).
+
+Verified: `TestPlan`, `TestTLSRefused`, `TestStoreNote`, `TestRefusals`,
+`TestPlanText`, `TestLimitsLapsedPlan`; mutation checks (10 of 10 caught).
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported

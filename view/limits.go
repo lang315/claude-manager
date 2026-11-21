@@ -3,6 +3,7 @@ package view
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -128,6 +129,9 @@ func (l *limits) view(c *ui.Context, a *App, pal *palette) {
 				if n := a.Accounts.Note(); n != "" {
 					ui.Text(c, n).FontSize(12).TextColor(pal.muted)
 				}
+				if n := account.StoreNote(os.Getenv); n != "" {
+					ui.Text(c, n).FontSize(12).TextColor(pal.muted).Wrap()
+				}
 			})
 		})
 	}
@@ -145,8 +149,11 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 				name = "Claude Code"
 			}
 			ui.Text(c, name).Bold().SingleLine()
-			if s := planText(b) + tokenPlan(b); s != "" {
-				ui.Text(c, s).TextColor(pal.muted).SingleLine()
+			switch s := planText(b) + tokenPlan(b); {
+			case account.PlanLapsed(b): // claude-swap's highlighted Free: the subscription lapsed
+				ui.Text(c, "Free (lapsed)").Bold().TextColor(pal.orange).SingleLine().Tooltip("Its subscription was canceled and is back on the free tier.")
+			case s != "":
+				ui.Text(c, s+planAge(b, now)).TextColor(pal.muted).SingleLine()
 			}
 			if b.InUse {
 				ui.Text(c, "In use").FontSize(11).Bold().TextColor(pal.muted)
@@ -234,6 +241,12 @@ func meter(c *ui.Context, pal *palette, pct float64) ui.Element {
 
 // planText names the plan, and the organisation of a team's.
 func planText(b account.Account) string {
+	if l := account.PlanLabel(b); l != "" {
+		if (l == "Team" || l == "Enterprise") && b.OrgName != "" {
+			l += " · " + b.OrgName
+		}
+		return l
+	}
 	if b.Plan == "" {
 		return ""
 	}
@@ -460,4 +473,12 @@ func (l *limits) startSwitch(a *App, b account.Account) {
 			l.load(a, true)
 		})
 	})
+}
+
+// planAge is how old a plan read is, when two 6-hour reads have been missed.
+func planAge(b account.Account, now time.Time) string {
+	if b.PlanAt.IsZero() || now.Sub(b.PlanAt) < 12*time.Hour {
+		return ""
+	}
+	return " · " + ago(b.PlanAt, now)
 }

@@ -52,6 +52,7 @@ func TestProfile(t *testing.T) {
 	a = apiOn(t, func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"account":{"uuid":"acc","email":"me@example.com","display_name":"Me"},"organization":{"uuid":"org","name":"Acme","rate_limit_tier":"x"}}`)
 	})
+	want.Tier = "x"
 	if got, err := a.Profile(context.Background(), "tok"); err != nil || got != want {
 		t.Fatalf("Profile of the real shape = %+v, %v", got, err)
 	}
@@ -82,7 +83,7 @@ func TestRefusals(t *testing.T) {
 		{403, `{"type":"error","error":{"type":"permission_error","message":"OAuth token does not meet scope requirement user:profile"}}`, is(ErrUnauthorized)},
 		{403, `{"type":"error","error":{"type":"permission_error","message":"Verify your account","details":{"error_code":"verification_required"}}}`, refusedWith("Verify your account")},
 		{401, `{"type":"error","error":{"type":"authentication_error","message":"OAuth authentication is currently not allowed for this organization."}}`,
-			refusedWith("OAuth authentication is currently not allowed for this organization.")},
+			refusedWith("OAuth authentication is currently not allowed for this organization." + orgNote)},
 		{500, `{"leak":"SECRET"}`, func(err error) bool { return err.Error() == "Anthropic answered 500." }},
 	} {
 		a := apiOn(t, func(w http.ResponseWriter, r *http.Request) {
@@ -171,5 +172,26 @@ func TestRenewRefusals(t *testing.T) {
 		if _, err := a.Renew(context.Background(), login("old", "rt", t0), t0); err == nil || !c.ok(err) {
 			t.Errorf("%d %s: err = %v", c.status, c.body, err)
 		}
+	}
+}
+
+// claude-swap's tls-cert note: a refused certificate says so, not "couldn't reach".
+func TestTLSRefused(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	t.Cleanup(srv.Close)
+	a := NewAPI("test")
+	a.Base = srv.URL
+	if _, err := a.Usage(context.Background(), "tok"); !errors.Is(err, ErrTLS) {
+		t.Errorf("err = %v", err)
+	}
+	a.Base = "http://127.0.0.1:1"
+	if _, err := a.Usage(context.Background(), "tok"); !errors.Is(err, ErrUnreachable) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestStoreNote(t *testing.T) {
+	if StoreNote(func(string) string { return "" }) != "" || StoreNote(func(string) string { return "/x" }) == "" {
+		t.Error("StoreNote")
 	}
 }

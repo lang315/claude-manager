@@ -220,6 +220,7 @@ func (b *Book) profileOf(ctx context.Context, token string) (Profile, error) {
 func (b *Book) read(ctx context.Context, a *Account, token, held string, now time.Time) {
 	var limits []Limit
 	var err error
+	used := token
 	if a.Token {
 		limits, err = b.readToken(ctx, a, now)
 	} else if token != "" {
@@ -232,7 +233,7 @@ func (b *Book) read(ctx context.Context, a *Account, token, held string, now tim
 			err = errLiveExpired // Claude Code's to renew, never the app's
 		}
 	} else {
-		limits, err = b.readOwn(ctx, a, held, now)
+		limits, used, err = b.readOwn(ctx, a, held, now)
 	}
 	if err != nil {
 		a.Err, a.WaitUntil = err.Error(), time.Time{}
@@ -245,6 +246,7 @@ func (b *Book) read(ctx context.Context, a *Account, token, held string, now tim
 		return
 	}
 	a.failures, a.retryAt = 0, time.Time{}
+	b.readPlan(ctx, a, used, now)
 	before, _ := stand(*a, Auto{Line: 100})
 	a.Limits, a.ReadAt, a.Err, a.WaitUntil = limits, now, "", time.Time{}
 	after, _ := stand(*a, Auto{Line: 100})
@@ -314,36 +316,36 @@ func (b *Book) due(a *Account, active, near bool) time.Time {
 
 // readOwn reads an added account's limits with its own login: renewed
 // first when it is about to lapse, and once more when Anthropic refuses it.
-func (b *Book) readOwn(ctx context.Context, a *Account, held string, now time.Time) ([]Limit, error) {
+func (b *Book) readOwn(ctx context.Context, a *Account, held string, now time.Time) ([]Limit, string, error) {
 	blob, err := b.Vault.Get(ParkService, a.Key())
 	if errors.Is(err, ErrNotFound) {
-		return nil, ErrInvalidGrant
+		return nil, "", ErrInvalidGrant
 	}
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	l, err := parseLogin(blob)
 	if err != nil {
-		return nil, ErrInvalidGrant
+		return nil, "", ErrInvalidGrant
 	}
 	// claude-swap's quarantine: a refused refresh token is not posted again
 	// until the saved login changes (Sign In Again, Import, a terminal's).
 	if b.dead[a.Key()] == sha256.Sum256([]byte(l.RefreshToken)) {
-		return nil, ErrInvalidGrant
+		return nil, "", ErrInvalidGrant
 	}
 	if l.expiresBy(now.Add(renewAhead)) {
 		if l, err = b.renew(ctx, a, blob, l, held, now); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
 	limits, err := b.API.Usage(ctx, l.AccessToken)
 	if errors.Is(err, ErrUnauthorized) {
 		if l, err = b.renew(ctx, a, blob, l, held, now); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		limits, err = b.API.Usage(ctx, l.AccessToken)
 	}
-	return limits, err
+	return limits, l.AccessToken, err
 }
 
 // A save that fails loses the login: the old refresh token may be spent.

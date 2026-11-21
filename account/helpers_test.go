@@ -39,6 +39,7 @@ type anthropic struct {
 	renewed   map[string]string
 	resets    map[string]string      // a token's session reset, where not t0+3h
 	probe     map[string]probeAnswer // "<token> <model>": the header probe's answer; none is 401
+	plans     map[string]string      // a token's rate_limit_tier in its profile
 	calls     []string               // "profile <token>", "usage <token>", "renew <refresh token>"
 	onProfile func()
 }
@@ -62,7 +63,7 @@ func (f *anthropic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		fmt.Fprintf(w, `{"account":{"uuid":%q,"email":%q},"organization":{"uuid":%q,"name":%q}}`, p.AccountUUID, p.Email, p.OrgUUID, p.OrgName)
+		fmt.Fprintf(w, `{"account":{"uuid":%q,"email":%q},"organization":{"uuid":%q,"name":%q,"rate_limit_tier":%q}}`, p.AccountUUID, p.Email, p.OrgUUID, p.OrgName, f.plans[tok])
 	case "/api/oauth/usage":
 		f.calls = append(f.calls, "usage "+tok)
 		if s, ok := f.status[tok]; ok {

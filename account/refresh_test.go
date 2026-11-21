@@ -100,7 +100,7 @@ func TestRefreshRenewsAnAddedLoginFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := b.Refresh(ctx, false)
-	if c := f.took(); !slices.Equal(c, []string{"renew bob-rt", "usage bob-2"}) {
+	if c := f.took(); !slices.Equal(c, []string{"renew bob-rt", "usage bob-2", "profile bob-2"}) { // its plan, every 6 hours
 		t.Fatalf("calls %v", c)
 	}
 	blob, _ := v.Get(ParkService, "bob/org-b")
@@ -150,7 +150,7 @@ func TestRefreshRenewsOnceWhenRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := b.Refresh(ctx, false)
-	if c := f.took(); !slices.Equal(c, []string{"usage bob-1", "renew bob-rt", "usage bob-2"}) {
+	if c := f.took(); !slices.Equal(c, []string{"usage bob-1", "renew bob-rt", "usage bob-2", "profile bob-2"}) {
 		t.Fatalf("calls %v", c)
 	}
 	if a := blockOf(t, got, "bob@example.com"); a.Err != "" || a.Limits[0].Percent != 30 {
@@ -295,5 +295,64 @@ func TestRefreshPolling(t *testing.T) {
 	}
 	if c := read(b, f, 16*time.Minute); !has(c, "usage bob-at") {
 		t.Errorf("a minute after its reset: %v", c)
+	}
+}
+
+// claude-swap's subscription: the plan from the profile every 6 hours,
+// kept only when it is the account's own.
+func TestPlan(t *testing.T) {
+	for _, c := range []struct {
+		a     Account
+		label string
+		lapse bool
+	}{
+		{Account{PlanTier: "default_claude_max_20x"}, "Max 20x", false},
+		{Account{PlanTier: "default_claude_max_5x", PlanName: "Max"}, "Max 5x", false},
+		{Account{PlanTier: "default_claude_ai", PlanOrg: "claude_pro"}, "Pro", false},
+		{Account{PlanTier: "default_claude_ai", PlanStatus: "canceled"}, "Free", true},
+		{Account{PlanTier: "default_claude_max_5x", PlanStatus: "canceled"}, "Max 5x", false},
+		{Account{PlanTier: "tier_x", PlanName: "Ultra"}, "Ultra", false},
+		{Account{PlanTier: "tier_x"}, "tier_x", false},
+		{Account{}, "", false},
+	} {
+		if l := PlanLabel(c.a); l != c.label || PlanLapsed(c.a) != c.lapse {
+			t.Errorf("%+v: %q %v", c.a, l, PlanLapsed(c.a))
+		}
+	}
+	b, _, _, f := switchBook(t)
+	f.usage["alice-at"], f.usage["bob-at"] = 10, 10
+	f.plans = map[string]string{"bob-at": "default_claude_max_5x"}
+	b.Refresh(ctx, true)
+	blocks, _ := b.Blocks()
+	if a := blockOf(t, blocks, "bob@example.com"); PlanLabel(a) != "Max 5x" || !a.PlanAt.Equal(t0) {
+		t.Fatalf("bob %+v", a)
+	}
+	f.took()
+	b.Now = func() time.Time { return t0.Add(5 * time.Minute) }
+	b.Refresh(ctx, true)
+	if slices.Contains(f.took(), "profile bob-at") {
+		t.Error("plan asked again within 6 hours")
+	}
+	// An answer for another account is not kept.
+	c, _, _, g := switchBook(t)
+	g.usage["alice-at"], g.usage["bob-at"] = 10, 10
+	g.who["bob-at"] = Profile{AccountUUID: "zed", Email: "bob@example.com", OrgUUID: "org-b"} // bob's organization, not bob
+	g.plans = map[string]string{"bob-at": "default_claude_max_5x"}
+	c.Refresh(ctx, true)
+	blocks, _ = c.Blocks()
+	if a := blockOf(t, blocks, "bob@example.com"); a.PlanTier != "" || !a.PlanAt.Equal(t0.Add(planRetry-planTTL)) {
+		t.Errorf("kept another account's plan, or no retry in 15 minutes: %+v", a)
+	}
+	// Within 6 hours nothing is asked, even with no answer cached.
+	a := Account{AccountUUID: "bob", OrgUUID: "org-b", PlanTier: "old", PlanAt: t0.Add(-time.Hour)}
+	b.who = nil
+	b.readPlan(ctx, &a, "bob-at", t0)
+	if a.PlanTier != "old" {
+		t.Error("asked within 6 hours")
+	}
+	a.PlanAt = t0.Add(-7 * time.Hour)
+	b.readPlan(ctx, &a, "bob-at", t0)
+	if a.PlanTier != "default_claude_max_5x" {
+		t.Errorf("not asked after 6 hours: %+v", a)
 	}
 }

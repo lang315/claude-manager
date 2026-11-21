@@ -24,17 +24,24 @@ const (
 // Account is an account the Limits page shows, with its last reading. It
 // holds no secret: the book saves it as is.
 type Account struct {
-	AccountUUID string    `json:"accountUuid,omitempty"`
-	OrgUUID     string    `json:"orgUuid,omitempty"`
-	Email       string    `json:"email,omitempty"`
-	OrgName     string    `json:"orgName,omitempty"`
-	Plan        string    `json:"plan,omitempty"`     // the login's subscriptionType: pro, max, team…
-	GoodUntil   time.Time `json:"goodUntil,omitzero"` // when an added account's sign-in lapses
-	Limits      []Limit   `json:"limits,omitempty"`   // as last read
-	ReadAt      time.Time `json:"readAt,omitzero"`    // when Limits were read
-	Err         string    `json:"err,omitempty"`      // why the last ask failed; "" once one works
-	WaitUntil   time.Time `json:"waitUntil,omitzero"` // Anthropic asked to wait until then
-	HeldUntil   time.Time `json:"heldUntil,omitzero"` // read by another Mac: not read here until then
+	AccountUUID string `json:"accountUuid,omitempty"`
+	OrgUUID     string `json:"orgUuid,omitempty"`
+	Email       string `json:"email,omitempty"`
+	OrgName     string `json:"orgName,omitempty"`
+	Plan        string `json:"plan,omitempty"` // the login's subscriptionType: pro, max, team…
+	// The plan as Anthropic's profile last said, every 6 hours
+	// (claude-swap's subscription): see PlanLabel.
+	PlanTier   string    `json:"planTier,omitempty"`
+	PlanOrg    string    `json:"planOrgType,omitempty"`
+	PlanStatus string    `json:"planStatus,omitempty"`
+	PlanName   string    `json:"planName,omitempty"`
+	PlanAt     time.Time `json:"planAt,omitzero"`
+	GoodUntil  time.Time `json:"goodUntil,omitzero"` // when an added account's sign-in lapses
+	Limits     []Limit   `json:"limits,omitempty"`   // as last read
+	ReadAt     time.Time `json:"readAt,omitzero"`    // when Limits were read
+	Err        string    `json:"err,omitempty"`      // why the last ask failed; "" once one works
+	WaitUntil  time.Time `json:"waitUntil,omitzero"` // Anthropic asked to wait until then
+	HeldUntil  time.Time `json:"heldUntil,omitzero"` // read by another Mac: not read here until then
 	// OAuthAccount is Claude Code's oauthAccount object from ~/.claude.json.
 	OAuthAccount json.RawMessage `json:"oauthAccount,omitempty"`
 	AutoOff      bool            `json:"autoOff,omitempty"`  // held out of auto-switch
