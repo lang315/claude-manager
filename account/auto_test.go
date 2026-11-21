@@ -577,3 +577,23 @@ func TestBlockedOnlyWhenEverySpent(t *testing.T) {
 		t.Errorf("one account unread: %+v", d)
 	}
 }
+
+// A target whose sign-in can't be renewed gives way to the next in rank in
+// the same tick, as claude-swap's freshen loop.
+func TestAutoSwitchFreshenFallsThrough(t *testing.T) {
+	b, v, _, f := switchBook(t)
+	f.who["carol-at"] = carol
+	_, err := b.keep(login("bob-at", "bob-rt", t0.Add(8*time.Minute)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	_, err = b.keep(login("carol-at", "carol-rt", t0.Add(time.Hour)).Marshal(), carol, json.RawMessage(carolAccount))
+	must(t, err)
+	f.usage["alice-at"], f.usage["bob-at"], f.usage["carol-at"] = 95, 5, 20
+	b.Refresh(ctx, true)
+	s := DefaultAuto()
+	s.On = true
+	must(t, b.SetAuto(s))
+	d, _ := b.AutoSwitch(ctx)
+	if l, _ := parseLogin(get(t, v, liveDefault, "me")); d.Email != "carol@example.com" || l.AccessToken != "carol-at" {
+		t.Errorf("switched %+v, login in use %q", d, l.AccessToken)
+	}
+}

@@ -144,6 +144,7 @@ type Decision struct {
 	from       string    // the account left
 	leftLH     float64   // its line headroom then
 	leftResets time.Time // its binding window's reset then
+	next       []Account // the candidates after To, in rank, for when To's sign-in can't be renewed
 }
 
 // memo is what auto-switch remembers between ticks, in memory as
@@ -466,7 +467,11 @@ func decide(now time.Time, s Auto, accts []Account, m memo) Decision {
 		"priority":  "it is a higher priority",
 		"failover":  "the account in use could not be read",
 	}[trigger]
-	return Decision{To: to.Key(), Email: to.Email, Why: why, trigger: trigger, from: active.Key(), leftLH: act.lh, leftResets: act.resets}
+	var next []Account
+	for _, r := range out[1:] {
+		next = append(next, r.a)
+	}
+	return Decision{To: to.Key(), Email: to.Email, Why: why, trigger: trigger, from: active.Key(), leftLH: act.lh, leftResets: act.resets, next: next}
 }
 
 func b2f(b bool) float64 {
@@ -633,9 +638,14 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 	if d.To == "" || dry {
 		return d, nil
 	}
-	if err := b.freshen(ctx, d.To, now); err != nil {
+	// claude-swap's freshen loop: a target whose sign-in can't be renewed
+	// gives way to the next in rank.
+	for err := b.freshen(ctx, d.To, now); err != nil; err = b.freshen(ctx, d.To, now) {
 		b.logf("auto-switch to %s held: its sign-in could not be renewed: %v", d.Email, err)
-		return Decision{Why: fmt.Sprintf("%s's sign-in could not be renewed, so no switch: %v", d.Email, err)}, nil
+		if len(d.next) == 0 {
+			return Decision{Why: fmt.Sprintf("%s's sign-in could not be renewed, so no switch: %v", d.Email, err)}, nil
+		}
+		d.To, d.Email, d.next = d.next[0].Key(), d.next[0].Email, d.next[1:]
 	}
 	from := b.inUseEmail()
 	if err := b.switchLocked(ctx, d.To, false); err != nil {
