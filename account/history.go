@@ -96,3 +96,35 @@ func (b *Book) logf(format string, args ...any) {
 		fmt.Fprintf(b.Log, "%s %s\n", b.Now().Format(time.RFC3339), fmt.Sprintf(format, args...))
 	}
 }
+
+// Duplicates are the added accounts that hold one login (claude-swap's
+// _duplicate_account_warnings): the same refresh token, or the same key,
+// under two accounts; one renewing it spends the other's. Emails, paired.
+func (b *Book) Duplicates() [][2]string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.load() != nil {
+		return nil
+	}
+	seen := map[string]string{}
+	var out [][2]string
+	for _, a := range b.added {
+		saved, err := b.Vault.Get(ParkService, a.Key())
+		if err != nil {
+			continue
+		}
+		id := string(saved) // an API key
+		if l, err := parseLogin(saved); err == nil {
+			id = l.RefreshToken
+			if id == "" {
+				id = l.AccessToken // a setup-token
+			}
+		}
+		if other, ok := seen[id]; ok && id != "" {
+			out = append(out, [2]string{other, a.Email})
+			continue
+		}
+		seen[id] = a.Email
+	}
+	return out
+}

@@ -90,6 +90,10 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 		return failed
 	}
 	rest := fs.Args()
+	if slices.Contains(mutating, args[0]) && c.inSessionShell() && !(args[0] == "auto" && *dry) {
+		fmt.Fprintln(errs, "This shell is a terminal opened as an account (its CLAUDE_CONFIG_DIR is a Claude Manager profile): run this from a normal shell.")
+		return failed
+	}
 	if *debug && b.API != nil {
 		b.API.Debug = errs
 	}
@@ -139,7 +143,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 		}
 		err = c.list(ctx, *jsonOut)
 	case "add":
-		err = c.add(ctx, *slot, *aliasFlag)
+		err = c.add(ctx, *slot, *aliasFlag, *yes)
 	case "disable", "enable", "threshold", "priority":
 		err = c.tune(args[0], rest, *unset)
 	case "menubar":
@@ -166,9 +170,9 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 		}
 		code, err = c.auto(ctx, *dry, *jsonOut)
 	case "add-token":
-		err = c.addToken(one(rest), *email)
+		err = c.addToken(one(rest), *email, *slot, *yes)
 	case "remove":
-		err = c.remove(one(rest))
+		err = c.remove(one(rest), *yes)
 	case "purge":
 		err = c.purge(*yes)
 	case "export":
@@ -303,6 +307,7 @@ func one(rest []string) string {
 type cmd struct {
 	b         *account.Book
 	in        io.Reader
+	br        *bufio.Reader
 	out, errs io.Writer
 }
 
@@ -323,11 +328,7 @@ func find(accts []account.Account, name string) (account.Account, error) {
 	case 1:
 		return hits[0], nil
 	}
-	var keys []string
-	for _, a := range hits {
-		keys = append(keys, a.Key())
-	}
-	return account.Account{}, fmt.Errorf("%s names %d accounts; name one by its key: %s", name, len(hits), strings.Join(keys, ", "))
+	return account.Account{}, &ambiguous{hits}
 }
 
 // window is a usage window in cswap's list --json.
@@ -479,6 +480,9 @@ func (c *cmd) list(ctx context.Context, asJSON bool) error {
 	}
 	w := bufio.NewWriter(c.out)
 	defer w.Flush()
+	if !slices.ContainsFunc(accts, func(a account.Account) bool { return a.Added }) {
+		fmt.Fprintln(w, "No accounts are added yet: claude-manager add adds the one Claude Code uses; Add Account in the app signs in to another.")
+	}
 	for _, a := range accts {
 		mark := " "
 		if a.InUse {
@@ -491,7 +495,11 @@ func (c *cmd) list(ctx context.Context, asJSON bool) error {
 		if plan != "" {
 			plan = " · " + plan
 		}
-		fmt.Fprintf(w, "%s %2s %s%s\n", mark, slotOf(a), a.Email, plan)
+		alias := ""
+		if a.Alias != "" {
+			alias = " (" + a.Alias + ")"
+		}
+		fmt.Fprintf(w, "%s %2s %s%s [%s]%s\n", mark, slotOf(a), a.Email, alias, tag(a), plan)
 		for _, l := range a.Limits {
 			fmt.Fprintf(w, "    %-22s %5.0f%%\n", l.Label(), l.Percent)
 		}
@@ -499,7 +507,32 @@ func (c *cmd) list(ctx context.Context, asJSON bool) error {
 			fmt.Fprintf(w, "    %s\n", a.Err)
 		}
 	}
+	for _, d := range c.b.Duplicates() {
+		fmt.Fprintf(w, "Warning: %s and %s hold the same login: one renewing it spends the other's.\n", d[0], d[1])
+	}
+	if s, err := c.b.AutoSettings(); err == nil {
+		if u := s.Unseen(accts); len(u) > 0 {
+			fmt.Fprintf(c.errs, "autoswitch.model: %s matches no account's windows: only the 5h and 7d limits count for it (typo?).\n", strings.Join(u, ", "))
+		}
+	}
+	c.instances(w)
 	return nil
+}
+
+func (c *cmd) instances(w io.Writer) {
+	if Instances == nil {
+		return
+	}
+	if ins := Instances(); len(ins) > 0 {
+		fmt.Fprintln(w, "Running instances:")
+		for _, in := range ins {
+			where := in.Folder
+			if in.Profile != "" {
+				where += " (a terminal's profile)"
+			}
+			fmt.Fprintf(w, "  %-8s %s\n", in.Kind, where)
+		}
+	}
 }
 
 func (c *cmd) status(ctx context.Context, asJSON bool) error {
@@ -520,18 +553,7 @@ func (c *cmd) status(ctx context.Context, asJSON bool) error {
 	} else {
 		fmt.Fprintln(c.out, accts[i].Email)
 	}
-	if Instances != nil {
-		if ins := Instances(); len(ins) > 0 {
-			fmt.Fprintln(c.out, "Running instances:")
-			for _, in := range ins {
-				where := in.Folder
-				if in.Profile != "" {
-					where += " (a terminal's profile)"
-				}
-				fmt.Fprintf(c.out, "  %-8s %s\n", in.Kind, where)
-			}
-		}
-	}
+	c.instances(c.out)
 	return nil
 }
 
@@ -548,11 +570,16 @@ func (c *cmd) inUse() string {
 
 func (c *cmd) switchTo(ctx context.Context, name string, asJSON, force bool) error {
 	accts, _ := c.b.Blocks()
-	a, err := find(accts, name)
+	a, err := c.pickOne(accts, name, "switch to")
 	if err != nil {
 		return err
 	}
 	from := c.inUse()
+	if a.InUse && !force && !asJSON {
+		fmt.Fprintf(c.out, "Already on %s. switch --force puts its saved login in use.\n", a.Email)
+		return nil
+	}
+	kept, _ := c.b.UnclaimedLogins()
 	sw := c.b.Switch
 	if force {
 		sw = c.b.SwitchForce
@@ -563,7 +590,10 @@ func (c *cmd) switchTo(ctx context.Context, name string, asJSON, force bool) err
 	if asJSON {
 		return json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "switched": from != a.Email, "from": from, "to": a.Email, "reason": "asked"})
 	}
-	fmt.Fprintf(c.out, "Switched to %s.\n", a.Email)
+	if now, _ := c.b.UnclaimedLogins(); len(now) > len(kept) {
+		fmt.Fprintln(c.errs, "Claude Code's sign-in named no added account; it was kept as unclaimed (claude-manager unclaimed).")
+	}
+	fmt.Fprintf(c.out, "Switched to %s.\n%s\n", a.Email, restartHint)
 	return nil
 }
 
@@ -575,6 +605,12 @@ func (c *cmd) auto(ctx context.Context, dry, asJSON bool) (int, error) {
 	d, err := c.b.Once(ctx, dry)
 	if err != nil {
 		return failed, err
+	}
+	if s, serr := c.b.AutoSettings(); serr == nil {
+		accts, _ := c.b.Blocks()
+		if u := s.Unseen(accts); len(u) > 0 {
+			fmt.Fprintf(c.errs, "autoswitch.model: %s matches no account's windows (typo?).\n", strings.Join(u, ", "))
+		}
 	}
 	code := nothing
 	switch {
@@ -601,7 +637,7 @@ func (c *cmd) auto(ctx context.Context, dry, asJSON bool) (int, error) {
 	return code, nil
 }
 
-func (c *cmd) addToken(token, email string) error {
+func (c *cmd) addToken(token, email string, slot int, yes bool) error {
 	if token == "-" || token == "" {
 		line, err := bufio.NewReader(c.in).ReadString('\n')
 		if err != nil && line == "" {
@@ -620,15 +656,33 @@ func (c *cmd) addToken(token, email string) error {
 	if err != nil {
 		return err
 	}
+	if slot > 0 {
+		accts, _ := c.b.Blocks()
+		i := slices.IndexFunc(accts, func(x account.Account) bool { return x.Key() == a.Key() })
+		if j := slices.IndexFunc(accts, func(x account.Account) bool { return x.Slot == slot && x.Key() != a.Key() }); j >= 0 && !yes &&
+			!c.ask(fmt.Sprintf("Slot %d holds %s: move it to slot %d?", slot, accts[j].Email, accts[i].Slot), false) {
+			fmt.Fprintf(c.out, "Added %s in slot %d.\n", a.Email, accts[i].Slot)
+			return nil
+		}
+		if err := c.b.Move(accts[i].Slot, slot); err != nil {
+			return err
+		}
+	}
 	fmt.Fprintf(c.out, "Added %s.\n", a.Email)
 	return nil
 }
 
-func (c *cmd) remove(name string) error {
+func (c *cmd) remove(name string, yes bool) error {
 	accts, _ := c.b.Blocks()
-	a, err := find(slices.DeleteFunc(accts, func(a account.Account) bool { return !a.Added }), name)
+	a, err := c.pickOne(slices.DeleteFunc(accts, func(a account.Account) bool { return !a.Added }), name, "remove")
 	if err != nil {
 		return err
+	}
+	if a.InUse {
+		fmt.Fprintf(c.errs, "%s is the account Claude Code uses: in its default folder the app adds it again at the next refresh.\n", a.Email)
+	}
+	if !yes && !c.ask(fmt.Sprintf("Remove %s for good? Its saved login leaves the keychain (it stays valid at Anthropic until it lapses).", a.Email), false) {
+		return errors.New("nothing removed")
 	}
 	if err := c.b.Remove(a.Key()); err != nil {
 		return err

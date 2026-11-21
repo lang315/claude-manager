@@ -65,6 +65,9 @@ func (b *Book) addKeyLocked(key, email string) (Account, error) {
 	case !strings.Contains(email, "@") || strings.ContainsAny(email, " \t\r\n\""):
 		return Account{}, errTokenEmail
 	}
+	if slices.ContainsFunc(b.added, func(x Account) bool { return x.Email == email && !x.APIKey }) {
+		return Account{}, fmt.Errorf("%s is already an account signed in to with OAuth: give the API key a distinct email.", email)
+	}
 	a := Account{AccountUUID: keyUUID + email, Email: email, APIKey: true,
 		OAuthAccount: json.RawMessage(fmt.Sprintf(`{"emailAddress":%q,"accountUuid":"","organizationUuid":null,"organizationName":null}`, email))}
 	if err := b.Vault.Put(ParkService, a.Key(), []byte(key)); err != nil {

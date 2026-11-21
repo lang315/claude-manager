@@ -19,7 +19,7 @@ import (
 
 // add is cswap add: the account Claude Code is signed in to, added (the
 // app follows it), with a slot and an alias when asked.
-func (c *cmd) add(ctx context.Context, slot int, alias string) error {
+func (c *cmd) add(ctx context.Context, slot int, alias string, yes bool) error {
 	accts, err := c.b.Refresh(ctx, true)
 	i := slices.IndexFunc(accts, func(a account.Account) bool { return a.InUse })
 	if i < 0 || !accts[i].Added {
@@ -27,6 +27,10 @@ func (c *cmd) add(ctx context.Context, slot int, alias string) error {
 	}
 	a := accts[i]
 	if slot > 0 && slot != a.Slot {
+		if i := slices.IndexFunc(accts, func(x account.Account) bool { return x.Slot == slot }); i >= 0 && !yes &&
+			!c.ask(fmt.Sprintf("Slot %d holds %s: move it to slot %d?", slot, accts[i].Email, a.Slot), false) {
+			return fmt.Errorf("%s stays in slot %d", a.Email, a.Slot)
+		}
 		if err := c.b.Move(a.Slot, slot); err != nil {
 			return err
 		}

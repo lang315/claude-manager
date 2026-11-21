@@ -178,3 +178,26 @@ func TestExportImportAPIKey(t *testing.T) {
 		t.Errorf("again: %+v", got)
 	}
 }
+
+// claude-swap's _reject_cross_kind_collision.
+func TestCrossKindRefused(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	if _, err := b.AddAPIKey(key1, "bob@example.com"); err == nil {
+		t.Error("an API key under an OAuth account's email")
+	}
+	_, err := b.AddAPIKey(key1, "k@x")
+	must(t, err)
+	if _, err := b.AddToken("sk-ant-oat01-t", "k@x"); err == nil {
+		t.Error("a setup-token under an API key's email")
+	}
+}
+
+func TestDuplicates(t *testing.T) {
+	b, v, _, _ := switchBook(t)
+	must(t, v.Put(ParkService, carol.Key(), login("bob-at", "bob-rt", t0).Marshal()))
+	_, err := b.keep(get(t, v, ParkService, carol.Key()), carol, nil)
+	must(t, err)
+	if d := b.Duplicates(); len(d) != 1 || d[0] != [2]string{"bob@example.com", "carol@example.com"} {
+		t.Errorf("dups %v", d)
+	}
+}

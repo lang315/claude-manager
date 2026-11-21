@@ -727,6 +727,29 @@ Verified: `TestHistoryEventsLog`, `TestQuarantineTold`, `TestHistoryCapped`,
 `TestServiceDisabled`, `TestTrayRecentSwitches`; mutation checks (14 of 14
 caught).
 
+## 18. switcher.py's prompts, notices and refusals
+
+Each from a method of `ClaudeAccountSwitcher` (all 176 listed by an audit):
+`remove` asks `[y/N]` unless `--yes`, and says when the account is the one
+in use; `add`/`add-token --slot` on a taken slot asks before moving its
+account; an email naming several accounts lists them and asks for one
+(`switch`, `remove`); `switch` to the account in use says "Already on" with
+the `--force` hint; after a switch, the keychain-cache restart hint, and a
+notice when Claude Code's login was kept as unclaimed; `list` shows
+`[organization]` for a team seat or `[personal]` (`[API key]`,
+`[setup-token]`), aliases, running instances, "No accounts are added yet",
+and warns of two accounts holding one login (`Duplicates`); an API key
+under an OAuth account's email, or a setup-token under an API key's, is
+refused (`_reject_cross_kind_collision`); `list` and `auto` warn of
+`autoswitch.model` names no account has; from a terminal opened as an
+account (its `CLAUDE_CONFIG_DIR` a profile) every command that changes
+accounts is refused (`_refuse_session_shell`).
+
+Verified: `TestRemoveConfirms`, `TestSwitchNotices`, `TestAmbiguousAsks`,
+`TestListTagsAndWarnings`, `TestSessionShellRefused`, `TestAddSlotAsks`,
+`TestCrossKindRefused`, `TestDuplicates`; mutation checks (13 of 13
+caught).
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported

@@ -47,6 +47,9 @@ func (b *Book) AddToken(token, email string) (Account, error) {
 	case !strings.Contains(email, "@") || strings.ContainsAny(email, " \t\r\n\""):
 		return Account{}, errTokenEmail
 	}
+	if slices.ContainsFunc(b.added, func(x Account) bool { return x.Email == email && x.APIKey }) {
+		return Account{}, fmt.Errorf("%s is already an API key account: give the setup-token a distinct email.", email)
+	}
 	acct := []byte(fmt.Sprintf(`{"emailAddress":%q,"accountUuid":"","organizationUuid":null,"organizationName":null}`, email))
 	blob := []byte(fmt.Sprintf(`{"claudeAiOauth":{"accessToken":%q,"scopes":["user:inference"]}}`, token))
 	a, err := b.keepLocked(blob, Profile{AccountUUID: tokenUUID + email, Email: email}, acct)

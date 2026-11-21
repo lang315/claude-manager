@@ -184,7 +184,7 @@ func TestAddRemovePurge(t *testing.T) {
 	if code, out, _ := a.run(t, "", "add-token", "sk-ant-oat01-tok"); code != ok || !strings.Contains(out, "setup-token-1@token.local") {
 		t.Errorf("setup-token: %d %s", code, out)
 	}
-	if code, out, _ := a.run(t, "", "remove", "ci@example.com"); code != ok || !strings.Contains(out, "Removed ci@example.com") {
+	if code, out, _ := a.run(t, "y\n", "remove", "ci@example.com"); code != ok || !strings.Contains(out, "Removed ci@example.com") {
 		t.Errorf("remove: %d %s", code, out)
 	}
 	if code, _, errs := a.run(t, "", "purge"); code != failed || !strings.Contains(errs, "--yes") {

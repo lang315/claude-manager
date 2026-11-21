@@ -67,6 +67,7 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **15. Terminal identity check and history merge** (#34, draft).
 - [x] **16. Plan labels, lapsed subscriptions, error notes** (#35, draft).
 - [x] **17. Notifications, switch history, log, running instances, JSON pace and last-good** (#36, draft).
+- [x] **18. switcher.py's prompts, notices and refusals** (#37, draft).
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an
@@ -92,6 +93,7 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | Dead-token quarantine | 2b: a refused refresh token is never an auto-switch candidate and is not posted again until the saved login changes; Sign In Again replaces it |
 | `export` / `import` | Ported: 3; `claude-manager export|import` (9) |
 | Plan from the profile every 6 hours: Max 5x / 20x, Team, Pro, the server's name; a lapsed subscription; plan age; `list --json` `plan` | 16 |
+| switcher.py's prompts and notices: remove confirm and in-use warning, `--slot` overwrite, empty roster, "Already on", ambiguous email chooser, unclaimed notice, restart hint, `[org]`/`[personal]` tags, aliases and instances in `list`, duplicate logins, cross-kind email, inert model names, the session-shell refusal | 18 |
 | Menu bar notifications (auto-switched, quarantined, all exhausted, auto-switch failed), recent switch history, `claude-swap.log` | 17: MyGo notifications, "Recent switches" in the menu bar and `claude-manager history`, `claude-manager.log` (1 MB × 3) |
 | `status`'s running instances (sessions, IDEs, entrypoint labels); start at login turned off in System Settings | 17 |
 | `--json` pace (`expectedPct`, `aheadOfPace`, `projectedExhaustionAt`, `willLastToReset`), `lastGoodUsage`, `usageRetryAt` | 17 |
