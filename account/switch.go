@@ -104,7 +104,8 @@ func (b *Book) switchLocked(ctx context.Context, key string, force bool) error {
 	if !force && (who != nil && who.Key() == key || tgt.APIKey && b.keyInUse() == key) {
 		return nil
 	}
-	if force && who != nil && who.Key() == key {
+	forced := force && who != nil && who.Key() == key
+	if forced {
 		who = nil // the saved login replaces the one in use: the latter isn't kept over it
 	}
 
@@ -119,6 +120,15 @@ func (b *Book) switchLocked(ctx context.Context, key string, force bool) error {
 	}
 	if !bytes.Equal(again.data, was.data) || !bytes.Equal(again.fileData, was.fileData) {
 		return errLiveMoved
+	}
+	if o := oauthOf(was.data); forced && o != nil { // it may be the newer: kept as the previous login
+		prev, err := withOAuth(nil, o)
+		if err == nil {
+			err = b.Vault.Put(ParkPrev, key, prev)
+		}
+		if err != nil {
+			return fmt.Errorf("The login in use could not be kept, so nothing was switched: %w", err)
+		}
 	}
 	conf, err := os.ReadFile(h.ClaudeJSON)
 	if err != nil {

@@ -516,3 +516,18 @@ func TestRefreshFollowsOnlyInDefaultFolder(t *testing.T) {
 		t.Fatal("added the account in use outside Claude Code's default folder")
 	}
 }
+
+// A forced switch onto the account in use keeps the login it replaces as
+// the account's previous one: it may be the newer.
+func TestSwitchForceKeepsReplacedLogin(t *testing.T) {
+	b, v, _, _ := switchBook(t)
+	_, err := b.keep(login("alice-old-at", "alice-old-rt", t0.Add(time.Hour)).Marshal(), alice, json.RawMessage(aliceConf))
+	must(t, err)
+	must(t, b.SwitchForce(ctx, alice.Key()))
+	if l, _ := parseLogin(get(t, v, liveDefault, "me")); l.AccessToken != "alice-old-at" {
+		t.Fatalf("Claude Code's login is %q", l.AccessToken)
+	}
+	if l, _ := parseLogin(get(t, v, ParkPrev, alice.Key())); l.RefreshToken != "alice-rt" {
+		t.Fatalf("the replaced login was not kept: %+v", l)
+	}
+}
