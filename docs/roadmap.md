@@ -78,6 +78,7 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **26. Gaps from a file-by-file comparison: terminal, history, logins on disk, renewal, keychain** (#45, draft).
 - [x] **27. Gaps: switch best, auto-switch's memory and quarantine for every process, leaving a key, 429 waits and trust, exhausted, purge** (#46, draft).
 - [x] **28. Gaps: run fast path, pid reuse, claude check, onboarding, MCP mirror, .config.json, setup-token transfer, locks, swap, hint** (#47, draft).
+- [x] **29. Gaps: list and status detail, JSON kinds and shapes, config, update notice, menu bar service** (#48, draft).
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an
