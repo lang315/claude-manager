@@ -365,3 +365,19 @@ func writeAtomic(path string, data []byte, mode fs.FileMode) error {
 	}
 	return err
 }
+
+// GlobalConfig is the file Claude Code keeps oauthAccount in, as Claude
+// Code 2.1.299 picks it (claude-swap's _pick_global_config): a legacy
+// <root>/.config.json that is a non-empty regular file, or an empty
+// writable one with no claudeJSON beside it; else claudeJSON.
+func GlobalConfig(root, claudeJSON string) string {
+	legacy := filepath.Join(root, ".config.json")
+	fi, err := os.Stat(legacy)
+	if err != nil || !fi.Mode().IsRegular() {
+		return claudeJSON
+	}
+	if _, gerr := os.Stat(claudeJSON); fi.Size() > 0 || fi.Mode().Perm()&0o222 != 0 && errors.Is(gerr, fs.ErrNotExist) {
+		return legacy
+	}
+	return claudeJSON
+}

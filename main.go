@@ -38,6 +38,7 @@ func main() {
 	if root == "" {
 		root, claudeJSON = filepath.Join(home, ".claude"), filepath.Join(home, ".claude.json")
 	}
+	claudeJSON = account.GlobalConfig(root, claudeJSON) // a legacy .config.json, as Claude Code picks it
 	gui := cli.GUI(os.Args[1:])
 	// Anything but the app's own commands gets the usage, not the window;
 	// -psn_ is what Finder passed apps on old macOS.
@@ -274,7 +275,7 @@ func accounts(home, configDir, root string) *account.Book {
 				user = u.Username
 			}
 		}
-		h = &account.Home{Root: root, ClaudeJSON: filepath.Join(home, ".claude.json"), User: user, FileOnly: fileOnly}
+		h = &account.Home{Root: root, ClaudeJSON: account.GlobalConfig(root, filepath.Join(home, ".claude.json")), User: user, FileOnly: fileOnly}
 	}
 	return &account.Book{
 		Dir:           appDir(home),
