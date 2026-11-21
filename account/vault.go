@@ -2,6 +2,7 @@ package account
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -41,6 +43,10 @@ type Keychain struct {
 
 func (k Keychain) Get(service, acct string) ([]byte, error) {
 	out, err := k.run("the read", "", k.in(args("find-generic-password", service, acct, "-w"))...)
+	for try := 0; try < 2 && err != nil && !errors.Is(err, ErrNotFound) && !errors.Is(err, errKeychainSlow); try++ {
+		time.Sleep(300 * time.Millisecond) // claude-swap's retry of a read that failed once
+		out, err = k.run("the read", "", k.in(args("find-generic-password", service, acct, "-w"))...)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +117,9 @@ func (k Keychain) run(what, stdin string, arg ...string) ([]byte, error) {
 	if g := os.Getenv("CLAUDE_MANAGER_KEYCHAIN_GUARD"); g != "" && !slices.Contains(arg, g) && !strings.Contains(stdin, quote(g)) {
 		return nil, fmt.Errorf("The keychain command names no %s: refused, to keep the user's keychain out of a test.", g)
 	}
-	cmd := exec.Command(bin, arg...)
+	ctx, cancel := context.WithTimeout(context.Background(), keychainTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, arg...)
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
@@ -120,6 +128,8 @@ func (k Keychain) run(what, stdin string, arg ...string) ([]byte, error) {
 	err := cmd.Run()
 	text := msg.String()
 	switch {
+	case ctx.Err() != nil:
+		return nil, errKeychainSlow
 	case strings.Contains(text, "could not be found"):
 		return nil, ErrNotFound
 	case strings.Contains(text, "User interaction is not allowed"), strings.Contains(text, "locked"):
@@ -131,6 +141,12 @@ func (k Keychain) run(what, stdin string, arg ...string) ([]byte, error) {
 	}
 	return out.Bytes(), nil
 }
+
+// keychainTimeout bounds a security call, as claude-swap's: a prompt
+// nobody answers can't hold the book.
+var keychainTimeout = 5 * time.Second
+
+var errKeychainSlow = errors.New("The keychain didn't answer in time: it may be locked, or waiting on a prompt.")
 
 // Memory is a Vault in memory, for tests. Fail, when set, fails every Put.
 type Memory struct {

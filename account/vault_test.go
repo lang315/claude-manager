@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMemoryVault(t *testing.T) {
@@ -145,5 +146,26 @@ func TestKeychainPutTooLongUsesArgs(t *testing.T) {
 	args := readFile(t, dir+"/args")
 	if !strings.HasPrefix(args, "add-generic-password\n-U\n-s\nClaude Code-credentials\n-a\nme\n-X\n") {
 		t.Fatalf("args = %.80q", args)
+	}
+}
+
+// claude-swap's keychain calls: bounded, so a prompt nobody answers can't
+// hold the book, and a read that fails once is tried twice more.
+func TestKeychainTimeoutAndRetry(t *testing.T) {
+	was := keychainTimeout
+	keychainTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { keychainTimeout = was })
+	k, _ := fakeSecurity(t, "exec sleep 5")
+	start := time.Now()
+	if _, err := k.Get("s", "a"); err == nil || time.Since(start) > 3*time.Second {
+		t.Errorf("a hung keychain: %v after %v", err, time.Since(start))
+	}
+	keychainTimeout = was // a fresh script is slow to start on macOS
+	k, dir := fakeSecurity(t, `d=$(dirname "$0"); n=$(cat "$d/n" 2>/dev/null || echo 0); echo $((n+1)) > "$d/n"
+[ "$n" -ge 1 ] && { echo ok; exit 0; }
+echo busy >&2; exit 1`)
+	if got, err := k.Get("s", "a"); err != nil || string(got) != "ok" {
+		n, _ := os.ReadFile(filepath.Join(dir, "n"))
+		t.Errorf("retried read: %q %v (tries %s)", got, err, n)
 	}
 }
