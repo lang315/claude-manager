@@ -162,7 +162,7 @@ func TestLiveTranscripts(t *testing.T) {
 
 // A crashed claude's record whose pid the system gave to another process
 // is no running claude: take-back and Open in Terminal don't wait on it.
-func TestClaudeRunningSkipsReusedPid(t *testing.T) {
+func TestReusedPidIsNoSession(t *testing.T) {
 	dir := t.TempDir()
 	old := time.Now().Add(-24 * time.Hour).UTC().Format("Mon Jan _2 15:04:05 2006")
 	write(t, filepath.Join(dir, "sessions", "1.json"), `{"pid":`+strconv.Itoa(os.Getpid())+`,"sessionId":"s","procStart":"`+old+`"}`)
