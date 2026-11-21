@@ -89,7 +89,7 @@ func (b *Book) Refresh(ctx context.Context, force bool) ([]Account, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			b.read(ctx, a, j.token, now)
+			b.read(ctx, a, j.token, live.RefreshToken, now)
 		}()
 	}
 	wg.Wait()
@@ -133,7 +133,7 @@ func (b *Book) profileOf(ctx context.Context, token string) (Profile, error) {
 
 // read asks for one account's limits: with token, the login in use's, or
 // else with the account's own login.
-func (b *Book) read(ctx context.Context, a *Account, token string, now time.Time) {
+func (b *Book) read(ctx context.Context, a *Account, token, held string, now time.Time) {
 	var limits []Limit
 	var err error
 	if token != "" {
@@ -142,7 +142,7 @@ func (b *Book) read(ctx context.Context, a *Account, token string, now time.Time
 			err = errLiveExpired // Claude Code's to renew, never the app's
 		}
 	} else {
-		limits, err = b.readOwn(ctx, a, now)
+		limits, err = b.readOwn(ctx, a, held, now)
 	}
 	if err != nil {
 		a.Err = err.Error()
@@ -157,7 +157,7 @@ func (b *Book) read(ctx context.Context, a *Account, token string, now time.Time
 
 // readOwn reads an added account's limits with its own login: renewed
 // first when it is about to lapse, and once more when Anthropic refuses it.
-func (b *Book) readOwn(ctx context.Context, a *Account, now time.Time) ([]Limit, error) {
+func (b *Book) readOwn(ctx context.Context, a *Account, held string, now time.Time) ([]Limit, error) {
 	blob, err := b.Vault.Get(ParkService, a.Key())
 	if errors.Is(err, ErrNotFound) {
 		return nil, ErrInvalidGrant
@@ -170,13 +170,13 @@ func (b *Book) readOwn(ctx context.Context, a *Account, now time.Time) ([]Limit,
 		return nil, ErrInvalidGrant
 	}
 	if l.expiresBy(now.Add(renewAhead)) {
-		if l, err = b.renew(ctx, a, blob, l, now); err != nil {
+		if l, err = b.renew(ctx, a, blob, l, held, now); err != nil {
 			return nil, err
 		}
 	}
 	limits, err := b.API.Usage(ctx, l.AccessToken)
 	if errors.Is(err, ErrUnauthorized) {
-		if l, err = b.renew(ctx, a, blob, l, now); err != nil {
+		if l, err = b.renew(ctx, a, blob, l, held, now); err != nil {
 			return nil, err
 		}
 		limits, err = b.API.Usage(ctx, l.AccessToken)
@@ -185,7 +185,10 @@ func (b *Book) readOwn(ctx context.Context, a *Account, now time.Time) ([]Limit,
 }
 
 // A save that fails loses the login: the old refresh token may be spent.
-func (b *Book) renew(ctx context.Context, a *Account, blob []byte, l Login, now time.Time) (Login, error) {
+func (b *Book) renew(ctx context.Context, a *Account, blob []byte, l Login, held string, now time.Time) (Login, error) {
+	if held != "" && l.RefreshToken == held { // Claude Code's to renew: two renewers break the chain
+		return l, errLiveExpired
+	}
 	fresh, err := b.API.Renew(ctx, l, now)
 	if err != nil {
 		return l, err

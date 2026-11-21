@@ -72,10 +72,14 @@ These are claude-swap's hard rules (its `AGENTS.md`, `docs/architecture.md`,
 Before the locks (network allowed):
 
 1. Read the live login; ask whose it is (`identify`, cached per token).
-   This is account L. A lapsed login can't be asked about: it is L's when its
-   refresh token equals added account L's saved one; otherwise the switch
-   stops ("Open Claude Code to renew it, then switch"), since a wrong guess
-   would overwrite L's only login.
+   This is account L. A lapsed login can't be asked about. It is L's when
+   the uuids Claude Code writes inside `claudeAiOauth` name added account L
+   and `~/.claude.json`'s `oauthAccount` names L too, or else when its
+   refresh token equals L's saved one. When L's saved login expires later
+   than the lapsed one (signed in again meanwhile), it is kept and the
+   lapsed one is not saved. Anything else stops the switch ("Open Claude
+   Code to renew it, then switch"): a wrong owner would overwrite that
+   account's only saved login.
 
 Under the app's lock and Claude Code's locks (proper-lockfile directories,
 as Claude Code makes them: `~/.claude/.oauth_refresh.lock` then
@@ -115,10 +119,18 @@ An added account with no `oauthAccount` kept (added before this change) is
 refused: "Sign in again to this account to switch to it." A made-up object
 might not satisfy Claude Code.
 
+The app never renews a saved login whose refresh token is the one Claude
+Code holds, even when it can't tell that account is in use: two renewers
+break a refresh chain.
+
 Known limit: once Claude Code renews the login in use, the app's saved copy
 of that account is stale until the next switch saves it again. Changing
 account outside the app (`/login`, Pitboard) leaves that stale copy, which
-then shows "Sign-in expired" until signed in again.
+then shows "Sign-in expired" until signed in again. What the app's renewal
+of that spent token does to another holder's copy (Pitboard's) is
+unverified. Keeping the saved copy in step with Claude Code's on each
+Limits refresh was considered and left out (2026-11-21): with Pitboard
+still switching, it would give both programs the same live refresh token.
 
 Pitboard: once the app switches, Pitboard must not switch too; two programs
 saving the same login are two renewers on one refresh chain.

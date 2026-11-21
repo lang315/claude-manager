@@ -126,13 +126,28 @@ func (b *Book) whose(ctx context.Context, blob []byte) (*Profile, error) {
 	if err != nil {
 		return nil, nil
 	}
-	if !l.expiresBy(b.Now()) {
+	lapsed := l.expiresBy(b.Now())
+	if !lapsed {
 		p, err := b.profileOf(ctx, l.AccessToken)
 		if err == nil {
 			return &p, nil
 		}
 		if !errors.Is(err, ErrUnauthorized) {
 			return nil, err
+		}
+	}
+	// A wrong owner would lose that account's only saved login: the
+	// login's own uuids count only when ~/.claude.json names the same
+	// account.
+	if k := keyOf(oauthOf(blob)); lapsed && k != "" && k == b.Home.accountKey() {
+		if i := slices.IndexFunc(b.added, func(a Account) bool { return a.Key() == k }); i >= 0 {
+			a := b.added[i]
+			if saved, err := b.Vault.Get(ParkService, k); err == nil {
+				if s, err := parseLogin(saved); err == nil && s.ExpiresAt > l.ExpiresAt {
+					return nil, nil
+				}
+			}
+			return &Profile{AccountUUID: a.AccountUUID, Email: a.Email, OrgUUID: a.OrgUUID, OrgName: a.OrgName}, nil
 		}
 	}
 	for _, a := range b.added {
