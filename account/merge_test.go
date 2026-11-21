@@ -1,6 +1,7 @@
 package account
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,13 +70,16 @@ func TestMergeHistory(t *testing.T) {
 }
 
 // Opened with history shared, a profile that kept its own merges it into
-// ~/.claude first; with a claude still running there it is left alone.
+// ~/.claude first; with a claude still running there it is left alone, as
+// the whole profile is.
 func TestRunMergesProfileHistory(t *testing.T) {
 	r := newRunBook(t)
 	must(t, os.Mkdir(filepath.Join(r.h.Root, "projects"), 0o700))
 	write(t, filepath.Join(r.dir(), "projects", "p", "old.jsonl"), "kept\n")
 	r.running = true
-	must(t, r.b.Run(bob.Key(), "/a", both))
+	if err := r.b.Run(bob.Key(), "/a", both); !errors.Is(err, errProfileBusy) {
+		t.Fatalf("err = %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(r.h.Root, "projects", "p", "old.jsonl")); err == nil {
 		t.Fatal("merged under a running claude")
 	}

@@ -102,18 +102,57 @@ func TestRunSeedsProfile(t *testing.T) {
 }
 
 // The mark is saved before the seed: a seed the app doesn't know of would
-// be a second renewer.
+// be a second renewer. A seed that fails takes it off again, else a retry
+// would open the cleared profile, signed out.
 func TestRunMarksBeforeSeeding(t *testing.T) {
 	r := newRunBook(t)
-	must(t, os.MkdirAll(filepath.Dir(ProfilesDir(r.b.Dir)), 0o700))
-	must(t, os.WriteFile(ProfilesDir(r.b.Dir), nil, 0o600)) // the seed can't make its folder
+	marked := false
+	r.b.Vault = &seedSpy{r.v, func() {
+		data, _ := os.ReadFile(r.b.path())
+		marked = strings.Contains(string(data), `"terminal"`)
+	}}
+	creds := filepath.Join(r.dir(), ".claude.json")
+	must(t, os.MkdirAll(creds, 0o700)) // a folder in its way: the seed can't write the profile's .claude.json
+	must(t, os.WriteFile(filepath.Join(creds, "x"), nil, 0o600))
 	r.b.Launch = func(string, string, ...string) error { t.Fatal("launched without a seed"); return nil }
 	if err := r.b.Run(bob.Key(), "/work", both); err == nil {
-		t.Fatal("ran without a profile")
+		t.Fatal("ran without a seed")
+	}
+	if !marked {
+		t.Error("the mark was not saved before seeding")
+	}
+	if a := r.bob(t); a.Terminal.Dir != "" {
+		t.Errorf("a failed seed kept its mark: %+v", a.Terminal)
 	}
 	data, _ := os.ReadFile(r.b.path())
-	if !strings.Contains(string(data), `"terminal"`) {
-		t.Error("the mark was not saved before seeding")
+	if strings.Contains(string(data), `"terminal"`) {
+		t.Error("a failed seed's mark stays in accounts.json")
+	}
+}
+
+// seedSpy calls at when the seed deletes the profile's keychain item.
+type seedSpy struct {
+	Vault
+	at func()
+}
+
+func (s *seedSpy) Delete(service, acct string) error {
+	if service != ParkService {
+		s.at()
+	}
+	return s.Vault.Delete(service, acct)
+}
+
+// A claude running in the profile holds its login: the seed would replace
+// a newer one, as claude-swap refuses to.
+func TestRunRefusesProfileInUse(t *testing.T) {
+	r := newRunBook(t)
+	r.running = true
+	if err := r.b.Run(bob.Key(), "/work", both); !errors.Is(err, errProfileBusy) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(r.launched) != 0 || r.bob(t).Terminal.Dir != "" {
+		t.Errorf("launched %q, marked %+v", r.launched, r.bob(t).Terminal)
 	}
 }
 

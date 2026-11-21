@@ -23,8 +23,9 @@ type Terminal struct {
 }
 
 var (
-	errInTerminal = errors.New("This account is open in a terminal. Quit Claude Code there first.")
-	errRunInUse   = errors.New("This account is the one in use: run claude in any terminal.")
+	errInTerminal  = errors.New("This account is open in a terminal. Quit Claude Code there first.")
+	errRunInUse    = errors.New("This account is the one in use: run claude in any terminal.")
+	errProfileBusy = errors.New("Claude Code is running in this account's terminal profile: quit it there first.")
 
 	errTerminalExpired = errors.New(InTerminalExpired)
 	errDrifted         = errors.New("The terminal opened as this account is signed in to another one now; its login will be kept as unclaimed when claude quits there.")
@@ -115,6 +116,11 @@ func (b *Book) Run(key, folder string, share Share, args ...string) error {
 		}
 	}
 	dir := b.profile(key)
+	if b.Running != nil { // its login there may be newer than the saved one
+		if running, err := b.Running(dir); running || err != nil {
+			return errProfileBusy
+		}
+	}
 	// Marked before the seed: a seed without its mark would be a second
 	// renewer the app doesn't know of.
 	a.Terminal = Terminal{Dir: dir, Since: b.Now()}
@@ -123,7 +129,11 @@ func (b *Book) Run(key, folder string, share Share, args ...string) error {
 		return err
 	}
 	if err := b.seed(dir, parked, a.OAuthAccount, share); err != nil {
-		return errors.Join(err, b.clearProfile(dir))
+		if cerr := b.clearProfile(dir); cerr != nil {
+			return errors.Join(err, cerr) // the mark stays: the profile may still hold the login
+		}
+		a.Terminal = Terminal{}
+		return errors.Join(err, b.save())
 	}
 	return b.Launch(folder, dir, args...)
 }
