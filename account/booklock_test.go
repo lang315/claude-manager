@@ -110,3 +110,21 @@ func TestAutoStateIsShared(t *testing.T) {
 		t.Errorf("another process switched back in the cooldown: %+v", d)
 	}
 }
+
+// claude-swap persists its quarantine: a refused refresh token is not
+// posted again by the next process either.
+func TestQuarantineIsShared(t *testing.T) {
+	f := newAnthropic()
+	b, v, _, _ := newBook(t, f)
+	_, err := b.keep(login("bob-at", "bob-rt", t0.Add(time.Minute)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	b.Refresh(ctx, true) // the renewal is refused: quarantined
+	f.took()
+	next := &Book{Dir: b.Dir, Vault: v, API: b.API, Now: func() time.Time { return t0.Add(time.Hour) }, Live: b.Live}
+	next.Refresh(ctx, true)
+	for _, c := range f.took() {
+		if c == "renew bob-rt" {
+			t.Error("another process posted the refused token again")
+		}
+	}
+}

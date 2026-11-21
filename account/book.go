@@ -3,6 +3,7 @@ package account
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -126,9 +127,10 @@ type saved struct {
 	Auto      *Auto             `json:"auto,omitempty"`
 	Maps      map[string]string `json:"maps,omitempty"` // a folder to the account claude-manager run opens there
 	Prefs     *Prefs            `json:"prefs,omitempty"`
-	Unclaimed []Unclaimed       `json:"unclaimed,omitempty"` // logins in use kept as nobody's
-	History   []Switched        `json:"history,omitempty"`   // the recent switches
-	AutoState *autoState        `json:"autoState,omitempty"` // auto-switch's memory, for every process
+	Unclaimed []Unclaimed       `json:"unclaimed,omitempty"`   // logins in use kept as nobody's
+	History   []Switched        `json:"history,omitempty"`     // the recent switches
+	AutoState *autoState        `json:"autoState,omitempty"`   // auto-switch's memory, for every process
+	Dead      map[string]string `json:"quarantined,omitempty"` // account key → SHA-256 of its refused refresh token
 }
 
 func (b *Book) path() string { return filepath.Join(b.Dir, "accounts.json") }
@@ -233,6 +235,17 @@ func (b *Book) load() error {
 	b.ensureSlots()
 	b.maps, b.unclaimed, b.history = s.Maps, s.Unclaimed, s.History
 	b.setAutoState(s.AutoState)
+	b.dead = nil
+	for k, h := range s.Dead {
+		var sum [32]byte
+		if raw, err := hex.DecodeString(h); err == nil && len(raw) == len(sum) {
+			copy(sum[:], raw)
+			if b.dead == nil {
+				b.dead = map[string][32]byte{}
+			}
+			b.dead[k] = sum
+		}
+	}
 	if s.Prefs != nil {
 		b.prefs = *s.Prefs
 	}
@@ -252,7 +265,7 @@ func (b *Book) save() error {
 	if err := os.Chmod(b.Dir, 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(saved{Accounts: b.added, InUse: b.inUse, Auto: &b.auto, Maps: b.maps, Prefs: &b.prefs, Unclaimed: b.unclaimed, History: b.history, AutoState: b.savedAutoState()}, "", "  ")
+	data, err := json.MarshalIndent(saved{Accounts: b.added, InUse: b.inUse, Auto: &b.auto, Maps: b.maps, Prefs: &b.prefs, Unclaimed: b.unclaimed, History: b.history, AutoState: b.savedAutoState(), Dead: b.savedDead()}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -430,4 +443,15 @@ func (b *Book) savedAutoState() *autoState {
 		return &s
 	}
 	return nil
+}
+
+func (b *Book) savedDead() map[string]string {
+	var out map[string]string
+	for k, sum := range b.dead {
+		if out == nil {
+			out = map[string]string{}
+		}
+		out[k] = hex.EncodeToString(sum[:])
+	}
+	return out
 }
