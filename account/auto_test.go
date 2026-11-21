@@ -187,7 +187,9 @@ func TestDecideMemo(t *testing.T) {
 		m     memo
 		want  string
 	}{
-		{"the account left is barred until it recovers", []Account{inUse(a), b, c}, bar, "c"},
+		// b at 82 doesn't dominate a at 92 (18 points of room against 2×8+3).
+		{"the account left is barred until it recovers", []Account{inUse(a), acct("b", 82, 10, day), acct("c", 82, 10, day)}, bar, "c"},
+		{"one with far more room than the account in use is released (dominance)", []Account{inUse(a), b, c}, bar, "b"},
 		{"recovered by 3 points, it lands again", []Account{inUse(a), acct("b", 69, 10, day), c}, memo{barTo: bar.barTo, barFrom: bar.barFrom, leftLH: 28}, "b"},
 		{"recovered when its reset came nearer", []Account{inUse(a), b, c}, memo{barTo: bar.barTo, barFrom: bar.barFrom, leftLH: 40, leftResets: t0.Add(3 * time.Hour)}, "b"},
 		{"left on a failover: under its lines is recovered", []Account{inUse(a), b, c}, memo{barTo: bar.barTo, barFrom: bar.barFrom, leftLH: 40, leftWhy: "failover"}, "b"},

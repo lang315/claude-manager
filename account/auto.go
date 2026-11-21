@@ -189,10 +189,11 @@ type memo struct {
 }
 
 const (
-	trustFor       = time.Hour       // a reading that failed since is trusted this long (TRUST_MAX_AGE_S)
-	trustThrottled = 2 * time.Hour   // when Anthropic asked to wait (RATE_LIMIT_TRUST_MAX_AGE_S)
-	recoverySlack  = 5 * time.Minute // RECOVERY_HYSTERESIS_S
-	spentHeadroom  = 3.0             // SPENT_HEADROOM_PCT
+	trustFor        = time.Hour       // a reading that failed since is trusted this long (TRUST_MAX_AGE_S)
+	trustThrottled  = 2 * time.Hour   // when Anthropic asked to wait (RATE_LIMIT_TRUST_MAX_AGE_S)
+	recoverySlack   = 5 * time.Minute // RECOVERY_HYSTERESIS_S
+	recoveryHorizon = 4 * time.Hour   // RECOVERY_HORIZON_S
+	spentHeadroom   = 3.0             // SPENT_HEADROOM_PCT
 )
 
 // Usable reports whether a's limits may be decided on at now.
@@ -233,11 +234,20 @@ func usable(a Account, now time.Time) bool {
 // headroom grew by 3 points, its binding reset came 5 minutes nearer, or,
 // left on a failover, it is under its lines) and leads by the all-over
 // margin. claude-swap's _left_account_recovered and _all_above_margin_met.
-func (m memo) released(st, act standing) bool {
-	recovered := st.lh >= m.leftLH+spentHeadroom ||
-		!m.leftResets.IsZero() && !st.resets.IsZero() && st.resets.Before(m.leftResets.Add(-recoverySlack))
-	if m.leftWhy == "failover" {
-		recovered = !st.over
+func (m memo) released(st, act standing, now time.Time) bool {
+	var recovered bool
+	switch {
+	case m.leftWhy == "failover":
+		// Left unread: under its lines, or resetting well before the one in
+		// use (within 4 hours when the latter's reset is unknown).
+		recovered = !st.over || !st.resets.IsZero() &&
+			(act.resets.IsZero() && st.resets.Sub(now) <= recoveryHorizon || !act.resets.IsZero() && st.resets.Before(act.resets.Add(-recoverySlack)))
+	default:
+		// Dominance: left for another reason than room (consume-first's
+		// order), it can have far more than the one in use from the start.
+		recovered = st.raw > act.raw*2+spentHeadroom ||
+			st.lh >= m.leftLH+spentHeadroom ||
+			!m.leftResets.IsZero() && !st.resets.IsZero() && st.resets.Before(m.leftResets.Add(-recoverySlack))
 	}
 	return recovered && st.lh >= math.Min(2*act.lh, act.lh+spentHeadroom)
 }
@@ -392,7 +402,7 @@ func decide(now time.Time, s Auto, accts []Account, m memo) Decision {
 			st := c.st
 			if trigger == "proactive" || trigger == "consume" {
 				// The no-return bar holds only while auto-switch's own landing is in use.
-				if m.barTo == active.Key() && c.a.Key() == m.barFrom && !m.released(st, act) {
+				if m.barTo == active.Key() && c.a.Key() == m.barFrom && !m.released(st, act, now) {
 					continue
 				}
 				switch {
