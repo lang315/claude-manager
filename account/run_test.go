@@ -497,3 +497,36 @@ func TestRunLaunchesUnlocked(t *testing.T) {
 		t.Errorf("launched %d times holding the lock", locked)
 	}
 }
+
+// claude-swap's purge: every saved login, previous login, unclaimed login,
+// terminal profile and its keychain item, and accounts.json, go; never
+// under a claude running in a profile.
+func TestPurge(t *testing.T) {
+	r := newRunBook(t)
+	must(t, r.b.Run(bob.Key(), "/a", both))
+	must(t, r.v.Put(liveService(r.dir()), "me", []byte("profile login")))
+	must(t, r.v.Put(ParkPrev, bob.Key(), []byte("prev")))
+	must(t, r.v.Put(UnclaimedService, "u1", []byte("kept")))
+	r.b.unclaimed = []Unclaimed{{ID: "u1"}}
+	must(t, r.b.save())
+	r.running = true
+	if _, err := r.b.Purge(); !errors.Is(err, errProfileBusy) {
+		t.Fatalf("purged under a running claude: %v", err)
+	}
+	r.running = false
+	n, err := r.b.Purge()
+	if err != nil || n != 1 {
+		t.Fatalf("Purge = %d, %v", n, err)
+	}
+	if r.v.Len() != 1 { // Claude Code's own login stays
+		t.Errorf("%d keychain items left", r.v.Len())
+	}
+	for _, p := range []string{r.dir(), r.b.path()} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s left", p)
+		}
+	}
+	if got, _ := r.b.Blocks(); slices.ContainsFunc(got, func(a Account) bool { return a.Added }) {
+		t.Error("an added account left")
+	}
+}

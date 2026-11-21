@@ -731,26 +731,14 @@ func (c *cmd) remove(name string, yes bool) error {
 
 func (c *cmd) purge(yes bool) error {
 	if !yes {
-		return errors.New("purge removes every added account and its saved login from the keychain: give --yes")
+		return errors.New("purge removes every added account and its saved logins, the unclaimed logins, the terminal profiles and accounts.json: give --yes")
 	}
-	accts, err := c.b.Blocks()
+	n, err := c.b.Purge()
 	if err != nil {
 		return err
 	}
-	var errs []error
-	n := 0
-	for _, a := range accts {
-		if !a.Added {
-			continue
-		}
-		if err := c.b.Remove(a.Key()); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", a.Email, err))
-			continue
-		}
-		n++
-	}
-	fmt.Fprintf(c.out, "Removed %d accounts.\n", n)
-	return errors.Join(errs...)
+	fmt.Fprintf(c.out, "Removed %d accounts, their saved logins, the unclaimed logins and the terminal profiles. Claude Code's own login stays.\n", n)
+	return nil
 }
 
 func (c *cmd) export(path string, full bool, keys ...string) error {

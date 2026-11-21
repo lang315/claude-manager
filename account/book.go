@@ -455,3 +455,48 @@ func (b *Book) savedDead() map[string]string {
 	}
 	return out
 }
+
+// Purge removes what the app keeps, as claude-swap's purge: every saved
+// and previous login, the unclaimed logins, the terminal profiles and
+// their keychain items, and accounts.json. Claude Code's own login stays.
+// It is refused while a claude runs in a profile. It returns how many
+// added accounts went.
+func (b *Book) Purge() (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if err := b.load(); err != nil {
+		return 0, err
+	}
+	profiles := ProfilesDir(b.Dir)
+	dirs, _ := os.ReadDir(profiles)
+	if b.Running != nil {
+		for _, d := range dirs {
+			if running, err := b.Running(filepath.Join(profiles, d.Name())); running || err != nil {
+				return 0, errProfileBusy
+			}
+		}
+	}
+	var errs []error
+	for _, a := range b.added {
+		errs = append(errs, b.Vault.Delete(ParkService, a.Key()), b.Vault.Delete(ParkPrev, a.Key()))
+	}
+	for _, u := range b.unclaimed {
+		errs = append(errs, b.Vault.Delete(UnclaimedService, u.ID))
+	}
+	for _, d := range dirs {
+		errs = append(errs, b.Vault.Delete(liveService(filepath.Join(profiles, d.Name())), b.user()))
+	}
+	if err := errors.Join(errs...); err != nil {
+		return 0, err // accounts.json stays, naming what is left
+	}
+	n := len(b.added)
+	err := os.RemoveAll(profiles)
+	if rerr := os.Remove(b.path()); !errors.Is(rerr, fs.ErrNotExist) {
+		err = errors.Join(err, rerr)
+	}
+	b.added, b.inUse, b.maps, b.unclaimed, b.history, b.dead, b.prefs = nil, nil, nil, nil, nil, nil, Prefs{}
+	b.auto = DefaultAuto()
+	b.setAutoState(nil)
+	b.loaded = false
+	return n, err
+}
