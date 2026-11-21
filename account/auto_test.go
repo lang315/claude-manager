@@ -33,7 +33,10 @@ func TestDecide(t *testing.T) {
 	ownLine := inUse(acct("own", 82, 10, day))
 	ownLine.Line = 80
 	tier := func(a Account, p int) Account { a.Priority = p; return a }
-	over := func(a Account) Account { a.Limits = append(a.Limits, Limit{Kind: "weekly_scoped", Scope: "Fable", Percent: 100}); return a }
+	over := func(a Account) Account {
+		a.Limits = append(a.Limits, Limit{Kind: "weekly_scoped", Scope: "Fable", Percent: 100})
+		return a
+	}
 
 	for _, c := range []struct {
 		name  string
