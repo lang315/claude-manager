@@ -45,6 +45,15 @@ func main() {
 	if !gui && len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-psn_") {
 		cli.Version = version
 		cli.Upgrade = upgrade
+		if updates.Enabled() {
+			cli.Newest = func(ctx context.Context) (string, error) {
+				up, err := updates.Check(ctx)
+				if err != nil || up == nil {
+					return "", err
+				}
+				return up.Version, nil
+			}
+		}
 		st := &store.Store{Root: root, ClaudeJSON: claudeJSON, Alive: store.PIDAlive, Profiles: account.ProfilesDir(appDir(home))}
 		cli.Instances = st.Instances
 		os.Exit(cli.Run(context.Background(), os.Args[1:], accounts(home, configDir, root), os.Stdin, os.Stdout, os.Stderr))
@@ -159,12 +168,16 @@ func checkUpdates(a *view.App) {
 		return
 	}
 	for {
+		wait := 24 * time.Hour
 		if p, err := a.Accounts.Prefs(); err == nil && !p.NoUpdates {
-			if up, err := updates.Check(context.Background()); err == nil && up != nil && newer.Swap(up) == nil {
+			up, err := updates.Check(context.Background())
+			if err != nil {
+				wait = time.Hour // cswap retries a failed check an hour later, not a day
+			} else if up != nil && newer.Swap(up) == nil {
 				a.Update(func() {})
 			}
 		}
-		time.Sleep(24 * time.Hour)
+		time.Sleep(wait)
 	}
 }
 

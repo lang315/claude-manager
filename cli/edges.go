@@ -2,12 +2,15 @@ package cli
 
 import (
 	"bufio"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/lang315/claude-manager/account"
 )
@@ -120,3 +123,48 @@ const restartHint = "Running Claude Code sessions take it within about 30 second
 // fileHint is restartHint where Claude Code keeps its login in a file
 // (claude-swap's file backend): read again on the next message.
 const fileHint = "Running Claude Code sessions take it on their next message: no restart needed."
+
+// Newest is the newest version of the app on its update feed, "" when this
+// one is; main sets it. nil: this build doesn't update itself.
+var Newest func(ctx context.Context) (string, error)
+
+// updateCheck is the cached answer of the update feed, as cswap's
+// update_check: asked at most daily, an hour after a failed ask.
+type updateCheck struct {
+	CheckedAt time.Time `json:"checkedAt,omitzero"`
+	FailedAt  time.Time `json:"failedAt,omitzero"`
+	Latest    string    `json:"latest,omitempty"`
+}
+
+// updateHint is a line saying a newer version is out, or "".
+func (c *cmd) updateHint(ctx context.Context) string {
+	if Newest == nil {
+		return ""
+	}
+	if p, err := c.b.Prefs(); err != nil || p.NoUpdates {
+		return ""
+	}
+	path := filepath.Join(c.b.Dir, "update-check.json")
+	var u updateCheck
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &u)
+	}
+	now := time.Now()
+	if now.Sub(u.CheckedAt) >= 24*time.Hour && now.Sub(u.FailedAt) >= time.Hour {
+		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		latest, err := Newest(ctx)
+		cancel()
+		if err != nil {
+			u.FailedAt = now
+		} else {
+			u = updateCheck{CheckedAt: now, Latest: latest}
+		}
+		if data, err := json.Marshal(u); err == nil {
+			_ = os.WriteFile(path, data, 0o600)
+		}
+	}
+	if u.Latest == "" || u.Latest == Version {
+		return ""
+	}
+	return "Claude Manager " + u.Latest + " is out: claude-manager upgrade installs it."
+}

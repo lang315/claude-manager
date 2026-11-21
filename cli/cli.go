@@ -260,6 +260,11 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 		}
 		return failed
 	}
+	if !*jsonOut && !slices.Contains([]string{"upgrade", "version", "--version", "help", "-h", "--help", "menubar"}, args[0]) {
+		if h := c.updateHint(ctx); h != "" { // cswap's notice after a command
+			fmt.Fprintln(errs, h)
+		}
+	}
 	return code
 }
 

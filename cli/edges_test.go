@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -200,5 +201,25 @@ func TestConfigAsCswap(t *testing.T) {
 	}
 	if _, out, _ := a.run(t, "", "config", "path"); !strings.HasSuffix(strings.TrimSpace(out), "accounts.json") {
 		t.Errorf("path: %q", out)
+	}
+}
+
+// cswap's update notice: after a command, on stderr, from a check made at
+// most daily and retried an hour after a failure; never with --json.
+func TestUpdateHint(t *testing.T) {
+	a := newApp(t)
+	calls := 0
+	Newest = func(context.Context) (string, error) { calls++; return "9.9.9", nil }
+	t.Cleanup(func() { Newest = nil })
+	_, _, errs := a.run(t, "", "list")
+	if !strings.Contains(errs, "9.9.9 is out") {
+		t.Errorf("no notice: %q", errs)
+	}
+	a.run(t, "", "list")
+	if calls != 1 {
+		t.Errorf("asked the feed %d times in a day", calls)
+	}
+	if _, _, errs := a.run(t, "", "list", "--json"); strings.Contains(errs, "is out") {
+		t.Error("a notice with --json")
 	}
 }
