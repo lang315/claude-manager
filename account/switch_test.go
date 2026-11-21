@@ -430,3 +430,84 @@ func TestRefreshNeverRenewsClaudeCodesToken(t *testing.T) {
 		t.Errorf("bob = %+v", a)
 	}
 }
+
+func TestRefreshAddsAccountInUse(t *testing.T) {
+	b, v, _, _ := switchBook(t)
+	got, err := b.Refresh(ctx, true)
+	must(t, err)
+	a := blockOf(t, got, "alice@example.com")
+	if !a.InUse || !a.Added || keyOf(a.OAuthAccount) != alice.Key() {
+		t.Fatalf("alice = %+v", a)
+	}
+	if l, _ := parseLogin(get(t, v, ParkService, alice.Key())); l.AccessToken != "alice-at" {
+		t.Errorf("alice's saved login %q", l.AccessToken)
+	}
+	if strings.Contains(string(get(t, v, ParkService, alice.Key())), "mcpOAuth") {
+		t.Error("Claude Code's MCP logins were saved with hers")
+	}
+}
+
+func TestRefreshAddsNothingWhenClaudeJSONDisagrees(t *testing.T) {
+	b, v, h, _ := switchBook(t)
+	must(t, os.WriteFile(h.ClaudeJSON, []byte(strings.ReplaceAll(aliceConf, `"alice"`, `"carol"`)), 0o600))
+	b.Refresh(ctx, true)
+	if _, err := v.Get(ParkService, alice.Key()); !errors.Is(err, ErrNotFound) {
+		t.Fatal("alice added though ~/.claude.json names another account")
+	}
+}
+
+// Claude Code renews bob's login; then the user signs in as alice outside
+// the app. bob's saved login must be the renewed one, or it is spent.
+func TestRefreshFollowsClaudeCodesRenewal(t *testing.T) {
+	b, v, _, f := switchBook(t)
+	must(t, b.Switch(ctx, bob.Key()))
+	f.who["bob-at2"], f.usage["bob-at2"] = bob, 5
+	must(t, v.Put(liveDefault, "me", stored(t, login("bob-at2", "bob-rt2", t0.Add(8*time.Hour)))))
+	b.Refresh(ctx, true)
+	if l, _ := parseLogin(get(t, v, ParkService, bob.Key())); l.RefreshToken != "bob-rt2" {
+		t.Fatalf("bob's saved login = %q", l.RefreshToken)
+	}
+	if l, _ := parseLogin(get(t, v, ParkPrev, bob.Key())); l.RefreshToken != "bob-rt" {
+		t.Errorf("previous login = %q", l.RefreshToken)
+	}
+	f.who["alice-at3"], f.usage["alice-at3"] = alice, 5
+	f.renewed["bob-rt2"] = "bob-at3"
+	f.usage["bob-at3"] = 7
+	must(t, v.Put(liveDefault, "me", stored(t, login("alice-at3", "alice-rt3", t0.Add(9*time.Hour)))))
+	b.Now = func() time.Time { return t0.Add(8 * time.Hour) }
+	got, _ := b.Refresh(ctx, true)
+	if a := blockOf(t, got, "bob@example.com"); a.Err != "" || a.InUse {
+		t.Fatalf("bob = %+v", a)
+	}
+}
+
+func TestRefreshKeepsNewerSavedLogin(t *testing.T) {
+	b, v, _, _ := switchBook(t)
+	must(t, b.Switch(ctx, bob.Key()))
+	_, err := b.keep(login("bob-new", "bob-rt-new", t0.Add(5*time.Hour)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	b.Refresh(ctx, true)
+	if l, _ := parseLogin(get(t, v, ParkService, bob.Key())); l.RefreshToken != "bob-rt-new" {
+		t.Fatalf("bob's newer saved login was replaced by %q", l.RefreshToken)
+	}
+}
+
+// Claude Code changes its login while the app asks whose it is: what it
+// reads after is not the login it asked about, and is not saved.
+func TestRefreshSavesOnlyTheLoginIdentified(t *testing.T) {
+	b, v, _, f := switchBook(t)
+	f.onProfile = func() { v.Put(liveDefault, "me", stored(t, login("x-at", "x-rt", t0.Add(9*time.Hour)))) }
+	b.Refresh(ctx, true)
+	if _, err := v.Get(ParkService, alice.Key()); !errors.Is(err, ErrNotFound) {
+		t.Fatal("saved a login other than the one identified")
+	}
+}
+
+func TestRefreshFollowsOnlyInDefaultFolder(t *testing.T) {
+	b, v, _, _ := switchBook(t)
+	b.Home = nil
+	b.Refresh(ctx, true)
+	if _, err := v.Get(ParkService, alice.Key()); !errors.Is(err, ErrNotFound) {
+		t.Fatal("added the account in use outside Claude Code's default folder")
+	}
+}

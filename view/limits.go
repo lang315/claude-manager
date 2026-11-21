@@ -420,7 +420,7 @@ func (l *limits) menu(c *ui.Context, a *App, b account.Account) {
 		if m.Item("Sign In Again").Chosen() {
 			l.startAdd(a)
 		}
-		if m.Item("Remove…").Destructive(true).Chosen() {
+		if !(b.InUse && a.Accounts.CanSwitch()) && m.Item("Remove…").Destructive(true).Chosen() {
 			l.removing, l.asking = b, true
 		}
 	}).Tooltip("Actions for " + b.Email)

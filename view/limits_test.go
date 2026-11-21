@@ -383,6 +383,29 @@ func canSwitch(t *testing.T, l *lim) *account.Home {
 	return h
 }
 
+// clickMenu opens the "⋯" menu on email's row.
+func clickMenu(t *testing.T, tt *ui.Tester, email string) {
+	t.Helper()
+	var row, menu []ui.TestNode
+	for _, n := range tt.Nodes() {
+		switch n.Label {
+		case email:
+			row = append(row, n)
+		case "⋯":
+			menu = append(menu, n)
+		}
+	}
+	for _, r := range row {
+		for _, m := range menu {
+			if m.Bounds.Y < r.Bounds.Y+r.Bounds.H && r.Bounds.Y < m.Bounds.Y+m.Bounds.H {
+				tt.ClickAt(m.Bounds.X+m.Bounds.W/2, m.Bounds.Y+m.Bounds.H/2)
+				return
+			}
+		}
+	}
+	t.Fatalf("no menu on %s's row", email)
+}
+
 func TestLimitsSwitch(t *testing.T) {
 	l := limitsApp(t)
 	h := canSwitch(t, l)
@@ -391,10 +414,10 @@ func TestLimitsSwitch(t *testing.T) {
 	l.a.Go = func(f func()) { go f() } // so the switch is seen under way
 	configLock := h.ClaudeJSON + ".lock"
 	must(t, os.Mkdir(configLock, 0o755))
-	must(t, l.tt.Click("⋯"))
+	clickMenu(t, l.tt, "bob@example.com")
 	must(t, l.tt.ChooseMenuItem("Switch to This Account"))
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("Switching…") })
-	must(t, l.tt.Click("⋯"))
+	clickMenu(t, l.tt, "bob@example.com")
 	if err := l.tt.ChooseMenuItem("Switch to This Account"); err == nil {
 		t.Error("a second switch started while one runs")
 	}
@@ -421,7 +444,7 @@ func TestLimitsSwitchNotOffered(t *testing.T) {
 	l.book.Home = nil
 	l.open(t)
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
-	must(t, l.tt.Click("⋯"))
+	clickMenu(t, l.tt, "bob@example.com")
 	if slices.Contains(l.tt.Menu(), "Switch to This Account") {
 		t.Errorf("a switch offered outside Claude Code's default folder: %q", l.tt.Menu())
 	}
@@ -433,7 +456,7 @@ func TestLimitsSwitchError(t *testing.T) {
 	l.open(t)
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
 	must(t, l.vault.Delete(account.ParkService, "bob/org"))
-	must(t, l.tt.Click("⋯"))
+	clickMenu(t, l.tt, "bob@example.com")
 	must(t, l.tt.ChooseMenuItem("Switch to This Account"))
 	waitFor(t, l.tt, func() bool { return l.tt.HasText(account.ErrInvalidGrant.Error()) })
 	waitFor(t, l.tt, func() bool { return !l.tt.HasText("Switching…") })

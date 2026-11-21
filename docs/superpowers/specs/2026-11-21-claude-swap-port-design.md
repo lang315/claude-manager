@@ -123,14 +123,26 @@ The app never renews a saved login whose refresh token is the one Claude
 Code holds, even when it can't tell that account is in use: two renewers
 break a refresh chain.
 
-Known limit: once Claude Code renews the login in use, the app's saved copy
-of that account is stale until the next switch saves it again. Changing
-account outside the app (`/login`, Pitboard) leaves that stale copy, which
-then shows "Sign-in expired" until signed in again. What the app's renewal
-of that spent token does to another holder's copy (Pitboard's) is
-unverified. Keeping the saved copy in step with Claude Code's on each
-Limits refresh was considered and left out (2026-11-21): with Pitboard
-still switching, it would give both programs the same live refresh token.
+The login in use is followed (2026-11-21, after the user stopped switching
+with Pitboard). On each Limits refresh, in Claude Code's default folder only:
+
+- The account in use, once identified by Anthropic, is added when it isn't
+  yet, as `cswap add` does: its `claudeAiOauth` from Claude Code's login, and
+  its `oauthAccount` from `~/.claude.json`, which must name the same account.
+- Its saved login is replaced by Claude Code's when Claude Code's expires
+  later (claude-swap keeps only a strictly newer one too), the replaced one
+  kept under `claude-manager-park-prev`.
+- Only the login Anthropic identified is saved: if Claude Code changed it
+  since, nothing is saved until the next refresh.
+- Its menu has no Remove…: the next refresh would add it back.
+
+Elsewhere than the default folder an added account's login is its own chain,
+renewed by the app, and is never replaced.
+
+Known limit: the saved copy is as fresh as the last Limits refresh (the page
+shown, or auto-switch on). A change of account outside the app right after
+Claude Code renews leaves it one renewal behind. Switching with Pitboard
+beside the app gives both the same live refresh token: don't.
 
 Pitboard: once the app switches, Pitboard must not switch too; two programs
 saving the same login are two renewers on one refresh chain.

@@ -103,7 +103,7 @@ func TestLimitsScreenshot(t *testing.T) {
 	held := h.ClaudeJSON + ".lock"
 	must(t, os.Mkdir(held, 0o755))
 	defer os.Remove(held)
-	must(t, tt.Click("⋯"))
+	clickMenu(t, tt, "bob@example.com")
 	must(t, tt.ChooseMenuItem("Switch to This Account"))
 	waitFor(t, tt, func() bool { return tt.HasText("Switching…") })
 	f, err := os.Create(filepath.Join(dir, "limits-switching.png"))
@@ -123,7 +123,7 @@ func TestLimitsScreenshot(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("bob@example.com") })
 	must(t, tt.Click("Auto-switch"))
 	waitFor(t, tt, func() bool { return tt.HasText("No account has room.") })
-	must(t, tt.Click("⋯"))
+	clickMenu(t, tt, "bob@example.com")
 	must(t, tt.ChooseMenuItem("Hold Out of Auto-Switch"))
 	waitFor(t, tt, func() bool { return tt.HasText("Held out of auto-switch") })
 	shot := func(name string) {

@@ -284,7 +284,7 @@ First on the Limits page, above the account blocks: the "Auto-switch" checkbox, 
 
 ### Account Block
 A face per account on the Limits page, padded 14 by 16.
-- **Header:** the email in bold, the plan in muted (with the organisation for a team plan), a small bold muted "In use" on the account Claude Code is signed in to, and a "⋯" menu on an added account: Switch to This Account (when it is not in use, and Claude Code runs from its default folder), Hold Out of / Put Back in Auto-Switch, Auto-Switch Line and Priority… (a modal: its own five-hour line, its priority tier), Sign In Again and Remove….
+- **Header:** the email in bold, the plan in muted (with the organisation for a team plan), a small bold muted "In use" on the account Claude Code is signed in to, and a "⋯" menu on an added account: Switch to This Account (when it is not in use, and Claude Code runs from its default folder), Hold Out of / Put Back in Auto-Switch, Auto-Switch Line and Priority… (a modal: its own five-hour line, its priority tier), Sign In Again and Remove… (not on the account in use while the app follows its login: it would come back at the next refresh). The account in use is added by itself in Claude Code's default folder.
 - **Rows:** one per limit:
   - the name (150);
   - the meter, filling the width;

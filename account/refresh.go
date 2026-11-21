@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"os"
 	"slices"
 	"sync"
 	"time"
@@ -33,6 +34,10 @@ func (b *Book) Refresh(ctx context.Context, force bool) ([]Account, error) {
 	}
 	now := b.Now()
 	live, who, liveErr := b.identify(ctx, now)
+	var followErr error
+	if who != nil {
+		followErr = b.follow(*who, live)
+	}
 
 	type job struct {
 		acct  *Account
@@ -93,7 +98,52 @@ func (b *Book) Refresh(ctx context.Context, force bool) ([]Account, error) {
 		}()
 	}
 	wg.Wait()
-	return b.blocks(), b.save()
+	return b.blocks(), errors.Join(followErr, b.save())
+}
+
+// follow keeps the saved login of the account in use in step with Claude
+// Code's, adding the account when it isn't yet, as claude-swap's cswap add
+// does. Elsewhere than the default folder a saved login is its own chain,
+// renewed by the app, so it is left alone.
+func (b *Book) follow(who Profile, live Login) error {
+	if b.Home == nil {
+		return nil
+	}
+	lb, err := b.Home.readLive(b.Vault)
+	if err != nil {
+		return err
+	}
+	l, err := parseLogin(lb.data)
+	if err != nil || l.AccessToken != live.AccessToken {
+		return nil
+	}
+	i := slices.IndexFunc(b.added, func(a Account) bool { return a.Key() == who.Key() })
+	if i < 0 {
+		conf, _ := os.ReadFile(b.Home.ClaudeJSON)
+		acct := oauthAccountOf(conf)
+		if keyOf(acct) != who.Key() {
+			return nil
+		}
+		_, err := b.keepLocked(lb.data, who, acct)
+		return err
+	}
+	saved, err := b.Vault.Get(ParkService, who.Key())
+	switch {
+	case errors.Is(err, ErrNotFound):
+	case err != nil:
+		return err
+	default:
+		if s, err := parseLogin(saved); err == nil && s.ExpiresAt >= l.ExpiresAt {
+			return nil
+		}
+	}
+	if err := b.park(who.Key(), lb.data); err != nil {
+		return err
+	}
+	if l.RefreshTokenExpiresAt > 0 {
+		b.added[i].GoodUntil = time.UnixMilli(l.RefreshTokenExpiresAt)
+	}
+	return nil
 }
 
 // identify reads the login in use and asks whose it is, once per token.

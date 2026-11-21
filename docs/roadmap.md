@@ -30,6 +30,10 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [ ] **2. Auto-switch.** Switch before the account in use reaches its
   five-hour or weekly line, while the app is open; strategies, cooldown,
   margin, per-account off / line / priority.
+- [ ] **1b. Follow the login in use.** The account in use is added by itself,
+  and its saved login follows Claude Code's renewals, so a change of account
+  outside the app doesn't leave it spent. Done once Pitboard was no longer
+  used for switching.
 - [ ] **3. Export / import.** Move added accounts to another Mac in one
   private (0600, unencrypted) JSON file.
 - [ ] **4. Run as account.** Open Claude Code in Terminal as one account

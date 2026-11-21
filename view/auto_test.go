@@ -57,6 +57,19 @@ func inUseIs(l *lim, email string) bool {
 	return false
 }
 
+func TestLimitsAccountInUseHasNoRemove(t *testing.T) {
+	l := limitsApp(t)
+	canSwitch(t, l)
+	l.open(t)
+	waitFor(t, l.tt, func() bool {
+		return inUseIs(l, "alice@example.com") && strings.Count(strings.Join(l.tt.Texts(), "\n"), "⋯") == 2
+	})
+	clickMenu(t, l.tt, "alice@example.com")
+	if m := l.tt.Menu(); slices.Contains(m, "Remove…") || slices.Contains(m, "Switch to This Account") || !slices.Contains(m, "Sign In Again") {
+		t.Errorf("menu %q", m)
+	}
+}
+
 func TestAutoSwitchOffOutsideDefaultFolder(t *testing.T) {
 	l := limitsApp(t)
 	canSwitch(t, l)
@@ -88,13 +101,16 @@ func TestAutoSwitchHoldOut(t *testing.T) {
 	canSwitch(t, l)
 	l.open(t)
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
-	must(t, l.tt.Click("⋯"))
+	clickMenu(t, l.tt, "bob@example.com")
 	if !slices.Contains(l.tt.Menu(), "Auto-Switch Line and Priority…") {
 		t.Errorf("menu %q", l.tt.Menu())
 	}
 	must(t, l.tt.ChooseMenuItem("Hold Out of Auto-Switch"))
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("Held out of auto-switch") })
-	must(t, l.tt.Click("⋯"))
+	if got, _ := l.book.Blocks(); !got[1].AutoOff || got[1].Email != "bob@example.com" {
+		t.Fatalf("held out: %+v", got)
+	}
+	clickMenu(t, l.tt, "bob@example.com")
 	must(t, l.tt.ChooseMenuItem("Put Back in Auto-Switch"))
 	waitFor(t, l.tt, func() bool { return !l.tt.HasText("Held out of auto-switch") })
 }

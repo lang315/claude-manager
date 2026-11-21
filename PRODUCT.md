@@ -29,7 +29,8 @@ configuration, and never deletes: everything it removes goes to the macOS Trash,
 and running sessions are protected by checks made again at trash time. One
 exception: switching accounts, on the user's click or by auto-switch once the
 user turns it on, writes Claude Code's login and the `oauthAccount` key of
-`~/.claude.json`, after saving the login it replaces.
+`~/.claude.json`, after saving the login it replaces. The app also keeps its own
+copy of the login in use, in its own keychain item.
 
 ## Operating Context
 
