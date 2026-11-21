@@ -106,6 +106,9 @@ func (b *Book) readyRun(key string, share Share) (string, error) {
 	if a.OAuthAccount == nil {
 		return "", errNoAccount
 	}
+	if _, ok := b.unsaved[key]; ok {
+		return "", errUnsaved
+	}
 	parked, err := b.Vault.Get(ParkService, key)
 	if errors.Is(err, ErrNotFound) {
 		return "", ErrInvalidGrant

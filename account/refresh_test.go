@@ -2,6 +2,7 @@ package account
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
@@ -111,23 +112,6 @@ func TestRefreshRenewsAnAddedLoginFirst(t *testing.T) {
 	a := blockOf(t, got, "bob@example.com")
 	if len(a.Limits) != 1 || a.Limits[0].Percent != 30 || !a.GoodUntil.Equal(t0.Add(30*24*time.Hour)) || !a.Added {
 		t.Fatalf("got %+v", a)
-	}
-}
-
-func TestRefreshLosesALoginItCannotSave(t *testing.T) {
-	f := newAnthropic()
-	f.usage["bob-2"], f.renewed["bob-rt"] = 30, "bob-2"
-	b, v, _, _ := newBook(t, f)
-	if _, err := b.keep(login("bob-1", "bob-rt", t0.Add(time.Minute)).Marshal(), bob, nil); err != nil {
-		t.Fatal(err)
-	}
-	v.Fail = errors.New("the keychain is locked")
-	got, _ := b.Refresh(ctx, false)
-	if a := blockOf(t, got, "bob@example.com"); a.Err != ErrInvalidGrant.Error() || len(a.Limits) != 0 {
-		t.Fatalf("got %+v", a)
-	}
-	if c := f.took(); !slices.Equal(c, []string{"renew bob-rt"}) {
-		t.Fatalf("calls %v: an unsaved login must not be used", c)
 	}
 }
 
@@ -354,5 +338,35 @@ func TestPlan(t *testing.T) {
 	b.readPlan(ctx, &a, "bob-at", t0)
 	if a.PlanTier != "default_claude_max_5x" {
 		t.Errorf("not asked after 6 hours: %+v", a)
+	}
+}
+
+// A renewed login the keychain won't take is kept in memory and written
+// at the next refresh: the old refresh token is spent, and posting it
+// again would quarantine the account (claude-swap's stashed successor).
+func TestRenewedLoginOutlivesFailedSave(t *testing.T) {
+	f := newAnthropic()
+	b, v, _, _ := newBook(t, f)
+	_, err := b.keep(login("bob-at", "bob-rt", t0.Add(time.Minute)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	f.renewed["bob-rt"], f.usage["bob-at2"] = "bob-at2", 10
+	v.Fail = errors.New("keychain locked")
+	got, _ := b.Refresh(ctx, true)
+	if a := blockOf(t, got, "bob@example.com"); a.Err != "" {
+		t.Fatalf("bob = %+v", a)
+	}
+	if err := b.Switch(ctx, bob.Key()); err == nil {
+		t.Error("switched to a login only in memory")
+	}
+	v.Fail = nil
+	f.took()
+	b.Refresh(ctx, true)
+	if l, _ := parseLogin(get(t, v, ParkService, bob.Key())); l.RefreshToken != "bob-rt+" {
+		t.Errorf("saved login %+v", l)
+	}
+	for _, c := range f.took() {
+		if c == "renew bob-rt" {
+			t.Error("the spent refresh token was posted again")
+		}
 	}
 }

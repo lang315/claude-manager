@@ -32,6 +32,7 @@ func (b *Book) Refresh(ctx context.Context, force bool) ([]Account, error) {
 	if err := b.load(); err != nil {
 		return b.blocks(), err
 	}
+	b.saveUnsaved()
 	now := b.Now()
 	live, who, liveErr := b.identify(ctx, now)
 	var followErr error
@@ -323,6 +324,11 @@ func (b *Book) due(a *Account, active, near bool) time.Time {
 // first when it is about to lapse, and once more when Anthropic refuses it.
 func (b *Book) readOwn(ctx context.Context, a *Account, held string, now time.Time) ([]Limit, string, error) {
 	blob, err := b.Vault.Get(ParkService, a.Key())
+	b.side.Lock()
+	if u, ok := b.unsaved[a.Key()]; ok {
+		blob, err = u, nil
+	}
+	b.side.Unlock()
 	if errors.Is(err, ErrNotFound) {
 		return nil, "", ErrInvalidGrant
 	}
@@ -356,7 +362,6 @@ func (b *Book) readOwn(ctx context.Context, a *Account, held string, now time.Ti
 	return limits, l.AccessToken, err
 }
 
-// A save that fails loses the login: the old refresh token may be spent.
 func (b *Book) renew(ctx context.Context, a *Account, blob []byte, l Login, held string, now time.Time) (Login, error) {
 	if held != "" && l.RefreshToken == held { // Claude Code's to renew: two renewers break the chain
 		return l, errLiveExpired
@@ -375,8 +380,17 @@ func (b *Book) renew(ctx context.Context, a *Account, blob []byte, l Login, held
 	if err != nil {
 		return l, err
 	}
-	if err := b.Vault.Put(ParkService, a.Key(), withTokens(blob, fresh)); err != nil {
-		return l, ErrInvalidGrant
+	saved := withTokens(blob, fresh)
+	if err := b.Vault.Put(ParkService, a.Key(), saved); err != nil {
+		// The old refresh token is spent: the new login is kept here and
+		// written at the next refresh (claude-swap's stashed successor).
+		b.side.Lock()
+		if b.unsaved == nil {
+			b.unsaved = map[string][]byte{}
+		}
+		b.unsaved[a.Key()] = saved
+		b.side.Unlock()
+		b.logf("%s's renewed sign-in couldn't be saved to the keychain yet: %v", a.Email, err)
 	}
 	if fresh.RefreshTokenExpiresAt > 0 {
 		a.GoodUntil = time.UnixMilli(fresh.RefreshTokenExpiresAt)
@@ -386,3 +400,14 @@ func (b *Book) renew(ctx context.Context, a *Account, blob []byte, l Login, held
 
 // RetryAt is when a failed read is tried again; zero when none failed.
 func (a Account) RetryAt() time.Time { return a.Retry }
+
+// saveUnsaved writes the renewed logins the keychain refused before.
+func (b *Book) saveUnsaved() {
+	for k, blob := range b.unsaved {
+		if b.Vault.Put(ParkService, k, blob) == nil {
+			delete(b.unsaved, k)
+		}
+	}
+}
+
+var errUnsaved = errors.New("This account's renewed sign-in isn't in the keychain yet: try again in a minute.")

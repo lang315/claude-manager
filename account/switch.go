@@ -77,6 +77,9 @@ func (b *Book) switchLocked(ctx context.Context, key string, force bool) error {
 	if b.added[ti].Terminal.Dir != "" {
 		return errInTerminal
 	}
+	if _, ok := b.unsaved[key]; ok {
+		return errUnsaved // the keychain holds its spent login
+	}
 	parked, err := b.Vault.Get(ParkService, key)
 	if errors.Is(err, ErrNotFound) {
 		return ErrInvalidGrant

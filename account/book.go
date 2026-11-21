@@ -116,6 +116,7 @@ type Book struct {
 	unclaimed  []Unclaimed
 	unreadable time.Time           // since when the account in use can't be read
 	dead       map[string][32]byte // an account's refresh token Anthropic refused: its SHA-256
+	unsaved    map[string][]byte   // renewed logins the keychain refused, written at the next refresh
 	note       atomic.Value        // string: why Pitboard's files could not be read; read without the lock
 }
 
