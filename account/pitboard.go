@@ -19,12 +19,12 @@ var errPitboard = errors.New("Pitboard's files could not be read.")
 func ReadPitboard(dir string) ([]Account, error) {
 	var st struct {
 		Accounts []struct {
-			ID          string          `json:"id"`
-			Provider    string          `json:"provider"`
-			Email       string          `json:"email"`
-			Plan        string          `json:"plan"`
-			AccountUUID string          `json:"account_uuid"`
-			OrgUUID     string          `json:"organization_uuid"`
+			ID          string `json:"id"`
+			Provider    string `json:"provider"`
+			Email       string `json:"email"`
+			Plan        string `json:"plan"`
+			AccountUUID string `json:"account_uuid"`
+			OrgUUID     string `json:"organization_uuid"`
 		} `json:"accounts"`
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "state.json"))

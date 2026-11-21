@@ -96,7 +96,7 @@ func TestRefreshRenewsAnAddedLoginFirst(t *testing.T) {
 	f := newAnthropic()
 	f.usage["bob-2"], f.renewed["bob-rt"] = 30, "bob-2"
 	b, v, _, _ := newBook(t, f)
-	if _, err := b.keep(login("bob-1", "bob-rt", t0.Add(time.Minute)).Marshal(), bob, nil); err != nil { // lapses within 5 minutes
+	if _, err := b.keep(login("bob-1", "bob-rt", t0.Add(renewAhead-time.Second)).Marshal(), bob, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := b.Refresh(ctx, false)

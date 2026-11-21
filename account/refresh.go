@@ -115,7 +115,6 @@ func (b *Book) identify(ctx context.Context, now time.Time) (Login, *Profile, er
 	return l, &p, nil
 }
 
-// profileOf asks whose token is, once per token.
 func (b *Book) profileOf(ctx context.Context, token string) (Profile, error) {
 	k := sha256.Sum256([]byte(token))
 	if p, ok := b.who[k]; ok {
@@ -185,9 +184,7 @@ func (b *Book) readOwn(ctx context.Context, a *Account, now time.Time) ([]Limit,
 	return limits, err
 }
 
-// renew renews an added account's login, saved as blob, and saves it,
-// every other field kept, before it is used. A save that fails loses the
-// login: the old refresh token may be spent.
+// A save that fails loses the login: the old refresh token may be spent.
 func (b *Book) renew(ctx context.Context, a *Account, blob []byte, l Login, now time.Time) (Login, error) {
 	fresh, err := b.API.Renew(ctx, l, now)
 	if err != nil {

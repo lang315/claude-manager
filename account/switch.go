@@ -11,27 +11,17 @@ import (
 )
 
 var (
-	// ErrCantSwitch says Claude Code runs from another folder than its
-	// default one, where the app doesn't switch.
 	ErrCantSwitch = errors.New("Switching works with Claude Code's default folder only.")
 	errNotAdded   = errors.New("Add this account here to switch to it.")
-	// errNoAccount: an account added before the app kept oauthAccount.
-	errNoAccount = errors.New("Sign in again to this account to switch to it.")
+	errNoAccount  = errors.New("Sign in again to this account to switch to it.")
 	errLiveMoved  = errors.New("Claude Code renewed its sign-in during the switch. Try again.")
 	errLiveWhose  = errors.New("Claude Code's sign-in has expired, so the app can't tell whose it is to keep it. Open Claude Code to renew it, then switch.")
 	errRestore    = errors.New("The switch failed, and Claude Code's sign-in could not be put back. Run claude and /login.")
 )
 
-// CanSwitch says whether the app can switch Claude Code's account.
 func (b *Book) CanSwitch() bool { return b.Home != nil }
 
-// Switch puts Claude Code on the added account key names: it saves the
-// login in use as its account's, adding that account when it is not
-// added, then writes key's login where Claude Code reads it and its
-// oauthAccount in ~/.claude.json. Nothing is written until the login in
-// use is saved; a failed write puts the earlier login back. Claude Code's
-// own locks are held while it reads and writes, so a running Claude Code
-// can't renew the old login over the new one.
+// Switch puts Claude Code on the added account key names.
 func (b *Book) Switch(ctx context.Context, key string) error {
 	h := b.Home
 	if h == nil {
@@ -61,7 +51,6 @@ func (b *Book) Switch(ctx context.Context, key string) error {
 		return ErrInvalidGrant
 	}
 
-	// Whose the login in use is may need Anthropic: asked before the locks.
 	was, err := h.readLive(b.Vault)
 	if err != nil {
 		return err
@@ -99,7 +88,6 @@ func (b *Book) Switch(ctx context.Context, key string) error {
 		return err
 	}
 
-	// The login in use is saved first: once overwritten, it is gone.
 	if who != nil {
 		mine := oauthAccountOf(conf)
 		if keyOf(mine) != who.Key() {
@@ -121,7 +109,7 @@ func (b *Book) Switch(ctx context.Context, key string) error {
 	}
 	err = h.writeLive(b.Vault, was, newLive)
 	if err == nil {
-		err = writeAtomic(h.ClaudeJSON, newConf, 0o600) // atomic: a failure leaves it as it was
+		err = writeAtomic(h.ClaudeJSON, newConf, 0o600)
 	}
 	if err != nil {
 		if h.restoreLive(b.Vault, was) != nil {
@@ -133,9 +121,6 @@ func (b *Book) Switch(ctx context.Context, key string) error {
 	return b.save()
 }
 
-// whose says whose login blob is: Anthropic says while its access token
-// is good; after, an added account whose saved login has the same refresh
-// token is its owner. nil means no login to keep.
 func (b *Book) whose(ctx context.Context, blob []byte) (*Profile, error) {
 	l, err := parseLogin(blob)
 	if err != nil {
@@ -162,7 +147,6 @@ func (b *Book) whose(ctx context.Context, blob []byte) (*Profile, error) {
 	return nil, errLiveWhose
 }
 
-// keyOf is the account key an oauthAccount object names, or "".
 func keyOf(oauthAccount json.RawMessage) string {
 	var o struct {
 		AccountUUID string `json:"accountUuid"`

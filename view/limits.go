@@ -33,7 +33,7 @@ type limits struct {
 	asking   bool // the Remove confirmation is open
 	removing account.Account
 
-	switching string // the key of the account a switch runs to, or ""
+	switching string
 }
 
 // load shows the book's saved readings, then refreshes them from
@@ -163,7 +163,7 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 		if b.Added && !b.GoodUntil.IsZero() {
 			ui.Text(c, goodUntil(b.GoodUntil, now)).FontSize(12).TextColor(pal.muted)
 		}
-		if !b.Added && !b.InUse && a.Accounts.CanSwitch() { // Pitboard's: the app holds no login for it
+		if pitboardOnly := !b.Added && !b.InUse; pitboardOnly && a.Accounts.CanSwitch() {
 			ui.Text(c, "Add this account here to switch to it.").FontSize(12).TextColor(pal.muted)
 		}
 		if l.switching == b.Key() {
@@ -386,8 +386,6 @@ func (l *limits) dialogs(c *ui.Context, a *App, pal *palette) {
 	}
 }
 
-// menu holds an added account's actions: switching to it, signing in
-// again and removing it.
 func (l *limits) menu(c *ui.Context, a *App, b account.Account) {
 	if !b.Added {
 		return
@@ -406,7 +404,6 @@ func (l *limits) menu(c *ui.Context, a *App, b account.Account) {
 	}).Tooltip("Actions for " + b.Email)
 }
 
-// startSwitch puts Claude Code on b's account.
 func (l *limits) startSwitch(a *App, b account.Account) {
 	l.switching = b.Key()
 	a.Go(func() {

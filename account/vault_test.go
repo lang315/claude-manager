@@ -136,8 +136,7 @@ func TestKeychainPutQuotes(t *testing.T) {
 	}
 }
 
-// A secret too long for one security -i line goes on the argument line.
-func TestKeychainPutLong(t *testing.T) {
+func TestKeychainPutTooLongUsesArgs(t *testing.T) {
 	k, dir := fakeSecurity(t, ":")
 	secret := strings.Repeat("x", 3000)
 	if err := k.Put("Claude Code-credentials", "me", []byte(secret)); err != nil {

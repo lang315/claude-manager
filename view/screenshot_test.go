@@ -93,7 +93,6 @@ func TestLimitsScreenshot(t *testing.T) {
 		}
 		f.Close()
 	}
-	// A switch under way, while Claude Code holds its config lock.
 	l := limitsApp(t)
 	h := canSwitch(t, l)
 	tt := ui.NewTester(l.a.View, 1100, 720)

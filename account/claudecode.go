@@ -36,13 +36,8 @@ const (
 	lockTouch   = 3 * time.Second
 )
 
-var lockWait = 9 * time.Second // tests shorten it
+var lockWait = 9 * time.Second
 
-// lock takes the lock directory dir as Claude Code does, waiting up to 9
-// s. The returned func frees it.
-// shortcut: no ".takeover" sibling as claude-swap has; two copies of this
-// app taking over one stale lock at once could both win. Add it if the app
-// ever runs twice.
 func lock(ctx context.Context, dir string, stale time.Duration) (func(), error) {
 	deadline := time.Now().Add(lockWait)
 	for {
@@ -54,8 +49,9 @@ func lock(ctx context.Context, dir string, stale time.Duration) (func(), error) 
 			return nil, err
 		}
 		if fi, err := os.Stat(dir); err == nil && time.Since(fi.ModTime()) > stale {
-			_ = os.Remove(dir)
-			continue
+			if err := takeOver(dir, stale); err != nil {
+				return nil, err
+			}
 		}
 		if time.Now().After(deadline) {
 			return nil, errLockBusy
@@ -81,6 +77,25 @@ func lock(ctx context.Context, dir string, stale time.Duration) (func(), error) 
 		}
 	}()
 	return func() { close(done); _ = os.Remove(dir) }, nil
+}
+
+func takeOver(dir string, stale time.Duration) error {
+	t := dir + ".takeover"
+	if err := os.Mkdir(t, 0o755); err != nil {
+		if fi, err := os.Stat(t); err == nil && time.Since(fi.ModTime()) > 5*time.Second {
+			_ = os.Remove(t)
+		}
+		return nil
+	}
+	defer os.Remove(t)
+	fi, err := os.Stat(dir)
+	if err != nil || time.Since(fi.ModTime()) <= stale {
+		return nil
+	}
+	if err := os.Remove(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // lockAll takes Claude Code's credential locks, then its config lock, in
@@ -110,11 +125,10 @@ func (h *Home) lockAll(ctx context.Context) (func(), error) {
 	return free, nil
 }
 
-// liveBlob is Claude Code's login as stored, and where.
 type liveBlob struct {
-	data     []byte // nil when Claude Code holds none
-	inVault  bool   // in the keychain item
-	fileData []byte // .credentials.json's bytes; nil when there is none
+	data     []byte
+	inVault  bool
+	fileData []byte
 }
 
 func (h *Home) credentialsFile() string { return filepath.Join(h.Root, ".credentials.json") }
@@ -156,7 +170,6 @@ func (h *Home) writeLive(v Vault, was liveBlob, data []byte) error {
 	return nil
 }
 
-// restoreLive puts back the login read as was.
 func (h *Home) restoreLive(v Vault, was liveBlob) error {
 	var err error
 	switch {
@@ -172,8 +185,7 @@ func (h *Home) restoreLive(v Vault, was liveBlob) error {
 }
 
 // withOAuth is blob with its claudeAiOauth replaced by oauth, every other
-// key kept (mcpOAuth, pluginSecrets…). A blob that is no JSON object
-// becomes one holding oauth alone.
+// key kept (mcpOAuth, pluginSecrets…).
 func withOAuth(blob []byte, oauth json.RawMessage) ([]byte, error) {
 	m := map[string]json.RawMessage{}
 	if json.Unmarshal(blob, &m) != nil || m == nil {
@@ -183,7 +195,6 @@ func withOAuth(blob []byte, oauth json.RawMessage) ([]byte, error) {
 	return json.Marshal(m)
 }
 
-// oauthOf is blob's claudeAiOauth object as stored, or nil.
 func oauthOf(blob []byte) json.RawMessage {
 	var m map[string]json.RawMessage
 	if json.Unmarshal(blob, &m) != nil {
@@ -195,8 +206,6 @@ func oauthOf(blob []byte) json.RawMessage {
 	return nil
 }
 
-// withTokens is the stored login blob with fresh's tokens put in, every
-// other field kept.
 func withTokens(blob []byte, fresh Login) []byte {
 	o := map[string]json.RawMessage{}
 	_ = json.Unmarshal(oauthOf(blob), &o)
@@ -209,7 +218,6 @@ func withTokens(blob []byte, fresh Login) []byte {
 	return out
 }
 
-// oauthAccountOf is the oauthAccount object of a .claude.json, or nil.
 func oauthAccountOf(data []byte) json.RawMessage {
 	var m map[string]json.RawMessage
 	if json.Unmarshal(data, &m) != nil {
@@ -221,8 +229,6 @@ func oauthAccountOf(data []byte) json.RawMessage {
 	return nil
 }
 
-// accountKey is the key of the account ~/.claude.json says Claude Code is
-// signed in to, or "".
 func (h *Home) accountKey() string {
 	data, err := os.ReadFile(h.ClaudeJSON)
 	if err != nil {
@@ -231,8 +237,6 @@ func (h *Home) accountKey() string {
 	return keyOf(oauthAccountOf(data))
 }
 
-// spliceKey replaces the value of key in the JSON object doc with val, or
-// adds it at the end, leaving every other byte as it was.
 func spliceKey(doc []byte, key string, val json.RawMessage) ([]byte, error) {
 	bad := fmt.Errorf("%s is not a JSON object.", "~/.claude.json")
 	dec := json.NewDecoder(bytes.NewReader(doc))
@@ -264,19 +268,17 @@ func spliceKey(doc []byte, key string, val json.RawMessage) ([]byte, error) {
 	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
 		return nil, bad
 	}
-	end := int(dec.InputOffset()) - 1 // the closing brace
+	brace := int(dec.InputOffset()) - 1
 	entry, _ := json.Marshal(key)
 	entry = append(append(entry, ':'), val...)
 	if seen {
 		entry = append([]byte{','}, entry...)
 	}
-	return bytes.Join([][]byte{doc[:end], entry, doc[end:]}, nil), nil
+	return bytes.Join([][]byte{doc[:brace], entry, doc[brace:]}, nil), nil
 }
 
-var rename = os.Rename // tests make it fail
+var rename = os.Rename
 
-// writeAtomic replaces path by a temp file renamed over it, keeping the
-// mode of the file it replaces.
 func writeAtomic(path string, data []byte, mode fs.FileMode) error {
 	if fi, err := os.Stat(path); err == nil {
 		mode = fi.Mode().Perm()

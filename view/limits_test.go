@@ -361,8 +361,6 @@ func TestLimitsNotesUnreadablePitboard(t *testing.T) {
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("Pitboard's files could not be read.") })
 }
 
-// canSwitch gives the book Claude Code's default folder, in a temp home,
-// signed in to alice through the keychain, with bob added.
 func canSwitch(t *testing.T, l *lim) *account.Home {
 	t.Helper()
 	home := t.TempDir()
@@ -384,8 +382,8 @@ func TestLimitsSwitch(t *testing.T) {
 	l.open(t)
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
 	l.a.Go = func(f func()) { go f() } // so the switch is seen under way
-	held := h.ClaudeJSON + ".lock"     // Claude Code holds its config lock a moment
-	must(t, os.Mkdir(held, 0o755))
+	configLock := h.ClaudeJSON + ".lock"
+	must(t, os.Mkdir(configLock, 0o755))
 	must(t, l.tt.Click("⋯"))
 	must(t, l.tt.ChooseMenuItem("Switch to This Account"))
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("Switching…") })
@@ -393,13 +391,12 @@ func TestLimitsSwitch(t *testing.T) {
 	if err := l.tt.ChooseMenuItem("Switch to This Account"); err == nil {
 		t.Error("a second switch started while one runs")
 	}
-	must(t, os.Remove(held))
+	must(t, os.Remove(configLock))
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("Switched to bob@example.com.") })
 	conf, _ := os.ReadFile(h.ClaudeJSON)
 	if !strings.Contains(string(conf), `"accountUuid":"bob"`) {
 		t.Errorf("~/.claude.json = %s", conf)
 	}
-	// alice, put away, is now an added account with a menu of her own.
 	waitFor(t, l.tt, func() bool {
 		n := 0
 		for _, s := range l.tt.Texts() {
@@ -414,7 +411,7 @@ func TestLimitsSwitch(t *testing.T) {
 func TestLimitsSwitchNotOffered(t *testing.T) {
 	l := limitsApp(t)
 	canSwitch(t, l)
-	l.book.Home = nil // Claude Code runs from another folder
+	l.book.Home = nil
 	l.open(t)
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
 	must(t, l.tt.Click("⋯"))
@@ -428,7 +425,7 @@ func TestLimitsSwitchError(t *testing.T) {
 	canSwitch(t, l)
 	l.open(t)
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
-	must(t, l.vault.Delete(account.ParkService, "bob/org")) // bob's saved login is gone
+	must(t, l.vault.Delete(account.ParkService, "bob/org"))
 	must(t, l.tt.Click("⋯"))
 	must(t, l.tt.ChooseMenuItem("Switch to This Account"))
 	waitFor(t, l.tt, func() bool { return l.tt.HasText(account.ErrInvalidGrant.Error()) })

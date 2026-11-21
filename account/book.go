@@ -15,9 +15,6 @@ import (
 	"time"
 )
 
-// ParkService names the keychain items that hold added accounts' logins;
-// ParkPrev keeps the login each one held before a sign-in or switch
-// replaced it.
 const (
 	ParkService = "claude-manager-park"
 	ParkPrev    = "claude-manager-park-prev"
@@ -26,18 +23,17 @@ const (
 // Account is an account the Limits page shows, with its last reading. It
 // holds no secret: the book saves it as is.
 type Account struct {
-	AccountUUID   string    `json:"accountUuid,omitempty"`
-	OrgUUID       string    `json:"orgUuid,omitempty"`
-	Email         string    `json:"email,omitempty"`
-	OrgName       string    `json:"orgName,omitempty"`
-	Plan          string    `json:"plan,omitempty"`     // the login's subscriptionType: pro, max, team…
-	GoodUntil     time.Time `json:"goodUntil,omitzero"` // when an added account's sign-in lapses
-	Limits        []Limit   `json:"limits,omitempty"`   // as last read
-	ReadAt        time.Time `json:"readAt,omitzero"`    // when Limits were read
-	Err           string    `json:"err,omitempty"`      // why the last ask failed; "" once one works
-	WaitUntil     time.Time `json:"waitUntil,omitzero"` // Anthropic asked to wait until then
-	// OAuthAccount is the account's oauthAccount object of .claude.json,
-	// which a switch puts in ~/.claude.json. It holds no secret.
+	AccountUUID string    `json:"accountUuid,omitempty"`
+	OrgUUID     string    `json:"orgUuid,omitempty"`
+	Email       string    `json:"email,omitempty"`
+	OrgName     string    `json:"orgName,omitempty"`
+	Plan        string    `json:"plan,omitempty"`     // the login's subscriptionType: pro, max, team…
+	GoodUntil   time.Time `json:"goodUntil,omitzero"` // when an added account's sign-in lapses
+	Limits      []Limit   `json:"limits,omitempty"`   // as last read
+	ReadAt      time.Time `json:"readAt,omitzero"`    // when Limits were read
+	Err         string    `json:"err,omitempty"`      // why the last ask failed; "" once one works
+	WaitUntil   time.Time `json:"waitUntil,omitzero"` // Anthropic asked to wait until then
+	// OAuthAccount is Claude Code's oauthAccount object from ~/.claude.json.
 	OAuthAccount json.RawMessage `json:"oauthAccount,omitempty"`
 	InUse        bool            `json:"-"` // Claude Code is signed in to it
 	Added        bool            `json:"-"` // the app holds a login of its own for it
@@ -62,9 +58,7 @@ type Book struct {
 	SignInTimeout time.Duration
 	// Pitboard reads the accounts Pitboard follows; nil reads none.
 	Pitboard func() ([]Account, error)
-	// Home is what a switch writes; nil when Claude Code runs from another
-	// folder than its default one, where the app doesn't switch.
-	Home *Home
+	Home     *Home
 
 	mu     sync.Mutex
 	loaded bool
@@ -199,10 +193,6 @@ func (b *Book) blocks() []Account {
 	return out
 }
 
-// keep saves blob's login, as Claude Code stores one, as the login of the
-// account p names, and lists the account. oauthAccount is its
-// .claude.json object, or nil when unknown. A sign-in again keeps its last
-// numbers.
 func (b *Book) keep(blob []byte, p Profile, oauthAccount json.RawMessage) (Account, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -216,7 +206,6 @@ func (b *Book) keep(blob []byte, p Profile, oauthAccount json.RawMessage) (Accou
 	return a, b.save()
 }
 
-// keepLocked is keep, under b.mu, without saving accounts.json.
 func (b *Book) keepLocked(blob []byte, p Profile, oauthAccount json.RawMessage) (Account, error) {
 	l, err := parseLogin(blob)
 	if err != nil {
@@ -250,8 +239,6 @@ func (b *Book) keepLocked(blob []byte, p Profile, oauthAccount json.RawMessage) 
 	return a, nil
 }
 
-// park saves blob's claudeAiOauth as the login of the account key names,
-// keeping the one it replaces under ParkPrev.
 func (b *Book) park(key string, blob []byte) error {
 	o := oauthOf(blob)
 	if o == nil {

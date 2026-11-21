@@ -32,13 +32,12 @@ func login(at, rt string, expires time.Time) Login {
 // percent, or with status[token], or else 401. A renewal of a refresh token
 // in renewed gives that access token, and the refresh token with "+" added.
 type anthropic struct {
-	mu      sync.Mutex
-	who     map[string]Profile
-	usage   map[string]int
-	status  map[string]int
-	renewed map[string]string
-	calls   []string // "profile <token>", "usage <token>", "renew <refresh token>"
-	// onProfile, when set, runs on each profile ask.
+	mu        sync.Mutex
+	who       map[string]Profile
+	usage     map[string]int
+	status    map[string]int
+	renewed   map[string]string
+	calls     []string // "profile <token>", "usage <token>", "renew <refresh token>"
 	onProfile func()
 }
 

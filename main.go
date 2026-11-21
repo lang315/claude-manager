@@ -64,8 +64,7 @@ func main() {
 }
 
 // accounts is the Limits page's book, in the app's folder, with logins in
-// the login keychain. It switches Claude Code's account only in Claude
-// Code's default folder.
+// the login keychain.
 func accounts(home, configDir, root string) *account.Book {
 	vault := account.Keychain{}
 	var h *account.Home
