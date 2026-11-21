@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -30,6 +31,7 @@ type lim struct {
 	now            *time.Time     // the book's clock
 	live           *account.Login // the login in use: alice's
 	usage          *atomic.Int32  // usage requests answered
+	weekly         *sync.Map      // a token's weekly percent, where not 100
 	opened, copied *[]string
 }
 
@@ -37,6 +39,7 @@ func limitsApp(t *testing.T) *lim {
 	t.Helper()
 	a, tt, _, _ := newApp(t)
 	var usage atomic.Int32
+	var weekly sync.Map
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		switch r.URL.Path {
@@ -48,7 +51,11 @@ func limitsApp(t *testing.T) *lim {
 				return
 			}
 			usage.Add(1)
-			io.WriteString(w, `{"limits":[{"kind":"session","percent":62,"resets_at":"2026-10-26T15:00:00Z"},{"kind":"weekly_all","percent":100,"resets_at":"2026-11-03T02:00:00Z"}]}`)
+			pct := 100
+			if p, ok := weekly.Load(tok); ok {
+				pct = p.(int)
+			}
+			fmt.Fprintf(w, `{"limits":[{"kind":"session","percent":62,"resets_at":"2026-10-26T15:00:00Z"},{"kind":"weekly_all","percent":%d,"resets_at":"2026-11-03T02:00:00Z"}]}`, pct)
 		case "/v1/oauth/token":
 			w.WriteHeader(http.StatusBadRequest)
 			io.WriteString(w, `{"error":"invalid_grant"}`)
@@ -59,7 +66,7 @@ func limitsApp(t *testing.T) *lim {
 	api.Base, api.AuthBase = srv.URL, srv.URL
 	now := fixture.Now
 	live := account.Login{AccessToken: "alice", ExpiresAt: fixture.Now.Add(time.Hour).UnixMilli(), SubscriptionType: "max"}
-	l := &lim{a: a, tt: tt, vault: account.NewMemory(), now: &now, live: &live, usage: &usage, opened: &[]string{}, copied: &[]string{}}
+	l := &lim{a: a, tt: tt, vault: account.NewMemory(), now: &now, live: &live, usage: &usage, weekly: &weekly, opened: &[]string{}, copied: &[]string{}}
 	l.book = &account.Book{
 		Dir: t.TempDir(), Vault: l.vault, API: api,
 		Now:  func() time.Time { return now },

@@ -1,7 +1,9 @@
 package view
 
 import (
+	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/lang315/claude-manager/account"
@@ -22,6 +24,37 @@ func TestAutoSwitchToggle(t *testing.T) {
 	if l.tt.HasText("Switched to") {
 		t.Error("switched with no room anywhere")
 	}
+}
+
+func TestAutoSwitchSwitches(t *testing.T) {
+	l := limitsApp(t)
+	h := canSwitch(t, l)
+	l.weekly.Store("bob", 5)
+	must(t, l.book.SetAuto(account.Auto{On: true, Line: 90, Cooldown: 300, Margin: 10, Strategy: account.Best}))
+	l.a.AutoTick()
+	l.open(t)
+	waitFor(t, l.tt, func() bool {
+		return l.tt.HasText("Auto-switched to bob@example.com: the account in use reached its limit.")
+	})
+	waitFor(t, l.tt, func() bool { return inUseIs(l, "bob@example.com") })
+	conf, _ := os.ReadFile(h.ClaudeJSON)
+	if !strings.Contains(string(conf), `"accountUuid":"bob"`) {
+		t.Errorf("~/.claude.json = %s", conf)
+	}
+}
+
+func inUseIs(l *lim, email string) bool {
+	texts := l.tt.Texts()
+	for i := range texts[:len(texts)-1] {
+		if texts[i] == email {
+			for _, s := range texts[i+1 : min(i+4, len(texts))] {
+				if s == "In use" {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func TestAutoSwitchOffOutsideDefaultFolder(t *testing.T) {

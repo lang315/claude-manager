@@ -64,9 +64,6 @@ func (l *limits) load(a *App, force bool) {
 		if autoOn {
 			d, autoErr = a.Accounts.AutoSwitch(context.Background())
 		}
-		if d.To != "" {
-			blocks, _ = a.Accounts.Blocks()
-		}
 		a.Update(func() {
 			l.loading, l.loaded = false, true
 			l.blocks, l.updated = blocks, a.Store.Now()
@@ -76,6 +73,7 @@ func (l *limits) load(a *App, force bool) {
 				if d.To != "" && autoErr == nil {
 					l.auto.why = "Switched to " + d.Email + ": " + d.Why + "."
 					a.notice = "Auto-switched to " + d.Email + ": " + d.Why + "."
+					l.again, l.force = true, true
 				}
 			}
 			if l.again {

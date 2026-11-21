@@ -72,6 +72,7 @@ type Book struct {
 	others     []Account            // Pitboard's accounts, as last read
 	auto       Auto
 	lastSwitch time.Time
+	lastFailed time.Time
 	note       atomic.Value // string: why Pitboard's files could not be read; read without the lock
 }
 

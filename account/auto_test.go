@@ -2,6 +2,7 @@ package account
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 )
@@ -33,6 +34,7 @@ func TestDecide(t *testing.T) {
 	ownLine := inUse(acct("own", 82, 10, day))
 	ownLine.Line = 80
 	tier := func(a Account, p int) Account { a.Priority = p; return a }
+	line := func(a Account, l float64) Account { a.Line = l; return a }
 	over := func(a Account) Account {
 		a.Limits = append(a.Limits, Limit{Kind: "weekly_scoped", Scope: "Fable", Percent: 100})
 		return a
@@ -68,6 +70,11 @@ func TestDecide(t *testing.T) {
 		{"priority goes up a tier", with(func(s *Auto) { s.Strategy = ByPriority }), []Account{inUse(acct("a", 10, 10, day)), tier(acct("b", 50, 50, 5*day), 2)}, time.Time{}, "b"},
 		{"priority stays on equal keys", with(func(s *Auto) { s.Strategy = ByPriority }), []Account{inUse(acct("a", 10, 10, day)), acct("b", 0, 0, day)}, time.Time{}, ""},
 		{"priority never lands over a line", with(func(s *Auto) { s.Strategy = ByPriority }), []Account{inUse(acct("a", 100, 10, day)), tier(acct("b", 95, 10, day), 5)}, time.Time{}, ""},
+		// Incidents quoted in claude-swap's autoswitch.py.
+		{"unequal lines: 7d 93 under 97 beats 5h 95 under 85", with(func(s *Auto) { s.Line, s.WeeklyLine = 85, 97 }), []Account{inUse(acct("a", 95, 0, day)), acct("b", 0, 93, day)}, time.Time{}, "b"},
+		{"all over, own lines: 85 on an 80 line beats 96 on a 95 line", def, []Account{inUse(acct("a", 99, 0, day)), line(acct("b", 96, 0, day), 95), line(acct("c", 85, 0, day), 80)}, time.Time{}, "c"},
+		{"consume-first at the limit: 44 beats 97.9 under a 98 line", with(func(s *Auto) { s.Strategy, s.WeeklyLine = ConsumeFirst, 98 }), []Account{inUse(acct("a", 100, 0, 5*day)), acct("b", 0, 97.9, day), acct("c", 0, 44, 4*day)}, time.Time{}, "c"},
+		{"weekly-first forced move wants the margin of room", with(func(s *Auto) { s.Strategy = WeeklyFirst }), []Account{inUse(acct("a", 92, 0, day)), acct("b", 82, 0, day), acct("c", 50, 0, 5*day)}, time.Time{}, "c"},
 		{"a stale reading of the account in use holds", def, []Account{inUse(stale), acct("b", 0, 0, day)}, time.Time{}, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -129,5 +136,22 @@ func TestAutoSwitch(t *testing.T) {
 	b.Refresh(ctx, true)
 	if d, _ := b.AutoSwitch(ctx); d.To != "" {
 		t.Fatalf("switched in the cooldown: %+v", d)
+	}
+}
+
+func TestAutoSwitchFailureWaits(t *testing.T) {
+	b, v, _, f := switchBook(t)
+	f.usage["alice-at"], f.usage["bob-at"] = 100, 10
+	b.Refresh(ctx, true)
+	s := DefaultAuto()
+	s.On = true
+	must(t, b.SetAuto(s))
+	v.Fail = errors.New("refused")
+	if _, err := b.AutoSwitch(ctx); err == nil {
+		t.Fatal("the switch worked with the keychain refusing")
+	}
+	v.Fail = nil
+	if d, _ := b.AutoSwitch(ctx); d.To != "" || d.Why != "Waiting after a failed switch." {
+		t.Fatalf("retried at once: %+v", d)
 	}
 }

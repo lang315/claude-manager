@@ -301,11 +301,17 @@ func (b *Book) AutoSwitch(ctx context.Context) (Decision, error) {
 	if !b.auto.On || b.Home == nil {
 		return Decision{}, nil
 	}
-	d := decide(b.Now(), b.auto, b.blocks(), b.lastSwitch)
+	now := b.Now()
+	wait := max(time.Duration(b.auto.Cooldown)*time.Second, fresh)
+	if now.Sub(b.lastFailed) < wait {
+		return Decision{Why: "Waiting after a failed switch."}, nil
+	}
+	d := decide(now, b.auto, b.blocks(), b.lastSwitch)
 	if d.To == "" {
 		return d, nil
 	}
 	if err := b.switchLocked(ctx, d.To); err != nil {
+		b.lastFailed = now
 		return Decision{Why: fmt.Sprintf("The switch to %s failed: %v", d.Email, err)}, err
 	}
 	return d, nil
