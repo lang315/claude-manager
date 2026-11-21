@@ -68,6 +68,7 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **16. Plan labels, lapsed subscriptions, error notes** (#35, draft).
 - [x] **17. Notifications, switch history, log, running instances, JSON pace and last-good** (#36, draft).
 - [x] **18. switcher.py's prompts, notices and refusals** (#37, draft).
+- [x] **19. The TUI's actions in the app** (#38, draft).
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an
@@ -108,7 +109,7 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | `unclaimed` stash | 12: a lapsed login in use that names no added account is kept (`claude-manager-unclaimed`) before a switch replaces it; `claude-manager unclaimed [--purge ID]` |
 | API-key accounts | 8b: added, switched to (Claude Code's managed key), exported and imported; no limits are read |
 | `config` | Auto-Switch Settings, and `claude-manager config` (10) |
-| TUI, `watch` | 14: `claude-manager tui` opens the app, `watch` on Limits |
+| TUI, `watch` | 14: `claude-manager tui` opens the app, `watch` on Limits; 19: its actions in the app (add the login in use, token slot, best pick, dry run with "Go live?", next best, event log, line ticks, refused rows, keys). Its captured-output dialog: the app's toasts carry the whole error |
 | `add [--slot] [--alias]`, `disable`/`enable`, `threshold`, `priority` (command line) | 14 |
 | `switch` with no account, `--strategy best|next-available` | 14 |
 | `auto` in the foreground, `--threshold`, `--weekly-threshold`, `--model`, `--strategy`, `--interval`, `--include-api-key-accounts` | 14: for that run only, never saved |

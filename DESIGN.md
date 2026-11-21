@@ -305,6 +305,9 @@ A face per account on the Limits page, padded 14 by 16.
   - A block with no figures says why, in muted text.
   - A switch under way ends the block with "Switching…", muted, at 12px.
 
+### TUI Actions
+The auto-switch row adds, after its status, "Next: …" (the first three accounts by quota left) and a "Log…" button (a modal of the last 50 decisions); its settings add a dry-run checkbox, and turning a dry run off asks "Go live?". Each 5h and 7d meter of an added account carries a 2px ink tick at its auto-switch line while auto-switch is on. A refused header probe's row says "Refused" in the status slot. The account in use, when the app doesn't hold it, has "Add This Account". Add Token has a Slot field. Keys on Limits: ⌘R refresh, ⌘B switch to the best account, ⌘L auto-switch on/off, ⌘N add account.
+
 ### Menu Bar Item
 A text-only menu bar item: the account in use's fullest five-hour or 7-day share, "62%" ("–" before a reading). Its menu: a disabled status row (auto-switch's last reason, else "Updated …"), a separator, one row per account, "email  5h 62% · 7d 40%", checked on the account in use and "(in a terminal)" after one open there, a click switching to it; then Auto-switch (a checkbox) and Refresh; then Open Claude Manager, Start at Login (a checkbox) and Quit Claude Manager. Closing the window hides it: the item and auto-switch keep running until Quit.
 

@@ -100,70 +100,12 @@ func (c *cmd) tune(verb string, rest []string, unset bool) error {
 	return nil
 }
 
-// fullest is the highest share of a's five-hour and 7-day windows.
-func fullest(a account.Account) (float64, bool) {
-	p, ok := 0.0, false
-	for _, l := range a.Limits {
-		switch l.Kind {
-		case "session", "five_hour", "weekly_all", "seven_day":
-			p, ok = max(p, l.Percent), true
-		}
-	}
-	return p, ok
-}
-
-// pick is cswap switch with no account: rotate (the next slot), best (the
-// most quota left) or next-available (the next slot with room), skipping
-// accounts held out, open in a terminal, or the one in use.
+// pick is cswap switch with no account: Book.Pick on fresh readings.
 func (c *cmd) pick(ctx context.Context, strategy string) (account.Account, error) {
-	accts, _ := c.read(ctx)
-	now := c.b.Now()
-	cur := 0
-	if i := slices.IndexFunc(accts, func(a account.Account) bool { return a.InUse }); i >= 0 {
-		cur = accts[i].Slot
+	if _, err := c.read(ctx); err != nil {
+		return account.Account{}, err
 	}
-	var cands []account.Account
-	for _, a := range accts {
-		if a.Added && !a.InUse && !a.AutoOff && a.Terminal.Dir == "" && a.OAuthAccount != nil {
-			cands = append(cands, a)
-		}
-	}
-	// In slot order from the one after the account in use, round.
-	slices.SortStableFunc(cands, func(x, y account.Account) int {
-		rx, ry := x.Slot, y.Slot
-		if rx <= cur {
-			rx += 1 << 20
-		}
-		if ry <= cur {
-			ry += 1 << 20
-		}
-		return rx - ry
-	})
-	switch strategy {
-	case "", "rotate":
-		if len(cands) > 0 {
-			return cands[0], nil
-		}
-	case "next-available":
-		for _, a := range cands {
-			if p, ok := fullest(a); a.Usable(now) && ok && p < 100 {
-				return a, nil
-			}
-		}
-	case "best":
-		best, room := account.Account{}, -1.0
-		for _, a := range cands {
-			if p, ok := fullest(a); a.Usable(now) && ok && 100-p > room {
-				best, room = a, 100-p
-			}
-		}
-		if room > 0 {
-			return best, nil
-		}
-	default:
-		return account.Account{}, errors.New("--strategy is rotate, best or next-available")
-	}
-	return account.Account{}, errors.New("No account to switch to.")
+	return c.b.Pick(strategy)
 }
 
 // autoLoop is cswap auto in the foreground: a tick every interval until

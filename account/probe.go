@@ -37,7 +37,7 @@ func (a *API) Probe(ctx context.Context, token string, now time.Time) ([]Limit, 
 		return nil, err
 	}
 	if refused(h, status) {
-		return []Limit{{Kind: "session", Percent: 100, ResetsAt: refusalEnds(h, "", now)}}, nil
+		return []Limit{{Kind: "session", Percent: 100, ResetsAt: refusalEnds(h, "", now), Refused: true}}, nil
 	}
 	if status != http.StatusOK {
 		return nil, probeError(status, h)
@@ -53,7 +53,7 @@ func (a *API) Probe(ctx context.Context, token string, now time.Time) ([]Limit, 
 		switch {
 		case err != nil:
 		case refused(h, status):
-			out = append(out, Limit{Kind: "weekly_scoped", Scope: s.name, Percent: 100, ResetsAt: refusalEnds(h, s.bucket, now)})
+			out = append(out, Limit{Kind: "weekly_scoped", Scope: s.name, Percent: 100, ResetsAt: refusalEnds(h, s.bucket, now), Refused: true})
 		case status == http.StatusOK:
 			if l, ok := unified(h, s.bucket, "weekly_scoped", s.name); ok {
 				out = append(out, l)

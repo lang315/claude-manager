@@ -67,7 +67,8 @@ func (l *limits) load(a *App, force bool) {
 		blocks, err := a.Accounts.Refresh(context.Background(), force)
 		defer func() {
 			sw, _ := a.Accounts.Switches()
-			a.Update(func() { l.switches = sw })
+			ranked, _ := a.Accounts.Ranking()
+			a.Update(func() { l.switches, l.auto.ranked = sw, ranked })
 		}()
 		var d account.Decision
 		var autoErr error
@@ -80,6 +81,7 @@ func (l *limits) load(a *App, force bool) {
 			l.toast(a, err)
 			if autoOn {
 				l.auto.why = d.Why
+				l.auto.logWhy(a.Store.Now(), d.Why)
 				if d.To != "" && autoErr == nil {
 					l.auto.why = "Switched to " + d.Email + ": " + d.Why + "."
 					a.notice = "Auto-switched to " + d.Email + ": " + d.Why + "."
@@ -113,6 +115,22 @@ func (l *limits) subtitle(now time.Time) string {
 }
 
 func (l *limits) view(c *ui.Context, a *App, pal *palette) {
+	// claude-swap's TUI keys, as Command shortcuts: refresh, best pick,
+	// auto-switch on or off, add an account.
+	if a.Accounts != nil && l.switching == "" {
+		switch {
+		case c.Shortcut(ui.Super, ui.KeyR) && !l.loading:
+			l.load(a, true)
+		case c.Shortcut(ui.Super, ui.KeyB) && a.Accounts.CanSwitch():
+			l.switchBest(a)
+		case c.Shortcut(ui.Super, ui.KeyL) && l.auto.loaded && a.Accounts.CanSwitch():
+			s := l.auto.s
+			s.On = !s.On
+			l.saveAuto(a, s)
+		case c.Shortcut(ui.Super, ui.KeyN):
+			l.startAdd(a)
+		}
+	}
 	switch {
 	case a.Accounts == nil:
 		ui.Text(c, "Limits are unavailable.").TextColor(pal.muted)
@@ -179,7 +197,7 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 			ui.Text(c, "No figures yet.").TextColor(pal.muted)
 		}
 		for _, x := range b.Limits {
-			limitRow(c, pal, x, b.ReadAt, now)
+			limitRow(c, pal, x, b.ReadAt, now, lineFor(x, b, l.auto.s))
 		}
 		if len(b.Limits) > 0 && b.Err != "" {
 			ui.Text(c, b.Err+" Showing numbers from "+clock(b.ReadAt, now)+".").TextColor(pal.muted).Wrap()
@@ -193,6 +211,19 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 		if s := autoBadges(b); b.Added && s != "" {
 			ui.Text(c, s).FontSize(12).TextColor(pal.muted)
 		}
+		if b.InUse && !b.Added && b.AccountUUID != "" && ui.Button(c, "Add This Account").Clicked() {
+			// claude-swap's add from the TUI: the login in use saved, no sign-in.
+			a.Go(func() {
+				_, err := a.Accounts.AddInUse(context.Background())
+				a.Update(func() {
+					if err == nil {
+						a.notice = "Added " + b.Email + "."
+					}
+					l.toast(a, err)
+					l.load(a, true)
+				})
+			})
+		}
 		if pitboardOnly := !b.Added && !b.InUse; pitboardOnly && a.Accounts.CanSwitch() {
 			ui.Text(c, "Add this account here to switch to it.").FontSize(12).TextColor(pal.muted)
 		}
@@ -205,13 +236,23 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 // limitRow is one limit: its name, a meter, the share used and the reset,
 // then "Limit reached" or, for a weekly window used faster than its week
 // goes, "Ahead of pace".
-func limitRow(c *ui.Context, pal *palette, x account.Limit, readAt, now time.Time) {
+func limitRow(c *ui.Context, pal *palette, x account.Limit, readAt, now time.Time, line float64) {
 	ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, x.Label()).Width(150).SingleLine()
-		meter(c, pal, x.Percent).Grow(1).Label(x.Label())
+		ui.Box(c).Grow(1).Children(func() {
+			meter(c, pal, x.Percent).Label(x.Label())
+			if line > 0 { // claude-swap's tick: where auto-switch moves off
+				ui.Box(c).Absolute().LeftPercent(float32(line)).Top(-3).Bottom(-3).Width(2).Background(pal.ink).
+					Tooltip(fmt.Sprintf("Auto-switch line: %g%%", line))
+			}
+		})
 		num(c, fmt.Sprintf("%.0f%%", x.Percent)).Width(44)
 		ui.Text(c, rowNote(x, now)).TextColor(pal.muted).Width(150).SingleLine()
-		if x.Percent >= 100 {
+		switch {
+		case x.Refused:
+			ui.Text(c, "Refused").Bold().Width(100).SingleLine().Tooltip("Anthropic refused the account's requests until the reset.")
+			return
+		case x.Percent >= 100:
 			ui.Text(c, "Limit reached").Bold().Width(100).SingleLine()
 			return
 		}
@@ -486,4 +527,27 @@ func planAge(b account.Account, now time.Time) string {
 		return ""
 	}
 	return " · " + ago(b.PlanAt, now)
+}
+
+// lineFor is the auto-switch line a row's window is judged on, while
+// auto-switch is on: the account's own five-hour line, the weekly line
+// for the 7-day window; 0 for none.
+func lineFor(x account.Limit, b account.Account, s account.Auto) float64 {
+	if !s.On || !b.Added {
+		return 0
+	}
+	line := s.Line
+	if b.Line != 0 {
+		line = b.Line
+	}
+	switch x.Kind {
+	case "session", "five_hour":
+		return line
+	case "weekly_all", "seven_day":
+		if s.WeeklyLine != 0 {
+			return s.WeeklyLine
+		}
+		return line
+	}
+	return 0
 }

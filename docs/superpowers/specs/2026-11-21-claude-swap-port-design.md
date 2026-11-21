@@ -750,6 +750,24 @@ Verified: `TestRemoveConfirms`, `TestSwitchNotices`, `TestAmbiguousAsks`,
 `TestCrossKindRefused`, `TestDuplicates`; mutation checks (13 of 13
 caught).
 
+## 19. The TUI's actions in the app
+
+From an item-by-item audit of `tui/`: "Add This Account" on the account in
+use when the app doesn't hold it (`Book.AddInUse`, its login saved, never
+renewed while in use); Add Token's slot, asking "Slot N is taken" before
+moving its account; "Switch to the Best Account" (`Book.Pick("best")`, also
+⌘B); a dry run (`Auto.DryRun`: "Would switch to X … (dry run)"), turned off
+only after "Go live?"; "Next: …" the first three by quota left, unknown
+last (`Book.Ranking`); "Log…", the last 50 decisions; a tick on each 5h and
+7d meter at its auto-switch line; a refused header probe as a "Refused"
+row; ⌘R refresh, ⌘B best, ⌘L auto-switch on/off, ⌘N add account. Not
+ported: the TUI's captured-output dialog (the app's toasts carry the whole
+error) and its vi-style navigation keys.
+
+Verified: `TestRankingAndAddInUse`, `TestDryRun`, `TestAddThisAccount`,
+`TestDryRunGoLive`, `TestNextBestLogAndShortcuts`, `TestSwitchBest`,
+`TestLineTick`, `TestTokenSlotAsks`; mutation checks (14 of 14 caught).
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported

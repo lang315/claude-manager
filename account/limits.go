@@ -20,6 +20,10 @@ type Limit struct {
 	// Extra usage (Kind "extra_usage"): the pay-as-you-go credits spent and
 	// the monthly cap, in Currency's units. Never a window auto-switch
 	// weighs, as claude-swap's spend.
+	// Refused: the header probe's 429 rejecting the account, read as 100%
+	// until ResetsAt (claude-swap's "rejected (!)" row).
+	Refused bool `json:"refused,omitempty"`
+
 	Used     float64 `json:"used,omitempty"`
 	Cap      float64 `json:"cap,omitempty"`
 	Currency string  `json:"currency,omitempty"`
@@ -38,6 +42,9 @@ func (l Limit) Label() string {
 	}
 	if l.Scope != "" {
 		name += " · " + l.Scope
+	}
+	if l.Refused {
+		name += " · refused"
 	}
 	return name
 }

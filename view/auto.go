@@ -17,10 +17,15 @@ var (
 
 // autoUI is auto-switch on the Limits page.
 type autoUI struct {
-	s      account.Auto
-	loaded bool
-	why    string
-	ticked time.Time // the last tick that ran
+	s               account.Auto
+	loaded          bool
+	why             string
+	log             []string            // claude-swap's TUI event log: the last decisions, the latest first
+	ranked          []account.Candidate // its "next best" list
+	showLog, goLive bool
+	confirmLive     bool
+	pending         account.Auto
+	ticked          time.Time // the last tick that ran
 
 	editing  bool
 	draft    account.Auto
@@ -76,10 +81,16 @@ func (l *limits) autoRow(c *ui.Context, a *App, pal *palette) {
 			ui.Text(c, strings.Join(u.s.Unseen(l.blocks), ", ")+" matches no account's windows: only the 5h and 7d limits count for it (typo?).").FontSize(12).TextColor(pal.muted).SingleLine()
 		case u.s.On && u.why != "":
 			ui.Text(c, u.why).FontSize(12).TextColor(pal.muted).SingleLine()
+			if next := nextBest(u.ranked); next != "" {
+				ui.Text(c, "Next: "+next).FontSize(12).TextColor(pal.muted).SingleLine()
+			}
 		case u.s.On:
 			ui.Text(c, "Checks every minute while the app is open.").FontSize(12).TextColor(pal.muted)
 		}
 		ui.Spacer(c)
+		if len(u.log) > 0 && ui.Button(c, "Log…").Clicked() {
+			u.showLog = true
+		}
 		if ui.Button(c, "Auto-Switch Settings…").Disabled(!u.loaded).Clicked() {
 			u.draft, u.weekly, u.cooldown = u.s, u.s.WeeklyLine != 0, float64(u.s.Cooldown)/60
 			u.interval, u.ticks = u.s.Every().Seconds(), float64(u.s.Ticks)
@@ -96,6 +107,12 @@ func (l *limits) autoRow(c *ui.Context, a *App, pal *palette) {
 }
 
 func (l *limits) saveAuto(a *App, s account.Auto) {
+	if l.auto.s.DryRun && !s.DryRun && s.On && !l.auto.goLive {
+		// Out of a dry run: claude-swap's TUI asks before going live.
+		l.auto.pending, l.auto.confirmLive = s, true
+		return
+	}
+	l.auto.goLive = false
 	l.auto.s = s
 	a.Go(func() {
 		err := a.Accounts.SetAuto(s)
@@ -157,6 +174,28 @@ func (l *limits) setAccountAuto(a *App, key string, off bool, line float64, prio
 
 func (l *limits) autoDialogs(c *ui.Context, a *App) {
 	u := &l.auto
+	if ui.AlertDialog(c, &u.confirmLive, "Go live?", "Auto-switch will switch accounts from now on, not just say what it would do.", "Cancel", "Go Live") == 1 {
+		u.goLive = true
+		l.saveAuto(a, u.pending)
+	}
+	ui.Modal(c, &u.showLog, func() {
+		ui.Column(c).Gap(8).Padding(20).Width(560).Children(func() {
+			ui.Text(c, "Auto-Switch Log").FontSize(17).Bold()
+			ui.Scroll(c).MaxHeight(360).Children(func() {
+				ui.Column(c).Gap(4).Children(func() {
+					for _, line := range u.log {
+						ui.Text(c, line).FontSize(12).Wrap()
+					}
+				})
+			})
+			ui.Row(c).Children(func() {
+				ui.Spacer(c)
+				if ui.PrimaryButton(c, "Done").Clicked() {
+					u.showLog = false
+				}
+			})
+		})
+	})
 	field := func(label string, fn func()) {
 		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, label).Width(170)
@@ -177,6 +216,7 @@ func (l *limits) autoDialogs(c *ui.Context, a *App) {
 			field("Check every (seconds)", func() { ui.NumberInput(c, &u.interval, 15, 3600, 15) })
 			field("Unreadable ticks before moving on", func() { ui.NumberInput(c, &u.ticks, 1, 100, 1) })
 			ui.Checkbox(c, &u.draft.Keys, "Fall back on an API key account when no account has room")
+			ui.Checkbox(c, &u.draft.DryRun, "Dry run: say what it would do, switch nothing")
 			field("Strategy", func() { ui.Select(c, &u.strategy, strategyLabels) })
 			field("Model windows", func() { ui.TextInput(c, &u.draft.Model).Placeholder("None; e.g. Fable, or all").Grow(1) })
 			ui.Text(c, "Their weekly windows count too, on the weekly line: the names on the Weekly rows, comma separated.").FontSize(12).Wrap()
@@ -224,4 +264,29 @@ func (l *limits) autoDialogs(c *ui.Context, a *App) {
 			})
 		})
 	})
+}
+
+// nextBest is claude-swap's TUI "next best": the first three accounts by
+// quota left, those without a reading as "unknown".
+func nextBest(r []account.Candidate) string {
+	var s []string
+	for _, c := range r[:min(3, len(r))] {
+		if c.Known {
+			s = append(s, fmt.Sprintf("%s %.0f%% left", c.Email, c.Left))
+		} else {
+			s = append(s, c.Email+" unknown")
+		}
+	}
+	return strings.Join(s, " · ")
+}
+
+// logWhy keeps a decision in the log when it differs from the last one.
+func (u *autoUI) logWhy(now time.Time, why string) {
+	if why == "" || len(u.log) > 0 && strings.HasSuffix(u.log[0], "  "+why) {
+		return
+	}
+	u.log = append([]string{now.Format("Jan 2 15:04:05") + "  " + why}, u.log...)
+	if len(u.log) > 50 {
+		u.log = u.log[:50]
+	}
 }

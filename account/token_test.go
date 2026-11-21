@@ -63,13 +63,13 @@ func TestProbe(t *testing.T) {
 	}
 	f.probe[tokA+" claude-fable-5-1"] = probeAnswer{status: 429, headers: map[string]string{"anthropic-ratelimit-unified-status": "rejected", "Retry-After": "60"}}
 	got, _ = b.API.Probe(ctx, tokA, t0)
-	if got[2] != (Limit{Kind: "weekly_scoped", Scope: "Fable", Percent: 100, ResetsAt: t0.Add(time.Minute)}) {
+	if got[2] != (Limit{Kind: "weekly_scoped", Scope: "Fable", Percent: 100, ResetsAt: t0.Add(time.Minute), Refused: true}) {
 		t.Errorf("refused Fable: %+v", got)
 	}
 	f.probe[tokA+" "+probeModel] = probeAnswer{status: 429, headers: map[string]string{"anthropic-ratelimit-unified-status": "rejected", "anthropic-ratelimit-unified-reset": "1793016000"}}
 	f.took()
 	got, _ = b.API.Probe(ctx, tokA, t0)
-	if len(got) != 1 || got[0].Percent != 100 || got[0].ResetsAt.Unix() != 1793016000 {
+	if len(got) != 1 || got[0].Percent != 100 || got[0].ResetsAt.Unix() != 1793016000 || !got[0].Refused || got[0].Label() != "Session (5h) · refused" {
 		t.Errorf("refused: %+v", got)
 	}
 	if c := f.took(); len(c) != 1 {

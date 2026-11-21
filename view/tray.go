@@ -65,6 +65,7 @@ func (a *App) Tray() (title string, items []TrayItem) {
 			s.On = !s.On
 			l.saveAuto(a, s)
 		}},
+		TrayItem{Label: "Switch to the Best Account", Disabled: !can || l.switching != "", Do: func() { l.switchBest(a) }},
 		TrayItem{Label: "Refresh", Disabled: l.loading, Do: func() { l.load(a, true) }},
 		TrayItem{},
 	)
@@ -130,4 +131,15 @@ func (a *App) setTheme(theme string) {
 		err := a.Accounts.SetPrefs(p)
 		a.Update(func() { a.limits.toast(a, err) })
 	})
+}
+
+// switchBest is claude-swap's TUI best pick: the account with the most
+// quota left.
+func (l *limits) switchBest(a *App) {
+	b, err := a.Accounts.Pick("best")
+	if err != nil {
+		l.toast(a, err)
+		return
+	}
+	l.startSwitch(a, b)
 }

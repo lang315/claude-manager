@@ -42,6 +42,8 @@ type Auto struct {
 	// with a subscription has room, at the limit or on a failover
 	// (autoswitch.includeApiKeyAccounts).
 	Keys bool `json:"includeApiKeyAccounts,omitempty"`
+	// DryRun decides and says, switching nothing (claude-swap's TUI dry run).
+	DryRun bool `json:"dryRun,omitempty"`
 }
 
 // Every is the time between auto-switch's ticks.
@@ -526,6 +528,11 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 		m.failover = true
 	}
 	d := decide(now, b.settings(), accts, m)
+	if b.settings().DryRun && !once && d.To != "" {
+		d.Why = "Would switch to " + d.Email + ": " + d.Why + " (dry run)."
+		d.To, d.Email = "", ""
+		return d, nil
+	}
 	if d.Blocked && !dry {
 		b.event("all-exhausted", "All accounts exhausted", "No account has room; auto-switch waits for a reset.")
 	} else if !dry {
