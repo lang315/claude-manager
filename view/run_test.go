@@ -3,6 +3,7 @@ package view
 import (
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/lang315/claude-manager/account"
@@ -14,11 +15,13 @@ func TestLimitsOpenInTerminal(t *testing.T) {
 	must(t, os.Mkdir(filepath.Join(h.Root, "projects"), 0o700))
 	must(t, os.WriteFile(filepath.Join(h.Root, "settings.json"), []byte("{}"), 0o600))
 	var launched, dirs []string
+	var running atomic.Bool // claude runs once launched: no take-back
 	l.book.Launch = func(folder, dir string, _ ...string) error {
 		launched, dirs = append(launched, folder), append(dirs, dir)
+		running.Store(true)
 		return nil
 	}
-	l.book.Running = func(string) (bool, error) { return true, nil }
+	l.book.Running = func(string) (bool, error) { return running.Load(), nil }
 	l.a.ChooseFolder = func(string) (string, error) { return "/work", nil }
 	l.open(t)
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
