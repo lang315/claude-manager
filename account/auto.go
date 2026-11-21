@@ -98,12 +98,12 @@ func (s Auto) counts(model string) bool {
 }
 
 // Unseen is the names in s.Model no account's readings have a window for,
-// as claude-swap warns of a likely typo; nil until every added account has
-// been read.
+// as claude-swap warns of a likely typo; nil until every added account
+// that can be read has been.
 func (s Auto) Unseen(accts []Account) []string {
 	seen := map[string]bool{}
 	for _, a := range accts {
-		if a.Added && len(a.Limits) == 0 {
+		if a.Added && len(a.Limits) == 0 && !a.APIKey && !a.Token { // a key, or a token unprobed, is never read
 			return nil
 		}
 		for _, l := range a.Limits {

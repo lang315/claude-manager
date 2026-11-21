@@ -363,6 +363,11 @@ func TestUnseenModels(t *testing.T) {
 	if got := s.Unseen([]Account{a, unread}); got != nil {
 		t.Errorf("before every account was read: %q", got)
 	}
+	key := Account{Email: "k@x", APIKey: true, Added: true} // never read: it has no limits
+	tok := Account{Email: "t@x", Token: true, Added: true}  // a setup-token, the probe off
+	if got := s.Unseen([]Account{a, key, tok}); !slices.Equal(got, []string{"Opus"}) {
+		t.Errorf("with an API key and a setup-token: %q", got)
+	}
 }
 
 // A refused refresh token is posted once, not on every tick; a new saved
