@@ -216,21 +216,39 @@ Tested by `TestDecide` (cases from `docs/auto-switch.md`), `TestAutoSwitch`,
 
 ## 3. Export / import
 
-- Export writes one JSON file chosen with a save dialog: `{version: 1,
-  exportedAt, accounts: [{email, accountUuid, orgUuid, orgName, oauthAccount,
-  claudeAiOauth}]}`, mode 0600. The live account is exported from the live
-  login. Like claude-swap, it is not encrypted; the dialog says "This file
-  holds your sign-ins. Keep it private and delete it after import."
-- Import validates every entry first (uuids, email, token fields present),
-  then adds each as an added account. An account already added is skipped
-  unless its exported expiry is newer. The account in use is never
-  overwritten.
+- The file is claude-swap's export (`transfer.py`, version 1), so either app
+  reads the other's: `{version: 1, exportedAt, exportedFrom, encrypted: false,
+  accounts: [{number, email, uuid, organizationUuid, organizationName, added,
+  credentials: {claudeAiOauth}, config: {oauthAccount}}]}`. This replaces the
+  shape first planned here. Its `number` is claude-swap's slot, from 1.
+- Export (toolbar "Export…", a save panel) writes each added account that has
+  an `oauthAccount` and a saved login; others are left out. The account in
+  use goes with Claude Code's login when that login's own uuids name it and
+  it lapses later than the saved one. Only `claudeAiOauth` goes out, never
+  `mcpOAuth`. The file is 0600: a replaced file is made 0600 first, and a
+  link is refused rather than followed. The panel and the toast say "This
+  file holds your sign-ins, unencrypted. Keep it private and delete it after
+  import."
+- Import (toolbar "Import…", an open panel) checks the whole file before it
+  writes anything, and rejects it when an entry has no email, no complete
+  login (access and refresh token, expiry), no `oauthAccount`; when its
+  `uuid` / `organizationUuid` or its login's own uuids name another account
+  than its `oauthAccount`; or when an account repeats. Then, per entry: an
+  API key is left alone (the app holds subscription logins only); the account
+  in use is left alone (follow keeps Claude Code's login); a login no newer
+  than the saved one is left alone; otherwise it is saved as an added
+  account, keeping that account's auto-switch settings. From a `--full`
+  export only `claudeAiOauth` and `oauthAccount` are taken. Import asks
+  nothing of Anthropic, so no login is renewed by it.
 - Warning to the user, both ways: the same login on two Macs is two
-  renewers. After import, sign the other Mac out of that account or stop
-  using the app there.
+  renewers. The open panel and the toast say "Use each account on one Mac
+  only: two Macs renewing one sign-in break it."
 
-Verify: round-trip test through a temp file and `Memory` vault; malformed
-file rejected with nothing written.
+Verified: round trip through a temp file and `Memory` vault; a claude-swap
+export with an API-key entry; each rejection writes nothing and shows no
+token; mutation checks on every guard. Not verified: claude-swap importing
+ours (checked against its `_validate_imported_account` only), and a real
+export and import between two Macs.
 
 ## 4. Run as account
 

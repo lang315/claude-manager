@@ -30,7 +30,8 @@ and running sessions are protected by checks made again at trash time. One
 exception: switching accounts, on the user's click or by auto-switch once the
 user turns it on, writes Claude Code's login and the `oauthAccount` key of
 `~/.claude.json`, after saving the login it replaces. The app also keeps its own
-copy of the login in use, in its own keychain item.
+copy of the login in use, in its own keychain item. Export writes the added
+accounts' logins, unencrypted, to a file the user names, readable by the user only.
 
 ## Operating Context
 

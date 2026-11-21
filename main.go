@@ -39,6 +39,17 @@ func main() {
 	})
 	a.Accounts = accounts(home, configDir, root)
 	a.OpenURL, a.CopyText = mygo.Shell.OpenExternal, mygo.Clipboard.WriteText
+	jsonFiles := []mygo.FileFilter{{Name: "JSON", Extensions: []string{"json"}}}
+	a.SaveFile = func(name, message string) (string, error) {
+		return mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "Export Accounts", DefaultPath: name, Message: message, Filters: jsonFiles})
+	}
+	a.OpenFile = func(message string) (string, error) {
+		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Import Accounts", Message: message, Filters: jsonFiles})
+		if err != nil || len(paths) == 0 {
+			return "", err
+		}
+		return paths[0], nil
+	}
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:   "Claude Manager",

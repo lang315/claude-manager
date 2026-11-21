@@ -23,6 +23,11 @@ type App struct {
 	// OpenURL and CopyText reach the system: the browser and the clipboard.
 	OpenURL  func(string) error
 	CopyText func(string)
+	// SaveFile and OpenFile ask for a file, showing message: a save panel
+	// suggesting name, and an open panel. They return "" when canceled, and
+	// block until then, so they run off the main thread.
+	SaveFile func(name, message string) (string, error)
+	OpenFile func(message string) (string, error)
 
 	root   string // Store.Root as shown, with ~ for the home directory
 	page   string
@@ -164,6 +169,12 @@ func (a *App) header(c *ui.Context, pal *palette, live int) {
 			}
 			if ui.Button(c, "Refresh").Disabled(a.Accounts == nil || a.limits.loading || a.limits.switching != "").Clicked() {
 				a.limits.load(a, true)
+			}
+			if ui.Button(c, "Export…").Disabled(a.Accounts == nil || a.limits.switching != "").Clicked() {
+				a.limits.startExport(a)
+			}
+			if ui.Button(c, "Import…").Disabled(a.Accounts == nil || a.limits.switching != "").Clicked() {
+				a.limits.startImport(a)
 			}
 		} else if ui.Button(c, "Rescan").Disabled(a.busy > 0).Clicked() {
 			a.Rescan()
