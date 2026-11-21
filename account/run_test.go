@@ -331,9 +331,11 @@ func TestRunCommandQuoting(t *testing.T) {
 	must(t, os.MkdirAll(folder, 0o700))
 	bin := filepath.Join(root, "bin")
 	must(t, os.Mkdir(bin, 0o700))
-	must(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n%s' \"$PWD\" \"$CLAUDE_CONFIG_DIR\"\n"), 0o755))
+	must(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n%s' \"$PWD\" \"$CLAUDE_CONFIG_DIR$ANTHROPIC_API_KEY$CLAUDE_CODE_OAUTH_TOKEN\"\n"), 0o755))
 	cmd := exec.Command("/bin/sh", "-c", RunCommand(folder, profile))
-	cmd.Env = append(os.Environ(), "PATH="+bin+":/usr/bin:/bin")
+	// A key or token the user's shell exports would override the profile's
+	// login (cswap's AUTH_OVERRIDE_ENV_VARS): claude gets none.
+	cmd.Env = append(os.Environ(), "PATH="+bin+":/usr/bin:/bin", "ANTHROPIC_API_KEY=leak", "CLAUDE_CODE_OAUTH_TOKEN=leak")
 	out, err := cmd.Output()
 	must(t, err)
 	real, _ := filepath.EvalSymlinks(folder)

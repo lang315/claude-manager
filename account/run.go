@@ -360,9 +360,19 @@ func ClaudeRunning(configDir string) (bool, error) {
 	return false, nil
 }
 
+// authOverrides make claude go by a key or token over its config folder's
+// login (claude-swap's AUTH_OVERRIDE_ENV_VARS): a terminal opened as an
+// account runs without them, whatever the user's shell exports.
+var authOverrides = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+	"CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR", "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR"}
+
 // RunCommand is the shell command LaunchInTerminal runs: claude with args.
 func RunCommand(folder, configDir string, args ...string) string {
-	cmd := "cd " + shellQuote(folder) + " && CLAUDE_CONFIG_DIR=" + shellQuote(configDir) + " exec claude"
+	cmd := "cd " + shellQuote(folder) + " && exec env"
+	for _, v := range authOverrides {
+		cmd += " -u " + v
+	}
+	cmd += " CLAUDE_CONFIG_DIR=" + shellQuote(configDir) + " claude"
 	for _, a := range args {
 		cmd += " " + shellQuote(a)
 	}

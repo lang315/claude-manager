@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"syscall"
 )
@@ -23,6 +24,8 @@ func LaunchInTerminal(folder, configDir string, args ...string) error {
 	cmd := exec.Command("cmd")
 	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: "cmd " + line}
 	cmd.Dir = folder
-	cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+configDir)
+	cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		return slices.Contains(authOverrides, strings.SplitN(kv, "=", 2)[0])
+	}), "CLAUDE_CONFIG_DIR="+configDir)
 	return cmd.Start()
 }
