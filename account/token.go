@@ -26,14 +26,27 @@ const tokenUUID = "token:" // an account key's prefix for a setup-token account
 // setup-token-N@token.local when email is "". Adding one already added
 // replaces its token. Nothing is asked of Anthropic.
 func (b *Book) AddToken(token, email string) (Account, error) {
-	token = strings.TrimSpace(token)
-	if !strings.HasPrefix(token, "sk-ant-oat") || strings.ContainsAny(token, " \t\r\n\"") {
-		return Account{}, errNotSetupToken
-	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if err := b.load(); err != nil {
 		return Account{}, err
+	}
+	a, err := b.addTokenLocked(token, email)
+	if err != nil {
+		return Account{}, err
+	}
+	return a, b.save()
+}
+
+// isSetupToken reports whether s is a setup-token, as AddToken takes one.
+func isSetupToken(s string) bool {
+	return strings.HasPrefix(s, "sk-ant-oat") && !strings.ContainsAny(s, " \t\r\n\"")
+}
+
+func (b *Book) addTokenLocked(token, email string) (Account, error) {
+	token = strings.TrimSpace(token)
+	if !isSetupToken(token) {
+		return Account{}, errNotSetupToken
 	}
 	email = strings.TrimSpace(email)
 	switch {
@@ -59,7 +72,7 @@ func (b *Book) AddToken(token, email string) (Account, error) {
 	i := slices.IndexFunc(b.added, func(x Account) bool { return x.Key() == a.Key() })
 	b.added[i].Token, b.added[i].Err = true, ""
 	delete(b.dead, a.Key())
-	return b.added[i], b.save()
+	return b.added[i], nil
 }
 
 // tokenOwner is the setup-token account whose token l is: such a login has

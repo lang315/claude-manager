@@ -86,6 +86,15 @@ func (b *Book) Export(path string, full bool, keys ...string) (n, left int, err 
 			f.Accounts = append(f.Accounts, exportEntry{Number: max(a.Slot, 1), Email: a.Email, Added: now, Kind: "api_key", Credentials: creds, Config: conf, Alias: a.Alias})
 			continue
 		}
+		if a.Token { // claude-swap's: OAuth with the access token alone, accountUuid ""
+			if l, err := parseLogin(blob); err != nil || !isSetupToken(l.AccessToken) {
+				left++
+				continue
+			}
+			conf, _ := json.Marshal(map[string]json.RawMessage{"oauthAccount": a.OAuthAccount})
+			f.Accounts = append(f.Accounts, exportEntry{Number: max(a.Slot, 1), Email: a.Email, Added: now, Credentials: bytes.TrimSpace(blob), Config: conf, Alias: a.Alias})
+			continue
+		}
 		whole := full && a.Key() == inUse && live != nil
 		if a.Key() == inUse && live != nil && (whole || newer(live, blob)) {
 			blob = live
@@ -197,7 +206,8 @@ func (b *Book) ImportWith(path string, force bool) (Imported, error) {
 		slot  int
 	}
 	var in []entry
-	var keys []entry // API key accounts: the key in blob
+	var keys []entry   // API key accounts: the key in blob
+	var tokens []entry // setup-token accounts: the token in blob
 	var got Imported
 	for i, e := range f.Accounts {
 		bad := func(why string) error {
@@ -222,6 +232,16 @@ func (b *Book) ImportWith(path string, force bool) (Imported, error) {
 		}
 		if e.Email == "" {
 			return Imported{}, bad("has no email")
+		}
+		if l, err := parseLogin(e.Credentials); err == nil && l.RefreshToken == "" && isSetupToken(l.AccessToken) {
+			if !isEmail(e.Email) {
+				return Imported{}, bad("has an email that isn't one")
+			}
+			if slices.ContainsFunc(tokens, func(x entry) bool { return x.p.Email == e.Email }) {
+				return Imported{}, bad("repeats an account")
+			}
+			tokens = append(tokens, entry{p: Profile{Email: e.Email}, blob: []byte(l.AccessToken), alias: e.Alias, slot: e.Number})
+			continue
 		}
 		o := oauthOf(e.Credentials)
 		blob, err := withOAuth(nil, o)
@@ -265,6 +285,12 @@ func (b *Book) ImportWith(path string, force bool) (Imported, error) {
 		if slices.ContainsFunc(b.added, func(a Account) bool { return a.Email == e.p.Email && !a.APIKey }) ||
 			slices.ContainsFunc(in, func(x entry) bool { return x.p.Email == e.p.Email }) {
 			return Imported{}, fmt.Errorf("%s is an account signed in to with OAuth and an API key in this file, so nothing was imported.", e.p.Email)
+		}
+	}
+	for _, e := range tokens { // as addTokenLocked refuses it, before anything is written
+		if slices.ContainsFunc(b.added, func(a Account) bool { return a.Email == e.p.Email && a.APIKey }) ||
+			slices.ContainsFunc(keys, func(x entry) bool { return x.p.Email == e.p.Email }) {
+			return Imported{}, fmt.Errorf("%s is an API key account and a setup-token in this file, so nothing was imported.", e.p.Email)
 		}
 	}
 	inUse, liveKey := "", ""
@@ -323,6 +349,26 @@ func (b *Book) ImportWith(path string, force bool) (Imported, error) {
 		} else {
 			got.Updated++
 		}
+	}
+	for _, e := range tokens {
+		k := tokenUUID + e.p.Email + "/"
+		if saved, err := b.Vault.Get(ParkService, k); err == nil && strings.Contains(string(saved), string(e.blob)) && !force {
+			got.Skipped++
+			continue
+		}
+		added := !slices.ContainsFunc(b.added, func(a Account) bool { return a.Key() == k })
+		if _, err := b.addTokenLocked(string(e.blob), e.p.Email); err != nil {
+			return got, errors.Join(err, b.save())
+		}
+		if added {
+			got.Added++
+		} else {
+			got.Updated++
+		}
+	}
+	for _, e := range tokens {
+		b.takeAlias(tokenUUID+e.p.Email+"/", e.alias)
+		b.takeSlot(tokenUUID+e.p.Email+"/", e.slot)
 	}
 	for _, e := range append(keys, in...) {
 		k := e.p.Key()

@@ -432,3 +432,29 @@ func TestImportHealsQuarantined(t *testing.T) {
 		t.Errorf("saved %q", l.RefreshToken)
 	}
 }
+
+// claude-swap exports a setup-token account as OAuth with an access token
+// and no refresh token, accountUuid "": it goes out and comes back in.
+func TestExportImportSetupToken(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	_, err := b.AddToken("sk-ant-oat01-tok", "ci@example.com")
+	must(t, err)
+	path := filepath.Join(t.TempDir(), "out.json")
+	n, _, err := b.Export(path, false)
+	must(t, err)
+	if e := entryOf(t, exportOf(t, path), "ci@example.com"); n != 2 || !strings.Contains(string(e.Credentials), "sk-ant-oat01-tok") {
+		t.Fatalf("exported %d: %s", n, e.Credentials)
+	}
+	c, v2, _, _ := switchBook(t)
+	got, err := c.Import(path)
+	if err != nil || got.Added != 1 {
+		t.Fatalf("import: %+v %v", got, err)
+	}
+	blocks, _ := c.Blocks()
+	if a := blockOf(t, blocks, "ci@example.com"); !a.Token {
+		t.Errorf("imported %+v", a)
+	}
+	if blob, _ := v2.Get(ParkService, tokenUUID+"ci@example.com/"); !strings.Contains(string(blob), "sk-ant-oat01-tok") {
+		t.Errorf("saved %s", blob)
+	}
+}
