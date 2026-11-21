@@ -608,6 +608,26 @@ Verified: `TestSwitchLapsedLiveLogin`, `TestSwitchLapsedLoginDisagreeing`,
 `TestUnclaimedOnlyForAnUnknownLogin`, `TestUnclaimed`; mutation checks (6 of
 6 caught).
 
+## 13. Linux, WSL and Windows
+
+- Builds: `GOOS=linux` and `GOOS=windows` build and vet; the Unix-only
+  process calls (`kill(pid, 0)`, process groups, inodes) sit behind build
+  tags (`proc_unix.go`, `proc_windows.go`).
+- Without a macOS keychain (claude-swap's Linux and Windows paths): the app's
+  items are a `FileVault`, one 0600 `vault.json` in the app's folder
+  (`os.UserConfigDir()/Claude Manager`); `Home.FileOnly` makes Claude Code's
+  login `.credentials.json` alone (read, written, created, put back), and an
+  API key `primaryApiKey` in `~/.claude.json` rather than a keychain item.
+- Open in Terminal: Linux tries `$TERMINAL`, `x-terminal-emulator`,
+  `gnome-terminal`, `konsole`, `xfce4-terminal`, `kitty`, `alacritty`,
+  `xterm`; WSL opens Windows Terminal (`wt.exe wsl.exe -d <distro>`);
+  Windows opens a console (`cmd /k`).
+
+Verified: `TestFileVault`, `TestSwitchFileOnly` (OAuth and API key),
+`TestSwitchFileOnlyRestores`, `TestSwitchFileOnlySignedOutAndStale`;
+`GOOS=linux|windows go vet ./...` clean; mutation checks (7 of 7 caught).
+Not verified: a run on Linux, WSL or Windows, and the terminals there.
+
 ## Not ported
 
 Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported

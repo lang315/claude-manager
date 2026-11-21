@@ -62,6 +62,7 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **10. Settings, appearance, updates, --debug, docs** (#29, draft).
 - [x] **11. Slot numbers, move, swap** (#30, draft).
 - [x] **12. Unclaimed logins** (#31, draft).
+- [x] **13. Linux, WSL and Windows** (#32, draft).
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an
@@ -98,7 +99,7 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | TUI, `watch` | Covered: the app itself |
 | `purge` | 9: `claude-manager purge --yes` |
 | `upgrade`, update check (`updates.check`) | 10: a daily check and "Update to X…" in the menu bar, `claude-manager upgrade`, through MyGo's updates; they work once the app is built with an update feed (`mygo.config.ts`), which needs its signing key |
-| Linux, Windows, WSL | Not applicable: macOS app |
+| Linux, Windows, WSL | 13: builds for all three; without a keychain Claude Code's login is `.credentials.json` and its API key `primaryApiKey`, the app's items a 0600 `vault.json`; Open in Terminal opens the system's terminal (Windows Terminal under WSL, a console on Windows) |
 | Spend (extra usage) on each account | 7: an "Extra usage" row, and "extra N%" in the menu bar |
 | `switch <account>` | 1; `claude-manager switch <email> [--json]` (9) |
 | `switch` with no account: rotate, best, next-available | Covered: the window and the menu bar list every account with its windows, and a click switches to it; auto-switch picks the best |

@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -80,9 +79,7 @@ func (b *Book) SignIn(ctx context.Context, on func(Event)) (*SignIn, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	cmd := exec.CommandContext(ctx, bin, "auth", "login", "--claudeai")
 	cmd.Dir, cmd.Env = dir, signInEnv(dir, bin)
-	// Its own process group, so a cancel also stops what claude started.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	ownGroup(cmd)
 	r, w, err := os.Pipe()
 	if err != nil {
 		cancel()

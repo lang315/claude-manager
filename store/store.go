@@ -3,8 +3,6 @@
 package store
 
 import (
-	"errors"
-	"syscall"
 	"time"
 )
 
@@ -23,13 +21,3 @@ type Store struct {
 
 // recent is how long after its last write a file counts as in use.
 const recent = 10 * time.Minute
-
-// PIDAlive reports whether a process exists. EPERM means it exists but
-// belongs to another user.
-func PIDAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
-}

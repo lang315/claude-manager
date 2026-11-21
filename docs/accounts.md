@@ -29,6 +29,12 @@ lists every claude-swap feature and where it went.
 | Open in Terminal profiles | `~/Library/Application Support/Claude Manager/profiles/<hash>/` |
 | Claude Code's own login, as the app switches it | keychain `Claude Code-credentials` (or `~/.claude/.credentials.json`), `Claude Code` for an API key, and `~/.claude.json`'s `oauthAccount` |
 
+On Linux, WSL and Windows there is no keychain: the app's folder is
+`~/.config/Claude Manager` (`%AppData%\Claude Manager` on Windows), its
+saved logins are in `vault.json` there (0600), and Claude Code's own login
+is `~/.claude/.credentials.json`, its API key `~/.claude.json`'s
+`primaryApiKey`.
+
 ## Command line
 
 ```

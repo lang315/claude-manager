@@ -112,6 +112,10 @@ func (b *Book) switchLocked(ctx context.Context, key string) error {
 	if err == nil {
 		newConf, err = dropKey(newConf, "primaryApiKey")
 	}
+	if err == nil && tgt.APIKey && h.FileOnly { // no keychain: Claude Code reads the key from here
+		k, _ := json.Marshal(apiKey)
+		newConf, err = spliceKey(newConf, "primaryApiKey", k)
+	}
 	var newLive []byte
 	if err == nil && tgt.APIKey {
 		if newConf, err = approveKey(newConf, apiKey); err == nil {
@@ -149,9 +153,11 @@ func (b *Book) switchLocked(ctx context.Context, key string) error {
 		}
 	}
 	err = h.writeLive(b.Vault, was, newLive)
-	if err == nil && tgt.APIKey {
+	switch {
+	case err != nil, h.FileOnly:
+	case tgt.APIKey:
 		err = b.Vault.Put(managedService, h.User, []byte(apiKey))
-	} else if err == nil {
+	default:
 		err = b.Vault.Delete(managedService, h.User)
 	}
 	if err == nil {

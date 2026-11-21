@@ -2,18 +2,15 @@ package account
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -300,21 +297,11 @@ func ClaudeRunning(configDir string) (bool, error) {
 		if err != nil || json.Unmarshal(data, &r) != nil {
 			return false, errors.Join(err, errors.New("a session record can't be read"))
 		}
-		if r.PID > 0 && (syscall.Kill(r.PID, 0) == nil || errors.Is(syscall.Kill(r.PID, 0), syscall.EPERM)) {
+		if pidAlive(r.PID) {
 			return true, nil
 		}
 	}
 	return false, nil
-}
-
-// LaunchInTerminal opens Terminal at folder running claude with configDir
-// as its CLAUDE_CONFIG_DIR. The command goes to AppleScript as an
-// argument, so only the shell's quoting applies.
-func LaunchInTerminal(folder, configDir string) error {
-	return exec.CommandContext(context.Background(), "/usr/bin/osascript",
-		"-e", "on run argv", "-e", `tell application "Terminal"`, "-e", "activate",
-		"-e", "do script (item 1 of argv)", "-e", "end tell", "-e", "end run",
-		RunCommand(folder, configDir)).Run()
 }
 
 // RunCommand is the shell command LaunchInTerminal runs.

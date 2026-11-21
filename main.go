@@ -10,6 +10,7 @@ import (
 	"os"
 	osuser "os/user"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sync/atomic"
 	"time"
@@ -229,11 +230,22 @@ func setTray(tray *mygo.Tray, a *view.App, show func()) {
 
 // appDir is the app's folder: accounts.json, sign-in folders and profiles.
 func appDir(home string) string {
+	if runtime.GOOS != "darwin" {
+		if d, err := os.UserConfigDir(); err == nil {
+			return filepath.Join(d, "Claude Manager") // ~/.config on Linux and WSL, %AppData% on Windows
+		}
+	}
 	return filepath.Join(home, "Library", "Application Support", "Claude Manager")
 }
 
 func accounts(home, configDir, root string) *account.Book {
-	vault := account.Keychain{}
+	// Without a macOS keychain Claude Code keeps its login in
+	// .credentials.json, and the app keeps its own in a 0600 file.
+	fileOnly := runtime.GOOS != "darwin"
+	var vault account.Vault = account.Keychain{}
+	if fileOnly {
+		vault = &account.FileVault{Path: filepath.Join(appDir(home), "vault.json")}
+	}
 	var h *account.Home
 	if configDir == "" {
 		user := os.Getenv("USER")
@@ -243,7 +255,7 @@ func accounts(home, configDir, root string) *account.Book {
 				user = u.Username
 			}
 		}
-		h = &account.Home{Root: root, ClaudeJSON: filepath.Join(home, ".claude.json"), User: user}
+		h = &account.Home{Root: root, ClaudeJSON: filepath.Join(home, ".claude.json"), User: user, FileOnly: fileOnly}
 	}
 	return &account.Book{
 		Dir:           appDir(home),

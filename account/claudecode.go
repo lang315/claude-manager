@@ -25,6 +25,9 @@ type Home struct {
 	Root       string // ~/.claude
 	ClaudeJSON string // ~/.claude.json
 	User       string // the keychain account Claude Code files its login under: $USER
+	// FileOnly is Claude Code without a keychain (Linux, WSL, Windows): its
+	// login lives in .credentials.json alone, its API key in primaryApiKey.
+	FileOnly bool
 }
 
 var errLockBusy = errors.New("Claude Code is busy with its sign-in. Try again in a minute.")
@@ -143,6 +146,10 @@ func (h *Home) readLive(v Vault) (liveBlob, error) {
 		return lb, err
 	}
 	lb.fileData = file
+	if h.FileOnly {
+		lb.data = file
+		return lb, nil
+	}
 	data, err := v.Get(liveDefault, "")
 	switch {
 	case err == nil:
@@ -160,6 +167,9 @@ func (h *Home) readLive(v Vault) (liveBlob, error) {
 // .credentials.json gets the same bytes, so a running Claude Code sees a
 // new mtime; it is never created.
 func (h *Home) writeLive(v Vault, was liveBlob, data []byte) error {
+	if h.FileOnly {
+		return writeAtomic(h.credentialsFile(), data, 0o600)
+	}
 	if was.inVault || was.fileData == nil {
 		if err := v.Put(liveDefault, h.User, data); err != nil {
 			return err
@@ -172,6 +182,16 @@ func (h *Home) writeLive(v Vault, was liveBlob, data []byte) error {
 }
 
 func (h *Home) restoreLive(v Vault, was liveBlob) error {
+	if h.FileOnly {
+		if was.fileData == nil {
+			err := os.Remove(h.credentialsFile())
+			if errors.Is(err, fs.ErrNotExist) {
+				err = nil
+			}
+			return err
+		}
+		return writeAtomic(h.credentialsFile(), was.fileData, 0o600)
+	}
 	var err error
 	switch {
 	case was.inVault:
