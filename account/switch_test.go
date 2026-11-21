@@ -139,8 +139,13 @@ func TestSwitchSaveFailsWritesNothing(t *testing.T) {
 func TestSwitchListsOutgoingFirst(t *testing.T) {
 	b, v, h, _ := switchBook(t)
 	before := get(t, v, liveDefault, "me")
-	blockWrite := filepath.Join(b.Dir, "accounts.json.tmp")
-	must(t, os.Mkdir(blockWrite, 0o700))
+	rename = func(from, to string) error {
+		if filepath.Base(to) == "accounts.json" {
+			return errors.New("disk full")
+		}
+		return os.Rename(from, to)
+	}
+	t.Cleanup(func() { rename = os.Rename })
 	if err := b.Switch(ctx, bob.Key()); err == nil {
 		t.Fatal("switched without listing alice")
 	}

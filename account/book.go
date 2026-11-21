@@ -2,6 +2,7 @@ package account
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -92,7 +93,8 @@ type Book struct {
 	Log     io.Writer
 	Running func(configDir string) (bool, error)
 
-	mu         sync.Mutex
+	mu         bookMu
+	stamp      stamp      // accounts.json as this book last read or wrote it
 	side       sync.Mutex // who, dead, told and Log: Refresh reads accounts in parallel
 	loaded     bool
 	cleaned    bool // cleanLeftovers ran
@@ -129,21 +131,75 @@ type saved struct {
 
 func (b *Book) path() string { return filepath.Join(b.Dir, "accounts.json") }
 
-// load reads accounts.json once, after removing what an unfinished
-// sign-in left. One that can't be read is tried again on the next call,
-// never taken as empty: a save would wipe it.
+// bookMu is the book's lock: within the process, and, from load to Unlock,
+// across the processes on one accounts.json (the app and the command line),
+// so neither saves over what the other saved meanwhile.
+type bookMu struct {
+	sync.Mutex
+	release func()
+}
+
+func (m *bookMu) Unlock() {
+	if m.release != nil {
+		m.release()
+		m.release = nil
+	}
+	m.Mutex.Unlock()
+}
+
+// bookWait is how long a call waits for another process's: a refresh
+// holds the book across its reads.
+var bookWait = 90 * time.Second
+
+var errBookBusy = errors.New("Another Claude Manager is busy with the accounts. Try again in a minute.")
+
+// stamp tells accounts.json apart from the copy a book holds: every save
+// is a new file (writeAtomic), so its identity, time and size.
+type stamp struct{ fi fs.FileInfo }
+
+func stampOf(path string) stamp {
+	fi, _ := os.Stat(path)
+	return stamp{fi}
+}
+
+func (s stamp) same(t stamp) bool {
+	if s.fi == nil || t.fi == nil {
+		return s.fi == nil && t.fi == nil
+	}
+	return os.SameFile(s.fi, t.fi) && s.fi.ModTime().Equal(t.fi.ModTime()) && s.fi.Size() == t.fi.Size()
+}
+
+// load takes the book across processes until the caller unlocks it, then
+// reads accounts.json: once, and again whenever another process wrote it
+// since. Before the first read it removes what an unfinished sign-in left.
+// One that can't be read is tried again on the next call, never taken as
+// empty: a save would wipe it.
 func (b *Book) load() error {
-	if b.loaded {
+	if b.mu.release == nil {
+		if err := os.MkdirAll(b.Dir, 0o700); err != nil {
+			return err
+		}
+		release, err := lockFor(context.Background(), b.path()+".lock", configStale, bookWait)
+		if errors.Is(err, errLockBusy) {
+			return errBookBusy
+		}
+		if err != nil {
+			return err
+		}
+		b.mu.release = release
+	}
+	if b.loaded && stampOf(b.path()).same(b.stamp) {
 		return nil
 	}
-	b.auto = DefaultAuto()
+	b.auto, b.prefs = DefaultAuto(), Prefs{}
 	if !b.cleaned {
 		b.cleaned = true
 		b.cleanLeftovers()
 	}
+	st := stampOf(b.path())
 	data, err := os.ReadFile(b.path())
 	if errors.Is(err, fs.ErrNotExist) {
-		b.loaded = true
+		b.loaded, b.stamp = true, stamp{}
 		return nil
 	}
 	var s saved
@@ -162,7 +218,7 @@ func (b *Book) load() error {
 	if s.Auto != nil {
 		b.auto = s.Auto.clamped()
 	}
-	b.loaded = true
+	b.loaded, b.stamp = true, st
 	return nil
 }
 
@@ -179,11 +235,11 @@ func (b *Book) save() error {
 	if err != nil {
 		return err
 	}
-	tmp := b.path() + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	if err := writeAtomic(b.path(), data, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, b.path())
+	b.stamp = stampOf(b.path())
+	return nil
 }
 
 // Blocks returns the accounts as last read: the one in use first, then the

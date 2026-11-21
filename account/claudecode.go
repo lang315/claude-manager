@@ -43,7 +43,11 @@ const (
 var lockWait = 9 * time.Second
 
 func lock(ctx context.Context, dir string, stale time.Duration) (func(), error) {
-	deadline := time.Now().Add(lockWait)
+	return lockFor(ctx, dir, stale, lockWait)
+}
+
+func lockFor(ctx context.Context, dir string, stale, wait time.Duration) (func(), error) {
+	deadline := time.Now().Add(wait)
 	for {
 		err := os.Mkdir(dir, 0o755)
 		if err == nil {
