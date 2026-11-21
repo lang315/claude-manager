@@ -80,7 +80,10 @@ func TestRefusals(t *testing.T) {
 		ok     func(error) bool
 	}{
 		{401, `{"type":"error","error":{"type":"authentication_error","message":"OAuth access token is invalid."}}`, is(ErrUnauthorized)},
-		{403, `{"type":"error","error":{"type":"permission_error","message":"OAuth token does not meet scope requirement user:profile"}}`, is(ErrUnauthorized)},
+		// claude-swap renews on 401 only: a 403 is a refusal, not a lapsed token.
+		{403, `{"type":"error","error":{"type":"permission_error","message":"OAuth token does not meet scope requirement user:profile"}}`, is(ErrForbidden)},
+		{403, `{"type":"error","error":{"type":"permission_error","message":"x","details":{"error_code":"oauth_not_allowed_for_organization"}}}`,
+			refusedWith("x" + orgNote)},
 		{403, `{"type":"error","error":{"type":"permission_error","message":"Verify your account","details":{"error_code":"verification_required"}}}`, refusedWith("Verify your account")},
 		{401, `{"type":"error","error":{"type":"authentication_error","message":"OAuth authentication is currently not allowed for this organization."}}`,
 			refusedWith("OAuth authentication is currently not allowed for this organization." + orgNote)},
@@ -161,6 +164,7 @@ func TestRenewRefusals(t *testing.T) {
 	}{
 		{400, `{"error":"invalid_grant","error_description":"Refresh token not found or invalid"}`, is(ErrInvalidGrant)},
 		{401, `{"error":{"type":"invalid_grant"}}`, is(ErrInvalidGrant)},
+		{403, `{"error":"invalid_grant"}`, is(ErrInvalidGrant)},
 		{400, `{"error":"invalid_grant","error_description":"account_on_hold"}`, refusedWith("Your Anthropic account is on hold.")},
 		{500, `{"access_token":"SECRET"}`, func(err error) bool { return err.Error() == "Anthropic answered 500." }},
 		{200, `{}`, func(err error) bool { return err != nil && !strings.Contains(err.Error(), "SECRET") }},

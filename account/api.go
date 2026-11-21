@@ -22,6 +22,7 @@ var (
 	// ErrUnauthorized says Anthropic refused an access token, lapsed or
 	// revoked. A renewal may mend it.
 	ErrUnauthorized = errors.New("Anthropic refused the sign-in.")
+	ErrForbidden    = errors.New("Anthropic refused this sign-in access (403).") // not renewed: claude-swap renews on 401 only
 	// ErrInvalidGrant says a login can't be renewed: it needs a sign-in.
 	ErrInvalidGrant = errors.New("Sign-in expired.")
 	// ErrUnreachable says no answer came.
@@ -235,14 +236,15 @@ func refusal(status int, body []byte) error {
 	}
 	_ = json.Unmarshal(body, &e)
 	switch {
-	case status == http.StatusForbidden && e.Error.Type == "permission_error" && e.Error.Details.ErrorCode == "verification_required",
+	case e.Error.Details.ErrorCode == "oauth_not_allowed_for_organization",
 		strings.Contains(e.Error.Message, "OAuth authentication is currently not allowed for this organization"):
-		if strings.Contains(e.Error.Message, "OAuth authentication is currently not allowed for this organization") {
-			return &Refused{Message: e.Error.Message + orgNote}
-		}
+		return &Refused{Message: e.Error.Message + orgNote}
+	case status == http.StatusForbidden && e.Error.Type == "permission_error" && e.Error.Details.ErrorCode == "verification_required":
 		return &Refused{Message: e.Error.Message}
-	case status == http.StatusUnauthorized, status == http.StatusForbidden:
+	case status == http.StatusUnauthorized:
 		return ErrUnauthorized
+	case status == http.StatusForbidden:
+		return ErrForbidden
 	}
 	return fmt.Errorf("Anthropic answered %d.", status)
 }
@@ -265,7 +267,7 @@ func tokenRefusal(status int, body []byte) error {
 	switch {
 	case code == "invalid_grant" && bytes.Contains(body, []byte("account_on_hold")):
 		return &Refused{Message: "Your Anthropic account is on hold."}
-	case (status == http.StatusBadRequest || status == http.StatusUnauthorized) && code == "invalid_grant":
+	case (status == http.StatusBadRequest || status == http.StatusUnauthorized || status == http.StatusForbidden) && code == "invalid_grant":
 		return ErrInvalidGrant
 	}
 	return fmt.Errorf("Anthropic answered %d.", status)
