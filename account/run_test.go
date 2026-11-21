@@ -544,3 +544,15 @@ func TestRunNeedsClaude(t *testing.T) {
 		t.Error("launched or marked without claude")
 	}
 }
+
+// claude-swap's _bootstrap: a profile's .claude.json is always past
+// onboarding, so a profile kept from before doesn't ask again.
+func TestSeedSkipsOnboarding(t *testing.T) {
+	r := newRunBook(t)
+	write(t, filepath.Join(r.dir(), ".claude.json"), `{"numStartups":2}`)
+	must(t, r.b.Run(bob.Key(), "/a", both))
+	conf, _ := os.ReadFile(filepath.Join(r.dir(), ".claude.json"))
+	if !strings.Contains(string(conf), `"hasCompletedOnboarding":true`) || !strings.Contains(string(conf), `"numStartups":2`) {
+		t.Errorf("profile .claude.json %s", conf)
+	}
+}

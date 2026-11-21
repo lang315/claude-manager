@@ -177,6 +177,9 @@ func (b *Book) seed(dir string, parked []byte, acct json.RawMessage, share Share
 		conf = old
 	}
 	conf, err = spliceKey(conf, "oauthAccount", acct)
+	if err == nil { // claude-swap's _bootstrap: a profile kept from before doesn't onboard again
+		conf, err = spliceKey(conf, "hasCompletedOnboarding", json.RawMessage(`true`))
+	}
 	if err != nil {
 		return err
 	}
