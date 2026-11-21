@@ -71,6 +71,7 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **19. The TUI's actions in the app** (#38, draft).
 - [x] **20. End to end on macOS's keychain tool; the TUI's output dialog and keys** (#39, draft).
 - [x] **21. Audit fixes: races, data loss, import, CLI and view bugs** (#40, draft). Decisions left open are listed in the PR.
+- [x] **22. The app and the command line share accounts.json** (#41, draft): a lock across processes, and a re-read when the other wrote it.
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an
