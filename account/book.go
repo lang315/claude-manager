@@ -43,6 +43,8 @@ type Account struct {
 	Added        bool            `json:"-"`                  // the app holds a login of its own for it
 	Source       string          `json:"-"`                  // "Pitboard" when Limits are Pitboard's reading
 	climbing     bool            // its fullest window rose a point or more at the last read
+	failures     int             // reads failed in a row
+	retryAt      time.Time       // when a failed read is tried again
 }
 
 // Key names the account by Anthropic's account and organisation.
@@ -80,9 +82,10 @@ type Book struct {
 	auto       Auto
 	lastSwitch time.Time
 	lastFailed time.Time
-	bar        memo         // the no-return bar auto-switch set
-	unreadable time.Time    // since when the account in use can't be read
-	note       atomic.Value // string: why Pitboard's files could not be read; read without the lock
+	bar        memo                // the no-return bar auto-switch set
+	unreadable time.Time           // since when the account in use can't be read
+	dead       map[string][32]byte // an account's refresh token Anthropic refused: its SHA-256
+	note       atomic.Value        // string: why Pitboard's files could not be read; read without the lock
 }
 
 type saved struct {

@@ -176,8 +176,10 @@ func TestDecideMemo(t *testing.T) {
 	def := DefaultAuto()
 	a, b, c := acct("a", 92, 10, day), acct("b", 70, 10, day), acct("c", 79, 10, day)
 	failed := func(x Account, err string, age time.Duration) Account { x.Err, x.ReadAt = err, t0.Add(-age); return x }
-	throttled := failed(acct("t", 0, 0, day), "Anthropic asked to wait.", 90*time.Minute)
+	throttled := failed(acct("t", 0, 0, day), (&RateLimited{}).Error(), 90*time.Minute)
 	throttled.WaitUntil = t0.Add(time.Minute)
+	stale429 := failed(acct("s", 0, 0, day), ErrInvalidGrant.Error(), time.Minute)
+	stale429.WaitUntil = t0.Add(-time.Minute)
 	bar := memo{barTo: inUse(a).Key(), barFrom: b.Key(), leftLH: 29}
 	for _, x := range []struct {
 		name  string
@@ -201,6 +203,7 @@ func TestDecideMemo(t *testing.T) {
 		{"a refused login is never trusted", []Account{inUse(a), failed(acct("f", 0, 0, day), ErrUnauthorized.Error(), time.Minute)}, memo{}, ""},
 		{"nor another answer", []Account{inUse(a), failed(acct("f", 0, 0, day), "Anthropic answered 400.", time.Minute)}, memo{}, ""},
 		{"two when Anthropic asked to wait", []Account{inUse(a), throttled}, memo{}, "t"},
+		{"a spent login stays untrusted after a rate limit", []Account{inUse(a), stale429}, memo{}, ""},
 		{"a spent login is never trusted", []Account{inUse(a), failed(acct("f", 0, 0, day), ErrInvalidGrant.Error(), time.Minute)}, memo{}, ""},
 	} {
 		s, want := def, x.want
@@ -266,10 +269,21 @@ func TestAutoSwitchFailover(t *testing.T) {
 	}
 }
 
-// Signed out of Claude Code, auto-switch never signs it in.
+// Signed out of Claude Code, auto-switch never signs it in: neither with
+// nobody in use, nor with ~/.claude.json still naming the account followed.
 func TestAutoSwitchNeverSignsIn(t *testing.T) {
-	b, v, _, f := switchBook(t)
-	f.usage["bob-at"] = 10
+	for _, followed := range []bool{false, true} {
+		b, v, _, f := switchBook(t)
+		f.usage["alice-at"], f.usage["bob-at"] = 50, 10
+		if followed {
+			b.Refresh(ctx, true) // alice is added and in use
+		}
+		neverSignsIn(t, b, v)
+	}
+}
+
+func neverSignsIn(t *testing.T, b *Book, v *Memory) {
+	t.Helper()
 	s := DefaultAuto()
 	s.On = true
 	must(t, b.SetAuto(s))
@@ -347,5 +361,115 @@ func TestUnseenModels(t *testing.T) {
 	unread.Limits = nil
 	if got := s.Unseen([]Account{a, unread}); got != nil {
 		t.Errorf("before every account was read: %q", got)
+	}
+}
+
+// A refused refresh token is posted once, not on every tick; a new saved
+// login is tried again.
+func TestRefreshQuarantinesARefusedLogin(t *testing.T) {
+	b, _, _, f := switchBook(t)
+	f.usage["alice-at"] = 10
+	renews := 0
+	for m := 0; m < 30; m++ {
+		b.Now = func() time.Time { return t0.Add(2*time.Hour + time.Duration(m)*time.Minute) }
+		b.Refresh(ctx, false)
+		for _, c := range f.took() {
+			if c == "renew bob-rt" {
+				renews++
+			}
+		}
+	}
+	if renews != 1 {
+		t.Fatalf("renewed a refused login %d times in 30 minutes", renews)
+	}
+	_, err := b.keep(login("bob-at2", "bob-rt2", t0.Add(3*time.Hour)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	f.usage["bob-at2"] = 5
+	got, _ := b.Refresh(ctx, true)
+	if a := blockOf(t, got, "bob@example.com"); a.Err != "" {
+		t.Errorf("a new login is still held out: %+v", a)
+	}
+}
+
+// A failing read backs off: 30 seconds, doubling, at most 10 minutes.
+func TestRefreshBacksOff(t *testing.T) {
+	b, _, _, f := switchBook(t)
+	f.usage["alice-at"] = 10
+	f.status["bob-at"] = 500
+	var at []int
+	for s := 0; s <= 40*60; s += 15 {
+		b.Now = func() time.Time { return t0.Add(time.Duration(s) * time.Second) }
+		b.Refresh(ctx, false)
+		if slices.Contains(f.took(), "usage bob-at") {
+			at = append(at, s)
+		}
+	}
+	want := []int{0, 30, 90, 210, 450, 930, 1530, 2130}
+	if !slices.Equal(at, want) {
+		t.Errorf("read at %v s, want %v", at, want)
+	}
+}
+
+// A login that can't be read for another reason (a locked keychain) is
+// still nobody to move off.
+func TestAutoSwitchNeverSignsInOnUnreadableLogin(t *testing.T) {
+	b, v, _, f := switchBook(t)
+	f.usage["bob-at"] = 10
+	s := DefaultAuto()
+	s.On = true
+	must(t, b.SetAuto(s))
+	b.Live = func() (Login, error) { return Login{}, errors.New("keychain locked") }
+	for m := 0; m < 10; m++ {
+		b.Now = func() time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+		b.Refresh(ctx, true)
+		if d, _ := b.AutoSwitch(ctx); d.To != "" {
+			t.Fatalf("minute %d: %+v", m, d)
+		}
+	}
+	if l, _ := parseLogin(get(t, v, liveDefault, "me")); l.AccessToken != "alice-at" {
+		t.Errorf("login in use %q", l.AccessToken)
+	}
+}
+
+// A rate limit, then a refused login: the refusal is what counts.
+func TestRefreshClearsWaitOnOtherFailure(t *testing.T) {
+	b, _, _, f := switchBook(t)
+	f.usage["alice-at"] = 10
+	f.status["bob-at"] = 429
+	b.Refresh(ctx, true)
+	delete(f.status, "bob-at")
+	b.Now = func() time.Time { return t0.Add(2 * time.Hour) }
+	got, _ := b.Refresh(ctx, false)
+	a := blockOf(t, got, "bob@example.com")
+	if a.Err != ErrInvalidGrant.Error() || !a.WaitUntil.IsZero() {
+		t.Fatalf("bob = %+v", a)
+	}
+}
+
+func TestBackoffCaps(t *testing.T) {
+	for _, n := range []int{6, 40, 100} {
+		if got := backoff(n); got != 10*time.Minute {
+			t.Errorf("backoff(%d) = %v", n, got)
+		}
+	}
+}
+
+// A spent account's reset already past is no reason to read it each tick.
+func TestRefreshSpentWithPastReset(t *testing.T) {
+	b, _, _, f := switchBook(t)
+	f.usage["alice-at"], f.usage["bob-at"] = 10, 100
+	f.resets["bob-at"] = "2026-10-26T11:00:00Z"
+	b.Refresh(ctx, true)
+	reads := 0
+	for m := 1; m <= 9; m++ {
+		b.Now = func() time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+		f.took()
+		b.Refresh(ctx, false)
+		if slices.Contains(f.took(), "usage bob-at") {
+			reads++
+		}
+	}
+	if reads != 0 {
+		t.Errorf("read %d times in 9 minutes", reads)
 	}
 }
