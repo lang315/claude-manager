@@ -54,3 +54,19 @@ func TestTwoBooksKeepEachOthersChanges(t *testing.T) {
 		t.Errorf("the app kept its older copy: alias %q", a.Alias)
 	}
 }
+
+// A re-read keeps what is never saved: a failing account's back-off.
+func TestReReadKeepsBackoff(t *testing.T) {
+	app, v, _, _ := newBook(t, newAnthropic())
+	_, err := app.keep(login("bob-at", "bob-rt", t0.Add(time.Hour)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	retry := t0.Add(4 * time.Minute)
+	app.added[0].failures, app.added[0].retryAt, app.added[0].climbing = 3, retry, true
+	cli := &Book{Dir: app.Dir, Vault: v, API: app.API, Now: app.Now}
+	must(t, cli.SetAlias(bob.Key(), "dev"))
+	got, _ := app.Blocks()
+	a := blockOf(t, got, "bob@example.com")
+	if a.Alias != "dev" || a.RetryAt() != retry || a.failures != 3 || !a.climbing {
+		t.Errorf("after a re-read: alias %q, retry %v, failures %d, climbing %v", a.Alias, a.RetryAt(), a.failures, a.climbing)
+	}
+}

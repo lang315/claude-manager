@@ -209,7 +209,25 @@ func (b *Book) load() error {
 	if err != nil {
 		return fmt.Errorf("accounts.json could not be read: %w", err)
 	}
+	was := map[string]Account{} // what accounts.json never holds: a re-read keeps it
+	for _, a := range b.added {
+		was[a.Key()] = a
+	}
+	if b.inUse != nil {
+		was[b.inUse.Key()] = *b.inUse
+	}
 	b.added, b.inUse = s.Accounts, s.InUse
+	keep := func(a *Account) {
+		if w, ok := was[a.Key()]; ok {
+			a.climbing, a.failures, a.retryAt = w.climbing, w.failures, w.retryAt
+		}
+	}
+	for i := range b.added {
+		keep(&b.added[i])
+	}
+	if b.inUse != nil {
+		keep(b.inUse)
+	}
 	b.ensureSlots()
 	b.maps, b.unclaimed, b.history = s.Maps, s.Unclaimed, s.History
 	if s.Prefs != nil {
