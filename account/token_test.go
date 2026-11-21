@@ -218,3 +218,18 @@ func TestUnclaimedOnlyForAnUnknownLogin(t *testing.T) {
 		t.Error("switched")
 	}
 }
+
+// A keychain that can't be read is said so, not taken for a lapsed token.
+func TestReadTokenLockedKeychain(t *testing.T) {
+	b, v, _, _ := newBook(t, newAnthropic())
+	must(t, b.load())
+	b.auto.Probe = true
+	a := &Account{AccountUUID: tokenUUID + "t@x", Email: "t@x", Token: true}
+	if _, err := b.readToken(ctx, a, t0); !errors.Is(err, ErrInvalidGrant) {
+		t.Fatalf("no saved token: %v", err)
+	}
+	b.Vault = lockedVault{v}
+	if _, err := b.readToken(ctx, a, t0); !errors.Is(err, ErrLocked) {
+		t.Fatalf("locked: %v", err)
+	}
+}

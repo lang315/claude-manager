@@ -89,8 +89,11 @@ func (b *Book) readToken(ctx context.Context, a *Account, now time.Time) ([]Limi
 		return nil, errNoProbe
 	}
 	saved, err := b.Vault.Get(ParkService, a.Key())
-	if err != nil {
+	if errors.Is(err, ErrNotFound) {
 		return nil, ErrInvalidGrant
+	}
+	if err != nil {
+		return nil, err // a locked keychain, not a lapsed token
 	}
 	l, err := parseLogin(saved)
 	if err != nil {
