@@ -66,3 +66,19 @@ func TestLimitsNoTerminalForAccountInUse(t *testing.T) {
 		t.Error("offered for the account in use")
 	}
 }
+
+// run.shareHistory false: the dialog starts with history unshared.
+func TestOpenInTerminalSharePref(t *testing.T) {
+	l := limitsApp(t)
+	canSwitch(t, l)
+	must(t, l.book.SetPrefs(account.Prefs{NoShareHistory: true}))
+	l.a.AutoTick()
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
+	clickMenu(t, l.tt, "bob@example.com")
+	must(t, l.tt.ChooseMenuItem("Open in Terminal…"))
+	l.tt.Frame()
+	if s := l.a.limits.run.share; !s.Setup || s.History {
+		t.Errorf("share %+v", s)
+	}
+}

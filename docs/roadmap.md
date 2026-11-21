@@ -59,6 +59,7 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **8. Setup-token accounts and the header probe** (#25, draft).
 - [x] **8b. Console API key accounts** (#26, draft).
 - [x] **9b. Aliases, folder mappings, version** on the command line (#28, draft).
+- [x] **10. Settings, appearance, updates, --debug, docs** (#29, draft).
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an
@@ -91,10 +92,10 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | Slot numbers, `move`, `swap` | Not applicable: there are no slots; an account is named by its email, alias or key, and the list is in the app's order |
 | `unclaimed` stash | Not needed: an unknown outgoing login becomes an added account |
 | API-key accounts | 8b: added, switched to (Claude Code's managed key), exported and imported; no limits are read |
-| `config` | Covered: Auto-Switch Settings |
+| `config` | Auto-Switch Settings, and `claude-manager config` (10) |
 | TUI, `watch` | Covered: the app itself |
 | `purge` | 9: `claude-manager purge --yes` |
-| `upgrade`, update check | Not applicable: the app is updated as an app |
+| `upgrade`, update check (`updates.check`) | 10: a daily check and "Update to X…" in the menu bar, `claude-manager upgrade`, through MyGo's updates; they work once the app is built with an update feed (`mygo.config.ts`), which needs its signing key |
 | Linux, Windows, WSL | Not applicable: macOS app |
 | Spend (extra usage) on each account | 7: an "Extra usage" row, and "extra N%" in the menu bar |
 | `switch <account>` | 1; `claude-manager switch <email> [--json]` (9) |
@@ -107,20 +108,20 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | `import --force` | Covered: an imported login replaces one only when newer; an older one never does |
 | `run --require-session` | Covered: Open in Terminal is never offered for the account in use |
 | `auto --interval` | 2c (the setting) |
-| `ui.theme` | Not applicable: the app follows macOS's appearance |
+| `ui.theme` | 10: Appearance in the menu bar, `config set ui.theme` |
 | `help` | 9: `claude-manager help` |
 | `--version` | 9b: `claude-manager version` |
-| `--debug` | Not applicable: the app keeps no debug log |
+| `--debug` | 10: `claude-manager <command> --debug` prints each request (method, path, status, time) |
 | Setting `autoswitch.threshold`, `weeklyThreshold`, `cooldownSeconds`, `hysteresisPct`, `strategy`, `model` | Ported: Auto-Switch Settings (2, 5) |
 | Settings `autoswitch.intervalSeconds`, `unhealthyTicks` | 2c: Auto-Switch Settings, "Check every (seconds)" (15–3600, 60) and "Unreadable ticks before moving on" (1–100, 3) |
 | Setting `autoswitch.includeApiKeyAccounts` | 8b: "Fall back on an API key account when no account has room" |
 | Setting `run.shareHistory` | Covered: the Open in Terminal dialog's history checkbox (4b), asked each time |
-| Setting `updates.check`, `ui.theme` | Not applicable: app updates; macOS appearance |
+| Settings `updates.check`, `ui.theme`, `run.shareHistory`; `config` get/set/unset/list | 10: `claude-manager config` |
 | Setting `usage.headerProbe` | 8: "Read setup-token usage" in Add Token |
 | README "How it works": a target's token freshened before a switch | Covered in part: auto-switch lands only on an account its own login read well in the last 5 minutes (an hour while Anthropic is out of reach); the login itself is not renewed first |
 | README "How it works": plan refreshed every six hours | Covered: the plan comes with each login (its `subscriptionType`) |
 | README "JSON output" | 9: `list`, `status`, `switch` take `--json` (cswap's schema 1); `auto --once --json` prints one event |
-| README "Tips", "Data locations", "Uninstall" | Not applicable: notes on the Python package and its files |
+| README "Tips", "Data locations", "Uninstall" | 10: `docs/accounts.md`, for this app |
 
 ## v3 — editing configuration
 

@@ -66,7 +66,12 @@ func (a *App) Tray() (title string, items []TrayItem) {
 			l.saveAuto(a, s)
 		}},
 		TrayItem{Label: "Refresh", Disabled: l.loading, Do: func() { l.load(a, true) }},
+		TrayItem{},
 	)
+	for _, t := range []struct{ label, theme string }{{"Appearance: As macOS", ""}, {"Appearance: Light", "light"}, {"Appearance: Dark", "dark"}} {
+		on := a.prefs.Theme == t.theme || t.theme == "" && a.prefs.Theme == "auto"
+		items = append(items, TrayItem{Label: t.label, Toggle: true, Checked: on, Do: func() { a.setTheme(t.theme) }})
+	}
 	return title, items
 }
 
@@ -104,4 +109,14 @@ func windows(b account.Account) string {
 // minutes; the 3-minute floor keeps it from asking more often.
 func (a *App) TrayTick() {
 	a.Update(func() { a.limits.load(a, false) })
+}
+
+// setTheme saves ui.theme and redraws in it.
+func (a *App) setTheme(theme string) {
+	a.prefs.Theme = theme
+	p := a.prefs
+	a.Go(func() {
+		err := a.Accounts.SetPrefs(p)
+		a.Update(func() { a.limits.toast(a, err) })
+	})
 }

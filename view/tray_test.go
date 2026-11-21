@@ -116,3 +116,23 @@ func TestTrayRows(t *testing.T) {
 		t.Error("a second switch offered while one runs")
 	}
 }
+
+func TestTrayAppearance(t *testing.T) {
+	l := limitsApp(t)
+	l.a.AutoTick()
+	l.tt.Frame()
+	dark := trayItem(t, l, "Appearance: Dark")
+	if dark.Checked || !trayItem(t, l, "Appearance: As macOS").Checked {
+		t.Fatal("as macOS is the default")
+	}
+	l.tt.Update(dark.Do)
+	l.tt.Frame()
+	waitFor(t, l.tt, func() bool { p, _ := l.book.Prefs(); return p.Theme == "dark" })
+	if !trayItem(t, l, "Appearance: Dark").Checked {
+		t.Error("dark not checked")
+	}
+	l.tt.Frame()
+	if r, _, _, _ := l.tt.Image().At(4, 700).RGBA(); r>>8 > 0x40 {
+		t.Errorf("the window is not drawn dark: red %#x", r>>8)
+	}
+}

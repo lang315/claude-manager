@@ -48,6 +48,7 @@ type API struct {
 	AuthBase string // https://platform.claude.com
 	Agent    string // the User-Agent
 	Client   *http.Client
+	Debug    io.Writer // when set, each request's method, path, status and time: never a token
 }
 
 // NewAPI asks Anthropic itself, naming the app at version, and gives each
@@ -153,7 +154,9 @@ func (a *API) get(ctx context.Context, path, token string) ([]byte, error) {
 // answer but a 429.
 func (a *API) do(req *http.Request, refused func(int, []byte) error) ([]byte, error) {
 	req.Header.Set("User-Agent", a.Agent)
+	start := time.Now()
 	resp, err := a.Client.Do(req)
+	a.debug(req, resp, start)
 	if err != nil {
 		return nil, ErrUnreachable
 	}
@@ -224,4 +227,15 @@ func tokenRefusal(status int, body []byte) error {
 		return ErrInvalidGrant
 	}
 	return fmt.Errorf("Anthropic answered %d.", status)
+}
+
+func (a *API) debug(req *http.Request, resp *http.Response, start time.Time) {
+	if a.Debug == nil {
+		return
+	}
+	status := "no answer"
+	if resp != nil {
+		status = resp.Status
+	}
+	fmt.Fprintf(a.Debug, "%s %s %s: %s (%s)\n", time.Now().Format(time.TimeOnly), req.Method, req.URL.Path, status, time.Since(start).Round(time.Millisecond))
 }

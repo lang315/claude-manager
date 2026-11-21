@@ -46,7 +46,9 @@ func (a *App) AutoTick() {
 	}
 	a.Go(func() {
 		s, err := a.Accounts.AutoSettings()
+		p, _ := a.Accounts.Prefs()
 		a.Update(func() {
+			a.prefs = p
 			u := &a.limits.auto
 			u.s, u.loaded = s, err == nil
 			if now := a.Store.Now(); s.On && now.Sub(u.ticked) >= s.Every()-time.Second {

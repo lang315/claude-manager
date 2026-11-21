@@ -4,16 +4,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	osuser "os/user"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/updates"
 	"github.com/lang315/claude-manager/account"
 	"github.com/lang315/claude-manager/cli"
 	"github.com/lang315/claude-manager/store"
@@ -35,6 +38,7 @@ func main() {
 	}
 	if len(os.Args) > 1 && slices.Contains(cli.Commands, os.Args[1]) {
 		cli.Version = version
+		cli.Upgrade = upgrade
 		os.Exit(cli.Run(context.Background(), os.Args[1:], accounts(home, configDir, root), os.Stdin, os.Stdout, os.Stderr))
 	}
 	a := view.New(&store.Store{
@@ -108,6 +112,7 @@ func main() {
 		mygo.App.OnDidResignActive(func() { a.SetActive(false) })
 		a.SetActive(mygo.App.IsActive()) // launched in the background: hold reloads until it is in front
 		a.TrayTick()
+		go checkUpdates(a)
 		go func() {
 			for range time.Tick(5 * time.Minute) {
 				a.TrayTick()
@@ -127,6 +132,43 @@ func main() {
 
 // accounts is the Limits page's book, in the app's folder, with logins in
 // the login keychain.
+// newer is a newer version found by the daily check (updates.check).
+var newer atomic.Pointer[updates.Update]
+
+// checkUpdates looks for a newer version now and every day after, unless
+// the user turned updates.check off or this build doesn't update itself.
+func checkUpdates(a *view.App) {
+	if !updates.Enabled() {
+		return
+	}
+	for {
+		if p, err := a.Accounts.Prefs(); err == nil && !p.NoUpdates {
+			if up, err := updates.Check(context.Background()); err == nil && up != nil && newer.Swap(up) == nil {
+				a.Update(func() {})
+			}
+		}
+		time.Sleep(24 * time.Hour)
+	}
+}
+
+// upgrade is claude-manager upgrade: install a newer version, if any.
+func upgrade(ctx context.Context) (string, error) {
+	if !updates.Enabled() {
+		return "", errors.New("This build doesn't update itself: it was built without an update feed, or runs from a development build.")
+	}
+	up, err := updates.Check(ctx)
+	if err != nil {
+		return "", err
+	}
+	if up == nil {
+		return "Claude Manager " + version + " is the newest.", nil
+	}
+	if err := up.Install(ctx, nil); err != nil {
+		return "", err
+	}
+	return "Installed Claude Manager " + up.Version + ": it runs from the next start.", nil
+}
+
 // trayWas is what setTray last put on the item: a menu set again while it
 // is open would close it.
 var trayWas string
@@ -137,7 +179,7 @@ var trayWas string
 func setTray(tray *mygo.Tray, a *view.App, show func()) {
 	title, items := a.Tray()
 	login := mygo.App.OpenAtLogin()
-	was := fmt.Sprint(title, login)
+	was := fmt.Sprint(title, login, newer.Load() != nil)
 	for _, it := range items {
 		was += fmt.Sprint("|", it.Label, it.Checked, it.Disabled, it.Do != nil)
 	}
@@ -159,6 +201,17 @@ func setTray(tray *mygo.Tray, a *view.App, show func()) {
 			m.Click = func(*mygo.MenuItem, *mygo.Window) { a.Update(do) }
 		}
 		menu = append(menu, m)
+	}
+	if up := newer.Load(); up != nil {
+		menu = append(menu, mygo.Separator(), &mygo.MenuItem{Label: "Update to " + up.Version + "…", Click: func(*mygo.MenuItem, *mygo.Window) {
+			go func() {
+				if err := up.Install(context.Background(), nil); err != nil {
+					a.Update(func() { log.Print(err) })
+					return
+				}
+				mygo.App.Relaunch()
+			}()
+		}})
 	}
 	menu = append(menu, mygo.Separator(),
 		&mygo.MenuItem{Label: "Open Claude Manager", Click: func(*mygo.MenuItem, *mygo.Window) { show() }},

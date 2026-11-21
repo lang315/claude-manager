@@ -33,7 +33,13 @@ const (
 
 // Commands are the commands Run knows; main opens the app for anything
 // else.
-var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "alias", "map", "unmap", "version", "--version", "help"}
+var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "alias", "map", "unmap", "config", "upgrade", "version", "--version", "help"}
+
+// Upgrade installs a newer version of the app, if there is one, and says
+// what it did; main sets it.
+var Upgrade = func(ctx context.Context) (string, error) {
+	return "", errors.New("This build doesn't update itself.")
+}
 
 // Version is the app's, for version.
 var Version = "dev"
@@ -58,10 +64,15 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 	noShare := fs.Bool("no-share", false, "run: don't share settings, CLAUDE.md, skills and MCP servers")
 	noHistory := fs.Bool("no-share-history", false, "run: don't share chat history")
 	unset := fs.Bool("unset", false, "alias: take an account's alias away")
+	debug := fs.Bool("debug", false, "print each request made to Anthropic (never a token)")
+	shareHistory := fs.Bool("share-history", false, "run: share chat history, whatever run.shareHistory says")
 	if err := fs.Parse(reorder(args[1:])); err != nil {
 		return failed
 	}
 	rest := fs.Args()
+	if *debug && b.API != nil {
+		b.API.Debug = errs
+	}
 	var err error
 	code := ok
 	switch args[0] {
@@ -75,6 +86,13 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 		err = c.mapDir(rest)
 	case "unmap":
 		err = c.unmap(one(rest))
+	case "config":
+		err = c.config(rest)
+	case "upgrade":
+		var said string
+		if said, err = Upgrade(ctx); err == nil {
+			fmt.Fprintln(out, said)
+		}
 	case "list":
 		err = c.list(ctx, *jsonOut)
 	case "status":
@@ -98,7 +116,11 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 	case "import", "import-usage":
 		err = c.importFile(one(rest), *hold)
 	case "run":
-		err = c.run(rest, account.Share{Setup: !*noShare, History: !*noHistory})
+		history := !*noHistory
+		if p, perr := b.Prefs(); perr == nil && p.NoShareHistory && !*shareHistory {
+			history = false
+		}
+		err = c.run(rest, account.Share{Setup: !*noShare, History: history})
 	}
 	if err != nil {
 		if *jsonOut {
@@ -129,7 +151,11 @@ const usage = `claude-manager <command> [flags]
                                    a short name for an account, or list them
   map [<email> [folder]]           map a folder (and those below) to an account, or list
   unmap [folder]                   take a folder's mapping away
+  config [list | get <key> | set <key> <value> | unset <key>]
+                                   settings, by claude-swap's names
+  upgrade                          install a newer version of the app
   version
+  --debug                          with any command: print each request made to Anthropic
 
 With no command the app opens.`
 
@@ -615,5 +641,55 @@ func (c *cmd) unmap(dir string) error {
 		return fmt.Errorf("%s is not mapped.", dir)
 	}
 	fmt.Fprintf(c.out, "Unmapped %s.\n", dir)
+	return nil
+}
+
+func (c *cmd) config(rest []string) error {
+	verb := one(rest)
+	if verb == "" {
+		verb = "list"
+	}
+	all, err := c.b.Settings()
+	if err != nil {
+		return err
+	}
+	get := func(key string) (account.Setting, error) {
+		for _, s := range all {
+			if s.Key == key {
+				return s, nil
+			}
+		}
+		return account.Setting{}, fmt.Errorf("No setting %s: claude-manager config lists them.", key)
+	}
+	switch verb {
+	case "list":
+		for _, s := range all {
+			v := s.Value
+			if v == s.Default {
+				v += " (default)"
+			}
+			fmt.Fprintf(c.out, "%-34s %-24s %s\n", s.Key, v, s.Range)
+		}
+	case "get":
+		s, err := get(one(rest[1:]))
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(c.out, s.Value)
+	case "set":
+		if len(rest) < 3 {
+			return errors.New("config set <key> <value>")
+		}
+		if err := c.b.Set(rest[1], rest[2]); err != nil {
+			return err
+		}
+	case "unset":
+		if len(rest) < 2 {
+			return errors.New("config unset <key>")
+		}
+		return c.b.Set(rest[1], "")
+	default:
+		return errors.New("config list, get, set or unset")
+	}
 	return nil
 }

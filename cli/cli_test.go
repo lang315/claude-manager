@@ -291,3 +291,42 @@ func TestAliasMapRun(t *testing.T) {
 		t.Errorf("version %q", out)
 	}
 }
+
+func TestConfigDebugUpgrade(t *testing.T) {
+	a := newApp(t)
+	if code, _, errs := a.run(t, "", "config", "set", "ui.theme", "dark"); code != ok {
+		t.Fatalf("set: %s", errs)
+	}
+	if _, out, _ := a.run(t, "", "config", "get", "ui.theme"); out != "dark\n" {
+		t.Errorf("get %q", out)
+	}
+	if _, out, _ := a.run(t, "", "config"); !strings.Contains(out, "ui.theme") || !strings.Contains(out, "autoswitch.threshold") || !strings.Contains(out, "90 (default)") {
+		t.Errorf("list %s", out)
+	}
+	if code, _, _ := a.run(t, "", "config", "set", "ui.theme", "pink"); code != failed {
+		t.Error("pink taken")
+	}
+	a.run(t, "", "config", "unset", "ui.theme")
+	if _, out, _ := a.run(t, "", "config", "get", "ui.theme"); out != "auto\n" {
+		t.Errorf("unset %q", out)
+	}
+	_, _, errs := a.run(t, "", "list", "--debug")
+	if !strings.Contains(errs, "GET /api/oauth/usage: 200 OK") || strings.Contains(errs, "-at") {
+		t.Errorf("debug %q", errs)
+	}
+	if code, _, errs := a.run(t, "", "upgrade"); code != failed || !strings.Contains(errs, "doesn't update itself") {
+		t.Errorf("upgrade: %d %s", code, errs)
+	}
+	// run.shareHistory false: run shares no history unless --share-history.
+	a.run(t, "", "config", "set", "run.shareHistory", "false")
+	var profile string
+	a.b.Launch = func(f, p string) error { profile = p; return nil }
+	a.b.Running = func(string) (bool, error) { return false, nil }
+	must(t, os.Mkdir(filepath.Join(a.h.Root, "projects"), 0o700))
+	if code, _, errs := a.run(t, "", "run", "bob@example.com", t.TempDir()); code != ok {
+		t.Fatal(errs)
+	}
+	if _, err := os.Lstat(filepath.Join(profile, "projects")); err == nil {
+		t.Error("history shared with run.shareHistory false")
+	}
+}

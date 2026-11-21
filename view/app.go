@@ -35,6 +35,7 @@ type App struct {
 	page   string
 	busy   int     // loads the user started and moves in flight; not Usage's scan nor quiet reloads, which feed no Trash target
 	notice string  // shown as a toast on the next frame
+	prefs  account.Prefs
 	quiet  screens // the screen a quiet reload is starting for; 0 for a load the user started
 	live   live    // paces the reloads the watch asks for
 	shown  string  // the page live last heard of
@@ -72,7 +73,7 @@ func (a *App) Rescan() {
 }
 
 func (a *App) View(c *ui.Context) {
-	pal := applyTheme(c)
+	pal := applyTheme(c, a.prefs.Theme)
 	if a.page != a.shown { // a page opened: what it missed while hidden loads now
 		a.shown = a.page
 		a.live.show(pageScreens(a.page))

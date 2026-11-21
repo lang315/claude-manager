@@ -78,7 +78,9 @@ func (a *API) probe(ctx context.Context, token, model string) (http.Header, int,
 	req.Header.Set("anthropic-version", probeVersion)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", a.Agent)
+	start := time.Now()
 	resp, err := a.Client.Do(req)
+	a.debug(req, resp, start)
 	if err != nil {
 		return nil, 0, ErrUnreachable
 	}

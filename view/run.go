@@ -15,7 +15,7 @@ type runUI struct {
 
 // startRun opens the Open in Terminal dialog for b.
 func (l *limits) startRun(a *App, b account.Account) {
-	l.run = runUI{open: true, acct: b, share: account.Share{Setup: true, History: true}}
+	l.run = runUI{open: true, acct: b, share: account.Share{Setup: true, History: !a.prefs.NoShareHistory}}
 }
 
 func (l *limits) runDialog(c *ui.Context, a *App) {
