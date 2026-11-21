@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lang315/claude-manager/account"
 )
@@ -131,5 +132,37 @@ func TestAddSlotAsks(t *testing.T) {
 	b := newApp(t)
 	if code, out, errs := b.run(t, "sk-ant-oat01-y\ny\n", "add-token", "-", "--slot", "1"); code != ok || strings.Contains(out, "in slot") {
 		t.Errorf("piped add-token --slot: %d %s %s", code, out, errs)
+	}
+}
+
+// cswap list's rows: a window's reset clock and countdown, (ahead of
+// pace), (!) at 100, extra usage in money, the login's expiry, (disabled).
+func TestListRows(t *testing.T) {
+	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.Local)
+	a := account.Account{Email: "a@x", Added: true, AutoOff: true, ReadAt: now, GoodUntil: now.Add(5*24*time.Hour + 12*time.Hour),
+		Limits: []account.Limit{
+			{Kind: "session", Percent: 62, ResetsAt: now.Add(2*time.Hour + 13*time.Minute)},
+			{Kind: "weekly_scoped", Scope: "Fable", Percent: 100, ResetsAt: now.Add(26 * time.Hour)},
+			{Kind: "extra_usage", Percent: 40, Used: 20, Cap: 50, Currency: "USD"},
+		}}
+	got := strings.Join(listRows(a, now), "\n")
+	for _, want := range []string{"62%", "resets 14:13", "in 2h 13m", "(!)", "$20.00 / $50.00", "login", "in 5d 12h"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no %q in\n%s", want, got)
+		}
+	}
+	if !strings.Contains(listHead(a), "(disabled)") {
+		t.Errorf("head %q", listHead(a))
+	}
+}
+
+// cswap's lockstep warning: two accounts reading the same 5h and 7d use
+// and resets are likely one account.
+func TestLockstep(t *testing.T) {
+	now := time.Now()
+	l := []account.Limit{{Kind: "session", Percent: 33, ResetsAt: now.Add(time.Hour)}, {Kind: "weekly_all", Percent: 12, ResetsAt: now.Add(48 * time.Hour)}}
+	accts := []account.Account{{Email: "a@x", Added: true, Limits: l}, {Email: "b@x", Added: true, Limits: l}, {Email: "c@x", Added: true, Limits: l[:1]}}
+	if got := lockstep(accts); len(got) != 1 || got[0] != [2]string{"a@x", "b@x"} {
+		t.Errorf("lockstep %v", got)
 	}
 }

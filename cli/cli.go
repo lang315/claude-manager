@@ -524,31 +524,16 @@ func (c *cmd) list(ctx context.Context, asJSON bool) error {
 		fmt.Fprintln(w, "No accounts are added yet: claude-manager add adds the one Claude Code uses; Add Account in the app signs in to another.")
 	}
 	for _, a := range accts {
-		mark := " "
-		if a.InUse {
-			mark = "*"
-		}
-		plan := account.PlanLabel(a)
-		if account.PlanLapsed(a) {
-			plan = "Free (lapsed)"
-		}
-		if plan != "" {
-			plan = " · " + plan
-		}
-		alias := ""
-		if a.Alias != "" {
-			alias = " (" + a.Alias + ")"
-		}
-		fmt.Fprintf(w, "%s %2s %s%s [%s]%s\n", mark, slotOf(a), a.Email, alias, tag(a), plan)
-		for _, l := range a.Limits {
-			fmt.Fprintf(w, "    %-22s %5.0f%%\n", l.Label(), l.Percent)
-		}
-		if a.Err != "" {
-			fmt.Fprintf(w, "    %s\n", a.Err)
+		fmt.Fprintln(w, listHead(a))
+		for _, r := range listRows(a, now) {
+			fmt.Fprintln(w, "    "+r)
 		}
 	}
 	for _, d := range c.b.Duplicates() {
 		fmt.Fprintf(w, "Warning: %s and %s hold the same login: one renewing it spends the other's.\n", d[0], d[1])
+	}
+	for _, d := range lockstep(accts) {
+		fmt.Fprintf(w, "Warning: %s and %s report identical usage and resets: they may be one account under two names.\n", d[0], d[1])
 	}
 	if s, err := c.b.AutoSettings(); err == nil {
 		if u := s.Unseen(accts); len(u) > 0 {
@@ -581,18 +566,33 @@ func (c *cmd) status(ctx context.Context, asJSON bool) error {
 		return err
 	}
 	i := slices.IndexFunc(accts, func(a account.Account) bool { return a.InUse })
+	managed := 0
+	for _, a := range accts {
+		if a.Added {
+			managed++
+		}
+	}
 	if asJSON {
-		doc := map[string]any{"schemaVersion": 1, "active": nil}
+		doc := map[string]any{"schemaVersion": 1, "active": nil, "managed": i >= 0 && accts[i].Added, "totalManagedAccounts": managed}
 		if i >= 0 {
 			doc["active"] = toRow(accts[i], c.b.Now())
 		}
 		return json.NewEncoder(c.out).Encode(doc)
 	}
-	if i < 0 {
+	switch {
+	case i < 0 || accts[i].Email == "":
 		fmt.Fprintln(c.out, "Not signed in to Claude Code.")
-	} else {
-		fmt.Fprintln(c.out, accts[i].Email)
+	default: // cswap's status: the account and its usage
+		head := strings.TrimSpace(listHead(accts[i]))
+		if !accts[i].Added {
+			head += " (not managed)"
+		}
+		fmt.Fprintln(c.out, "Status: "+strings.TrimPrefix(head, "* "))
+		for _, r := range listRows(accts[i], c.b.Now()) {
+			fmt.Fprintln(c.out, "    "+r)
+		}
 	}
+	fmt.Fprintf(c.out, "Total managed accounts: %d\n", managed)
 	c.instances(c.out)
 	return nil
 }
@@ -1038,4 +1038,146 @@ func (c *cmd) runDefault(folder, why string, args []string) error {
 	}
 	fmt.Fprintf(c.out, "%s: opened Claude Code in Terminal as the account in use.\n", why)
 	return nil
+}
+
+// listHead is an account's first line in list: in use, slot, email, alias,
+// tag, plan, and (disabled) when held out of auto-switch.
+func listHead(a account.Account) string {
+	mark := " "
+	if a.InUse {
+		mark = "*"
+	}
+	plan := account.PlanLabel(a)
+	if account.PlanLapsed(a) {
+		plan = "Free (lapsed)"
+	}
+	if plan != "" {
+		plan = " · " + plan
+	}
+	alias := ""
+	if a.Alias != "" {
+		alias = " (" + a.Alias + ")"
+	}
+	off := ""
+	if a.AutoOff {
+		off = " (disabled)"
+	}
+	return fmt.Sprintf("%s %2s %s%s [%s]%s%s", mark, slotOf(a), a.Email, alias, tag(a), plan, off)
+}
+
+// listRows are an account's rows in list, as cswap's: each window with
+// its reset clock and countdown, (ahead of pace) and (!) at 100, extra
+// usage in money, the reading's age when it isn't fresh, the last good
+// reading when a read failed, and when the login lapses.
+func listRows(a account.Account, now time.Time) []string {
+	var out []string
+	usable := a.Usable(now)
+	if !usable && a.Err != "" && len(a.Limits) > 0 && !a.ReadAt.IsZero() {
+		p, _ := account.Fullest(a)
+		out = append(out, fmt.Sprintf("last seen %.0f%% used · %s ago", p, ago(now.Sub(a.ReadAt))))
+	}
+	for _, l := range a.Limits {
+		if !usable && a.Err != "" {
+			break
+		}
+		body := fmt.Sprintf("%3.0f%%", l.Percent)
+		if l.Kind == "extra_usage" && l.Cap > 0 {
+			body += fmt.Sprintf("   %s / %s", money(l.Used, l.Currency), money(l.Cap, l.Currency))
+		}
+		if !l.ResetsAt.IsZero() {
+			body += fmt.Sprintf("   resets %-12s  in %s", clock(l.ResetsAt, now), ago(l.ResetsAt.Sub(now)))
+		}
+		if _, ahead, ok := l.Pace(a.ReadAt); ok && ahead {
+			body += " (ahead of pace)"
+		}
+		if l.Percent >= 100 || l.Refused {
+			body += " (!)"
+		}
+		out = append(out, fmt.Sprintf("%-22s %s", l.Label()+":", body))
+	}
+	if usable && now.Sub(a.ReadAt) >= time.Minute {
+		out = append(out, "read "+ago(now.Sub(a.ReadAt))+" ago")
+	}
+	if a.Err != "" {
+		out = append(out, a.Err)
+	}
+	if !a.GoodUntil.IsZero() {
+		if a.GoodUntil.After(now) {
+			out = append(out, fmt.Sprintf("%-22s expires %-12s  in %s", "login:", clock(a.GoodUntil, now), ago(a.GoodUntil.Sub(now))))
+		} else {
+			out = append(out, fmt.Sprintf("%-22s expired %-12s  re-login needed", "login:", clock(a.GoodUntil, now)))
+		}
+	}
+	return out
+}
+
+// clock is t as a wall clock: the time today, else the date too.
+func clock(t, now time.Time) string {
+	t = t.Local()
+	if y, m, d := t.Date(); y == now.Local().Year() && m == now.Local().Month() && d == now.Local().Day() {
+		return t.Format("15:04")
+	}
+	return t.Format("Jan 2 15:04")
+}
+
+// ago is a duration as cswap's countdowns: 5d 12h, 2h 13m, 12m, 30s.
+func ago(d time.Duration) string {
+	d = max(d, 0).Round(time.Second)
+	switch {
+	case d >= 24*time.Hour:
+		return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
+	case d >= time.Hour:
+		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+	case d >= time.Minute:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%ds", int(d.Seconds()))
+}
+
+func money(v float64, currency string) string {
+	if currency == "" || currency == "USD" {
+		return fmt.Sprintf("$%.2f", v)
+	}
+	return fmt.Sprintf("%.2f %s", v, currency)
+}
+
+// lockstep pairs the added accounts whose 5h and 7d windows read the same
+// use and resets (cswap's _lockstep_usage_warnings): one account added
+// twice, or a login that drifted to another.
+func lockstep(accts []account.Account) [][2]string {
+	key := func(a account.Account) string {
+		var s, w string
+		for _, l := range a.Limits {
+			if l.ResetsAt.IsZero() { // two fresh accounts at 0% match without being one
+				continue
+			}
+			switch l.Kind {
+			case "session", "five_hour":
+				s = fmt.Sprintf("%.0f@%d", l.Percent, l.ResetsAt.Unix())
+			case "weekly_all", "seven_day":
+				w = fmt.Sprintf("%.0f@%d", l.Percent, l.ResetsAt.Unix())
+			}
+		}
+		if s == "" || w == "" {
+			return ""
+		}
+		return s + "/" + w
+	}
+	seen := map[string]string{}
+	var out [][2]string
+	for _, a := range accts {
+		if !a.Added {
+			continue
+		}
+		k := key(a)
+		if k == "" {
+			continue
+		}
+		if first, ok := seen[k]; ok {
+			out = append(out, [2]string{first, a.Email})
+			continue
+		}
+		seen[k] = a.Email
+	}
+	return out
 }

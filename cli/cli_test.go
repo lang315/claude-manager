@@ -133,8 +133,13 @@ func TestListJSONIsCswapsAndImports(t *testing.T) {
 
 func TestStatusAndSwitch(t *testing.T) {
 	a := newApp(t)
-	if code, out, _ := a.run(t, "", "status"); code != ok || strings.TrimSpace(out) != "alice@example.com" {
+	// cswap's status: the account, its usage, how many are managed.
+	if code, out, _ := a.run(t, "", "status"); code != ok || !strings.HasPrefix(out, "Status: ") || !strings.Contains(out, "alice@example.com") ||
+		!strings.Contains(out, "50%") || !strings.Contains(out, "Total managed accounts: 2") {
 		t.Fatalf("status: %d %q", code, out)
+	}
+	if _, out, _ := a.run(t, "", "status", "--json"); !strings.Contains(out, `"managed":true`) || !strings.Contains(out, `"totalManagedAccounts":2`) {
+		t.Errorf("status --json: %s", out)
 	}
 	code, out, errs := a.run(t, "", "switch", "bob@example.com", "--json")
 	if code != ok || !strings.Contains(out, `"switched":true`) || !strings.Contains(out, `"to":"bob@example.com"`) {
