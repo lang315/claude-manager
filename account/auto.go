@@ -440,6 +440,31 @@ func (b *Book) AutoSettings() (Auto, error) {
 	return b.auto, err
 }
 
+// freshenAhead is claude-swap's FRESHEN_BUFFER_MS: a target lapsing this
+// soon is renewed before Claude Code is put on it.
+const freshenAhead = 10 * time.Minute
+
+// freshen renews the saved login of key, auto-switch's target, when it
+// lapses within freshenAhead (claude-swap's _freshen_target): a refused
+// one is quarantined by renew, and not switched to. A key or a
+// setup-token has nothing to renew.
+func (b *Book) freshen(ctx context.Context, key string, now time.Time) error {
+	i := slices.IndexFunc(b.added, func(a Account) bool { return a.Key() == key })
+	if i < 0 || b.added[i].APIKey || b.added[i].Token {
+		return nil
+	}
+	blob, err := b.Vault.Get(ParkService, key)
+	if err != nil {
+		return err
+	}
+	l, err := parseLogin(blob)
+	if err != nil || !l.expiresBy(now.Add(freshenAhead)) {
+		return err
+	}
+	_, err = b.renew(ctx, &b.added[i], blob, l, "", now)
+	return err
+}
+
 // AutoInEffect is the auto-switch settings this process goes by: an
 // Override's, else the saved ones.
 func (b *Book) AutoInEffect() (Auto, error) {
@@ -554,6 +579,10 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 	}
 	if d.To == "" || dry {
 		return d, nil
+	}
+	if err := b.freshen(ctx, d.To, now); err != nil {
+		b.logf("auto-switch to %s held: its sign-in could not be renewed: %v", d.Email, err)
+		return Decision{Why: fmt.Sprintf("%s's sign-in could not be renewed, so no switch: %v", d.Email, err)}, nil
 	}
 	from := b.inUseEmail()
 	if err := b.switchLocked(ctx, d.To, false); err != nil {

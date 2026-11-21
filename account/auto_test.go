@@ -515,3 +515,34 @@ func TestAutoSettingsClamped(t *testing.T) {
 		t.Error("defaults")
 	}
 }
+
+// claude-swap's _freshen_target: a target whose saved login lapses within
+// 10 minutes is renewed before Claude Code is put on it; one whose renewal
+// is refused is quarantined, not switched to.
+func TestAutoSwitchFreshensTarget(t *testing.T) {
+	for _, alive := range []bool{true, false} {
+		b, v, _, f := switchBook(t)
+		_, err := b.keep(login("bob-at", "bob-rt", t0.Add(8*time.Minute)).Marshal(), bob, json.RawMessage(bobAccount))
+		must(t, err)
+		f.usage["alice-at"], f.usage["bob-at"] = 95, 10
+		if alive {
+			f.renewed["bob-rt"] = "bob-at2"
+		}
+		b.Refresh(ctx, true)
+		s := DefaultAuto()
+		s.On = true
+		must(t, b.SetAuto(s))
+		f.took()
+		d, _ := b.AutoSwitch(ctx)
+		if !slices.Contains(f.took(), "renew bob-rt") {
+			t.Errorf("alive %v: the target was not renewed before the switch", alive)
+		}
+		l, _ := parseLogin(get(t, v, liveDefault, "me"))
+		switch {
+		case alive && (d.Email != "bob@example.com" || l.AccessToken != "bob-at2"):
+			t.Errorf("freshened: %+v, login in use %q", d, l.AccessToken)
+		case !alive && (d.To != "" || l.AccessToken != "alice-at"):
+			t.Errorf("refused renewal: %+v, login in use %q", d, l.AccessToken)
+		}
+	}
+}

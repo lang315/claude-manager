@@ -72,6 +72,7 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **20. End to end on macOS's keychain tool; the TUI's output dialog and keys** (#39, draft).
 - [x] **21. Audit fixes: races, data loss, import, CLI and view bugs** (#40, draft). Decisions left open are listed in the PR.
 - [x] **22. The app and the command line share accounts.json** (#41, draft): a lock across processes, and a re-read when the other wrote it.
+- [x] **23. Auto-switch freshens its target's login** (#42, draft), as claude-swap's _freshen_target.
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an
@@ -142,7 +143,7 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 | Setting `run.shareHistory` | Covered: the Open in Terminal dialog's history checkbox (4b), asked each time |
 | Settings `updates.check`, `ui.theme`, `run.shareHistory`; `config` get/set/unset/list | 10: `claude-manager config` |
 | Setting `usage.headerProbe` | 8: "Read setup-token usage" in Add Token |
-| README "How it works": a target's token freshened before a switch | Covered in part: auto-switch lands only on an account its own login read well in the last 5 minutes (an hour while Anthropic is out of reach); the login itself is not renewed first |
+| README "How it works": a target's token freshened before a switch | 23: a target whose saved login lapses within 10 minutes is renewed before the switch; a refused one is quarantined and not switched to |
 | README "How it works": plan refreshed every six hours | Covered: the plan comes with each login (its `subscriptionType`) |
 | README "JSON output" | 9: `list`, `status`, `switch` take `--json` (cswap's schema 1); `auto --once --json` prints one event |
 | README "Tips", "Data locations", "Uninstall" | 10: `docs/accounts.md`, for this app |
