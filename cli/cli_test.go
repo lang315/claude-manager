@@ -394,3 +394,15 @@ func TestUnclaimed(t *testing.T) {
 		t.Errorf("purge: %d %s", code, out)
 	}
 }
+
+// A login nobody could be named for is no row of list --json: an
+// import-usage of it refuses every row without an email.
+func TestListJSONLeavesOutUnnamedLogin(t *testing.T) {
+	a := newApp(t)
+	must(t, os.WriteFile(a.h.ClaudeJSON, []byte(`{}`), 0o600))
+	delete(a.usage, "alice")
+	_, out, _ := a.run(t, "", "list", "--json")
+	if strings.Contains(out, `"email":""`) || !strings.Contains(out, "bob@example.com") {
+		t.Errorf("list --json: %s", out)
+	}
+}

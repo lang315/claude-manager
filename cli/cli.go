@@ -477,6 +477,9 @@ func (c *cmd) list(ctx context.Context, asJSON bool) error {
 		doc := map[string]any{"schemaVersion": 1, "activeAccountNumber": nil}
 		var rows []row
 		for _, a := range accts {
+			if a.Email == "" {
+				continue // a login nobody could be named for: an importer refuses a row without an email
+			}
 			r := toRow(a, now)
 			if r.Active && r.Number > 0 {
 				doc["activeAccountNumber"] = r.Number
