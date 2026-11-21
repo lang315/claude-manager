@@ -73,7 +73,7 @@ func (b *Book) Map(key, dir string) error {
 	if b.maps == nil {
 		b.maps = map[string]string{}
 	}
-	b.maps[filepath.Clean(dir)] = key
+	b.maps[realDir(dir)] = key
 	return b.save()
 }
 
@@ -84,7 +84,7 @@ func (b *Book) Unmap(dir string) (bool, error) {
 	if err := b.load(); err != nil {
 		return false, err
 	}
-	dir = filepath.Clean(dir)
+	dir = realDir(dir)
 	if _, ok := b.maps[dir]; !ok {
 		return false, nil
 	}
@@ -107,7 +107,7 @@ func (b *Book) Mapped(dir string) (key, at string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	for d := filepath.Clean(dir); ; d = filepath.Dir(d) {
+	for d := realDir(dir); ; d = filepath.Dir(d) {
 		if k, ok := m[d]; ok {
 			return k, d, nil
 		}
@@ -115,4 +115,14 @@ func (b *Book) Mapped(dir string) (key, at string, err error) {
 			return "", "", nil
 		}
 	}
+}
+
+// realDir is dir with its symlinks resolved, as claude-swap's
+// normalize_path: one folder, by whatever path it is reached. A folder
+// that is gone is taken as written.
+func realDir(dir string) string {
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		return r
+	}
+	return filepath.Clean(dir)
 }

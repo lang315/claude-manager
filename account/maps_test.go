@@ -1,6 +1,7 @@
 package account
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -97,5 +98,25 @@ func TestSlotKeptBySwitches(t *testing.T) {
 	blocks, _ := b.Blocks()
 	if a := blockOf(t, blocks, "bob@example.com"); a.Slot != 4 {
 		t.Errorf("bob moved to slot %d", a.Slot)
+	}
+}
+
+// A folder mapped by one path is found by any other to it: a symlink, or
+// macOS's /tmp for /private/tmp (claude-swap's normalize_path).
+func TestMapsFollowSymlinks(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "proj")
+	must(t, os.Symlink(real, link))
+	must(t, b.Map(bob.Key(), link))
+	must(t, os.Mkdir(filepath.Join(real, "src"), 0o700))
+	if k, _, err := b.Mapped(filepath.Join(real, "src")); err != nil || k != bob.Key() {
+		t.Errorf("by its real path: %q, %v", k, err)
+	}
+	if ok, err := b.Unmap(real); !ok || err != nil {
+		t.Fatalf("unmap by its real path: %v %v", ok, err)
+	}
+	if k, _, _ := b.Mapped(link); k != "" {
+		t.Errorf("unmapped by its real path, still %q", k)
 	}
 }
