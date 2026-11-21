@@ -260,7 +260,8 @@ export and import between two Macs.
 ## 4. Run as account
 
 - "Open in Terminal…" in the "⋯" menu of an added account not in use (Claude
-  Code's default folder only) asks for a folder, then runs in Terminal.app
+  Code's default folder only; "in use" also when Claude Code's login names
+  it or shares its refresh token, whatever `~/.claude.json` says) asks for a folder, then runs in Terminal.app
   `cd <folder> && CLAUDE_CONFIG_DIR=<profile> exec claude`. The command goes
   to `osascript` as an argument, so only the shell's single quotes apply.
 - Profile: `~/Library/Application Support/Claude Manager/profiles/<first 12
@@ -282,7 +283,9 @@ export and import between two Macs.
   shows "Its sign-in in the terminal has lapsed…". Switch, Remove, Sign In
   Again, Export (left out, counted) and Import (left alone) refuse it, and
   auto-switch never lands on it. Opening it again launches the profile as it
-  is, without a new seed.
+  is, without a new seed, and restarts take-back's wait (`Since`, `Seen`), so
+  it never clears the logins under the claude just opened. Outside the
+  default folder a marked account is still read (any keychain account).
 - Take back, on each Refresh: a claude runs on the profile when one of its
   `sessions/<pid>.json` has a live pid (claude-swap's `process_detection`);
   an unreadable folder or record keeps the mark. Not before 2 minutes from

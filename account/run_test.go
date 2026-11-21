@@ -299,3 +299,59 @@ func TestRunCommandQuoting(t *testing.T) {
 		t.Errorf("claude got %q", out)
 	}
 }
+
+// Opened again after its claude quit: take-back waits for the new claude
+// as for the first, and leaves its login be.
+func TestRunAgainWaitsForTheNewClaude(t *testing.T) {
+	r := newRunBook(t)
+	must(t, r.b.Run(bob.Key(), "/a"))
+	r.running = true
+	r.b.Refresh(ctx, true)
+	r.running = false
+	r.b.Now = func() time.Time { return t0.Add(time.Hour) }
+	must(t, r.b.Run(bob.Key(), "/b"))
+	r.b.Refresh(ctx, true)
+	if r.bob(t).Terminal.Dir == "" {
+		t.Fatal("taken back under the claude just opened")
+	}
+	if _, err := os.Stat(filepath.Join(r.dir(), ".credentials.json")); err != nil {
+		t.Error("the profile's login was removed")
+	}
+}
+
+// Outside the default folder a marked account is still read, not a panic.
+func TestRefreshInTerminalWithoutHome(t *testing.T) {
+	r := newRunBook(t)
+	must(t, r.b.Run(bob.Key(), "/a"))
+	r.b.Home = nil
+	r.f.usage["bob-at"] = 10
+	got, _ := r.b.Refresh(ctx, true)
+	if a := blockOf(t, got, "bob@example.com"); a.Terminal.Dir == "" || a.Err != "" {
+		t.Errorf("bob = %+v", a)
+	}
+}
+
+// ~/.claude.json may lag: Claude Code's login naming the account, or
+// sharing its refresh token, makes it the one in use.
+func TestRunRefusesClaudeCodesLogin(t *testing.T) {
+	for _, name := range []string{"its uuids", "its refresh token", "~/.claude.json"} {
+		t.Run(name, func(t *testing.T) {
+			r := newRunBook(t)
+			l := stored(t, login("bob-at", "bob-rt", t0.Add(time.Hour)))
+			switch name {
+			case "its uuids":
+				l = withUUIDs(t, stored(t, login("x-at", "x-rt", t0.Add(time.Hour))), bob)
+			case "~/.claude.json":
+				l = stored(t, login("x-at", "x-rt", t0.Add(time.Hour)))
+				must(t, os.WriteFile(r.h.ClaudeJSON, []byte(`{"oauthAccount":`+bobAccount+`}`), 0o600))
+			}
+			must(t, r.v.Put(liveDefault, "me", l))
+			if err := r.b.Run(bob.Key(), "/a"); !errors.Is(err, errRunInUse) {
+				t.Fatalf("err = %v", err)
+			}
+			if len(r.launched) != 0 || r.bob(t).Terminal.Dir != "" {
+				t.Error("seeded Claude Code's own login")
+			}
+		})
+	}
+}

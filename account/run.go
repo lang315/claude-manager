@@ -75,7 +75,13 @@ func (b *Book) Run(key, folder string) error {
 	if key == h.accountKey() {
 		return errRunInUse
 	}
-	if a.Terminal.Dir != "" { // the profile holds the login now: open it again
+	if a.Terminal.Dir != "" {
+		// The profile holds the login now: open it again, with take-back
+		// waiting for this claude as for the first.
+		a.Terminal.Since, a.Terminal.Seen = b.Now(), false
+		if err := b.save(); err != nil {
+			return err
+		}
 		return b.Launch(folder, a.Terminal.Dir)
 	}
 	if a.OAuthAccount == nil {
@@ -88,8 +94,16 @@ func (b *Book) Run(key, folder string) error {
 	if err != nil {
 		return err
 	}
-	if _, ok := complete(parked); !ok {
+	pl, ok := complete(parked)
+	if !ok {
 		return ErrInvalidGrant
+	}
+	// Claude Code's own login, whatever ~/.claude.json says: a seed of it
+	// would be a second renewer on Claude Code's chain.
+	if lb, err := h.readLive(b.Vault); err == nil {
+		if l, err := parseLogin(lb.data); keyOf(oauthOf(lb.data)) == key || err == nil && l.RefreshToken == pl.RefreshToken {
+			return errRunInUse
+		}
 	}
 	dir := b.profile(key)
 	// Marked before the seed: a seed without its mark would be a second
@@ -163,12 +177,21 @@ func (b *Book) clearProfile(dir string) error {
 	if errors.Is(err, fs.ErrNotExist) {
 		err = nil
 	}
-	return errors.Join(err, b.Vault.Delete(liveService(dir), b.Home.User))
+	return errors.Join(err, b.Vault.Delete(liveService(dir), b.user()))
+}
+
+// user is the keychain account Claude Code files its logins under; "" for
+// any, outside the default folder.
+func (b *Book) user() string {
+	if b.Home == nil {
+		return ""
+	}
+	return b.Home.User
 }
 
 // profileLogin reads the login Claude Code keeps for a profile.
 func (b *Book) profileLogin(dir string) ([]byte, error) {
-	blob, err := b.Vault.Get(liveService(dir), b.Home.User)
+	blob, err := b.Vault.Get(liveService(dir), b.user())
 	if errors.Is(err, ErrNotFound) {
 		blob, err = os.ReadFile(filepath.Join(dir, ".credentials.json"))
 		if errors.Is(err, fs.ErrNotExist) {
