@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	osuser "os/user"
@@ -120,10 +121,24 @@ func main() {
 
 // accounts is the Limits page's book, in the app's folder, with logins in
 // the login keychain.
+// trayWas is what setTray last put on the item: a menu set again while it
+// is open would close it.
+var trayWas string
+
 // setTray puts the view's menu bar item on tray, with the app's own rows
-// after it: open the window, start at login, quit.
+// after it: open the window, start at login, quit. It changes nothing when
+// they are as last set.
 func setTray(tray *mygo.Tray, a *view.App, show func()) {
 	title, items := a.Tray()
+	login := mygo.App.OpenAtLogin()
+	was := fmt.Sprint(title, login)
+	for _, it := range items {
+		was += fmt.Sprint("|", it.Label, it.Checked, it.Disabled, it.Do != nil)
+	}
+	if was == trayWas {
+		return
+	}
+	trayWas = was
 	var menu []*mygo.MenuItem
 	for _, it := range items {
 		if it.Label == "" {
@@ -139,7 +154,6 @@ func setTray(tray *mygo.Tray, a *view.App, show func()) {
 		}
 		menu = append(menu, m)
 	}
-	login := mygo.App.OpenAtLogin()
 	menu = append(menu, mygo.Separator(),
 		&mygo.MenuItem{Label: "Open Claude Manager", Click: func(*mygo.MenuItem, *mygo.Window) { show() }},
 		&mygo.MenuItem{Label: "Start at Login", Type: mygo.MenuItemCheckbox, Checked: login, Click: func(*mygo.MenuItem, *mygo.Window) {
