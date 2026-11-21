@@ -211,6 +211,9 @@ func (b *Book) ImportWith(path string, force bool) (Imported, error) {
 			if e.Email == "" {
 				return Imported{}, bad("has no email")
 			}
+			if !isEmail(e.Email) {
+				return Imported{}, bad("has an email that isn't one")
+			}
 			if slices.ContainsFunc(keys, func(x entry) bool { return x.p.Email == e.Email }) {
 				return Imported{}, bad("repeats an account")
 			}
@@ -258,6 +261,12 @@ func (b *Book) ImportWith(path string, force bool) (Imported, error) {
 	if err := b.load(); err != nil {
 		return Imported{}, err
 	}
+	for _, e := range keys { // as addKeyLocked refuses it, before anything is written
+		if slices.ContainsFunc(b.added, func(a Account) bool { return a.Email == e.p.Email && !a.APIKey }) ||
+			slices.ContainsFunc(in, func(x entry) bool { return x.p.Email == e.p.Email }) {
+			return Imported{}, fmt.Errorf("%s is an account signed in to with OAuth and an API key in this file, so nothing was imported.", e.p.Email)
+		}
+	}
 	inUse, liveKey := "", ""
 	if b.Home != nil {
 		inUse = b.Home.accountKey()
@@ -265,8 +274,13 @@ func (b *Book) ImportWith(path string, force bool) (Imported, error) {
 			liveKey = keyOf(oauthOf(lb.data))
 		}
 	}
+	keyInUse := b.keyInUse()
 	for _, e := range keys {
 		k := keyUUID + e.p.Email + "/"
+		if !force && k == keyInUse { // keyOwner goes by the saved key: a new one would orphan Claude Code's
+			got.Skipped++
+			continue
+		}
 		if saved, err := b.Vault.Get(ParkService, k); err == nil && string(saved) == string(e.blob) && !force {
 			got.Skipped++
 			continue

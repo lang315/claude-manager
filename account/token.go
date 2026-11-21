@@ -44,7 +44,7 @@ func (b *Book) AddToken(token, email string) (Account, error) {
 				break
 			}
 		}
-	case !strings.Contains(email, "@") || strings.ContainsAny(email, " \t\r\n\""):
+	case !isEmail(email):
 		return Account{}, errTokenEmail
 	}
 	if slices.ContainsFunc(b.added, func(x Account) bool { return x.Email == email && x.APIKey }) {

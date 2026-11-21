@@ -277,6 +277,7 @@ func TestImportRejectsBadFileWritingNothing(t *testing.T) {
 	good := func(t *testing.T) map[string]any {
 		return swapEntry(t, 1, carol, login("carol-at", "carol-rt", t0.Add(time.Hour)), carolAccount)
 	}
+	goodKey := map[string]any{"number": 2, "email": "key@example.com", "kind": "api_key", "credentials": "sk-ant-api03-x"}
 	cases := map[string]func(t *testing.T) any{
 		"not JSON":   func(t *testing.T) any { return "x" },
 		"no version": func(t *testing.T) any { f := claudeSwap(t, good(t)); delete(f, "version"); return f },
@@ -306,6 +307,12 @@ func TestImportRejectsBadFileWritingNothing(t *testing.T) {
 			return claudeSwap(t, e)
 		},
 		"duplicate": func(t *testing.T) any { return claudeSwap(t, good(t), good(t)) },
+		"a key's email isn't one": func(t *testing.T) any {
+			return claudeSwap(t, goodKey, map[string]any{"number": 3, "email": "ops", "kind": "api_key", "credentials": "sk-ant-api03-y"})
+		},
+		"a key under a signed-in account's email": func(t *testing.T) any {
+			return claudeSwap(t, goodKey, map[string]any{"number": 3, "email": "bob@example.com", "kind": "api_key", "credentials": "sk-ant-api03-y"})
+		},
 	}
 	for name, f := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -320,6 +327,9 @@ func TestImportRejectsBadFileWritingNothing(t *testing.T) {
 			}
 			if _, err := v.Get(ParkService, carol.Key()); !errors.Is(err, ErrNotFound) {
 				t.Error("wrote carol's login")
+			}
+			if _, err := v.Get(ParkService, keyUUID+"key@example.com/"); !errors.Is(err, ErrNotFound) {
+				t.Error("wrote an API key")
 			}
 			if after, _ := os.ReadFile(b.path()); string(after) != string(before) {
 				t.Error("accounts.json changed")
@@ -385,5 +395,23 @@ func TestExportFull(t *testing.T) {
 	}
 	if strings.Contains(string(get(t, v2, ParkService, alice.Key())), "mcpOAuth") {
 		t.Error("kept the backup's MCP sign-ins")
+	}
+}
+
+// The key Claude Code is using is not replaced unforced: keyOwner would
+// lose it, and the next switch would add it again as a stranger.
+func TestImportSkipsKeyInUse(t *testing.T) {
+	b, v, _, _ := switchBook(t)
+	k, err := b.AddAPIKey(key1, "ci@example.com")
+	must(t, err)
+	must(t, b.Switch(ctx, k.Key()))
+	path := writeExport(t, claudeSwap(t, map[string]any{"number": 2, "email": "ci@example.com", "kind": "api_key", "credentials": "sk-ant-api03-other"}))
+	got, err := b.Import(path)
+	must(t, err)
+	if got != (Imported{Skipped: 1}) || string(get(t, v, ParkService, k.Key())) != key1 {
+		t.Fatalf("imported %+v", got)
+	}
+	if got, err := b.ImportWith(path, true); err != nil || got.Updated != 1 {
+		t.Fatalf("forced: %+v, %v", got, err)
 	}
 }

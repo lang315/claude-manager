@@ -32,6 +32,8 @@ func IsAPIKey(s string) bool {
 	return strings.HasPrefix(s, "sk-ant-") && !strings.HasPrefix(s, "sk-ant-oat") && !strings.ContainsAny(s, " \t\r\n\"")
 }
 
+func isEmail(s string) bool { return strings.Contains(s, "@") && !strings.ContainsAny(s, " \t\r\n\"") }
+
 // AddAPIKey adds the Console API key key as an account labelled email, or
 // api-key-N@token.local when email is "". Adding one already added
 // replaces its key. Nothing is asked of Anthropic.
@@ -62,7 +64,7 @@ func (b *Book) addKeyLocked(key, email string) (Account, error) {
 				break
 			}
 		}
-	case !strings.Contains(email, "@") || strings.ContainsAny(email, " \t\r\n\""):
+	case !isEmail(email):
 		return Account{}, errTokenEmail
 	}
 	if slices.ContainsFunc(b.added, func(x Account) bool { return x.Email == email && !x.APIKey }) {
