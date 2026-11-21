@@ -129,16 +129,17 @@ type saved struct {
 func (b *Book) path() string { return filepath.Join(b.Dir, "accounts.json") }
 
 // load reads accounts.json once, after removing what an unfinished
-// sign-in left.
+// sign-in left. One that can't be read is tried again on the next call,
+// never taken as empty: a save would wipe it.
 func (b *Book) load() error {
 	if b.loaded {
 		return nil
 	}
-	b.loaded = true
 	b.auto = DefaultAuto()
 	b.cleanLeftovers()
 	data, err := os.ReadFile(b.path())
 	if errors.Is(err, fs.ErrNotExist) {
+		b.loaded = true
 		return nil
 	}
 	var s saved
@@ -157,6 +158,7 @@ func (b *Book) load() error {
 	if s.Auto != nil {
 		b.auto = s.Auto.clamped()
 	}
+	b.loaded = true
 	return nil
 }
 

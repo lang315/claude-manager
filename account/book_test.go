@@ -88,3 +88,21 @@ func TestBookUnreadableFile(t *testing.T) {
 		t.Fatalf("Blocks = %+v, %v", got, err)
 	}
 }
+
+// An accounts.json that can't be read stays unread: no later call takes
+// the book as empty and saves over it.
+func TestUnreadableBookIsNeverSavedOver(t *testing.T) {
+	b, _, _, _ := newBook(t, &anthropic{})
+	bad := []byte(`{"accounts":[{"email":"a@x"`)
+	if err := os.WriteFile(b.path(), bad, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := b.Set("autoswitch.threshold", "90"); err == nil {
+			t.Fatal("Set worked on an unreadable accounts.json")
+		}
+	}
+	if got, _ := os.ReadFile(b.path()); string(got) != string(bad) {
+		t.Fatalf("accounts.json = %s", got)
+	}
+}
