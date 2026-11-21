@@ -195,3 +195,19 @@ func TestStoreNote(t *testing.T) {
 		t.Error("StoreNote")
 	}
 }
+
+// A renewal rotates the refresh token: one cut short by the reads' timeout
+// would spend it unseen. It gets claude-swap's 10 seconds.
+func TestRenewOutwaitsReads(t *testing.T) {
+	a := apiOn(t, func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(150 * time.Millisecond)
+		io.WriteString(w, `{"access_token":"new","expires_in":60,"limits":[]}`)
+	})
+	a.Client.Timeout = 50 * time.Millisecond
+	if _, err := a.Usage(context.Background(), "tok"); err == nil {
+		t.Error("a slow read wasn't cut short")
+	}
+	if got, err := a.Renew(context.Background(), login("old", "rt", t0), t0); err != nil || got.AccessToken != "new" {
+		t.Errorf("Renew = %+v, %v", got, err)
+	}
+}

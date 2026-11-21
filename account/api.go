@@ -128,6 +128,9 @@ func (a *API) Profile(ctx context.Context, token string) (Profile, error) {
 		Tier: o.Tier, OrgType: o.OrgType, Status: o.Status, PlanName: o.PlanName}, nil
 }
 
+// renewTimeout is claude-swap's refresh timeout.
+const renewTimeout = 10 * time.Second
+
 // Renew asks for fresh tokens for l, as Claude Code renews its own login,
 // and returns l with them. An answer without a refresh token keeps l's.
 func (a *API) Renew(ctx context.Context, l Login, now time.Time) (Login, error) {
@@ -144,7 +147,11 @@ func (a *API) Renew(ctx context.Context, l Login, now time.Time) (Login, error) 
 		return l, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	body, err := a.do(req, tokenRefusal)
+	c := *a.Client // a renewal outwaits a read: cut short, its new refresh token would be lost
+	if c.Timeout != 0 && c.Timeout < renewTimeout {
+		c.Timeout = renewTimeout
+	}
+	body, err := a.do(&c, req, tokenRefusal)
 	if err != nil {
 		return l, err
 	}
@@ -179,15 +186,15 @@ func (a *API) get(ctx context.Context, path, token string) ([]byte, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-	return a.do(req, refusal)
+	return a.do(a.Client, req, refusal)
 }
 
 // do sends req and returns the body of a 200. refused reads any other
 // answer but a 429.
-func (a *API) do(req *http.Request, refused func(int, []byte) error) ([]byte, error) {
+func (a *API) do(c *http.Client, req *http.Request, refused func(int, []byte) error) ([]byte, error) {
 	req.Header.Set("User-Agent", a.Agent)
 	start := time.Now()
-	resp, err := a.Client.Do(req)
+	resp, err := c.Do(req)
 	a.debug(req, resp, start)
 	if err != nil {
 		return nil, unreachable(err)
