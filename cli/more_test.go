@@ -163,17 +163,27 @@ func TestMenubarService(t *testing.T) {
 		goos = "darwin"
 	})
 	goos = "darwin"
-	if code, _, errs := a.run(t, "", "menubar", "--install-service"); code != ok {
+	t.Setenv("HTTPS_PROXY", "http://proxy:8080")
+	// cswap's --install-service --auto-switch does both.
+	if code, _, errs := a.run(t, "", "menubar", "--install-service", "--auto-switch"); code != ok {
 		t.Fatal(errs)
 	}
+	if s, _ := a.b.AutoSettings(); !s.On {
+		t.Error("--install-service --auto-switch didn't turn auto-switch on")
+	}
 	plist, _ := os.ReadFile(filepath.Join(dir, "LaunchAgents", label+".plist"))
-	if !strings.Contains(string(plist), "<string>/Applications/Claude Manager.app/Contents/MacOS/claude-manager</string>") || !strings.Contains(string(plist), "<key>RunAtLoad</key><true/>") {
-		t.Errorf("plist %s", plist)
+	for _, want := range []string{"<string>/Applications/Claude Manager.app/Contents/MacOS/claude-manager</string>", "<key>RunAtLoad</key><true/>",
+		"<key>SuccessfulExit</key><false/>", "<key>StandardErrorPath</key>", "<key>HTTPS_PROXY</key><string>http://proxy:8080</string>"} {
+		if !strings.Contains(string(plist), want) {
+			t.Errorf("no %s in plist %s", want, plist)
+		}
 	}
 	if !slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, "launchctl bootstrap gui/") }) {
 		t.Errorf("calls %q", calls)
 	}
-	if _, out, _ := a.run(t, "", "menubar", "--service-status"); !strings.Contains(out, "starts at login: true") || !strings.Contains(out, "auto-switch: false") {
+	launchctlPrint = func() string { return "state = running\n\tpid = 4242\n" }
+	if _, out, _ := a.run(t, "", "menubar", "--service-status"); !strings.Contains(out, "starts at login: true") || !strings.Contains(out, "auto-switch: true") ||
+		!strings.Contains(out, "running: pid 4242") || !strings.Contains(out, label+".plist") {
 		t.Errorf("status %q", out)
 	}
 	a.run(t, "", "menubar", "--auto-switch")

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -244,14 +245,18 @@ func (c *cmd) menubar(status, install, uninstall, on, off bool) error {
 	if err != nil {
 		return err
 	}
-	switch {
-	case on || off:
+	if !(on || off || install || uninstall || status) {
+		return errors.New("menubar takes --install-service, --uninstall-service, --service-status, --auto-switch or --no-auto-switch; with none, or --foreground, it opens the app")
+	}
+	if on || off { // with --install-service too, as cswap's
 		if err := c.b.Set("autoswitch.enabled", strconv.FormatBool(on)); err != nil {
 			return err
 		}
 		fmt.Fprintf(c.out, "Auto-switch %s.\n", map[bool]string{true: "on", false: "off"}[on])
+	}
+	switch {
 	case install:
-		if err := installService(bin); err != nil {
+		if err := installService(bin, c.b.Dir); err != nil {
 			return err
 		}
 		fmt.Fprintln(c.out, "Claude Manager starts at login, in the menu bar.")
@@ -263,22 +268,46 @@ func (c *cmd) menubar(status, install, uninstall, on, off bool) error {
 	case status:
 		s, _ := c.b.AutoSettings()
 		fmt.Fprintf(c.out, "starts at login: %v\nauto-switch: %v\n", serviceInstalled(), s.On)
+		if goos == "darwin" && serviceInstalled() { // cswap's status: where, and whether it runs
+			fmt.Fprintf(c.out, "plist: %s\n", plistPath())
+			out := launchctlPrint()
+			if m := regexp.MustCompile(`(?m)^\s*pid = (\d+)`).FindStringSubmatch(out); m != nil {
+				fmt.Fprintf(c.out, "running: pid %s\n", m[1])
+			} else {
+				fmt.Fprintln(c.out, "running: no")
+			}
+		}
 		if serviceInstalled() && serviceDisabled() {
 			fmt.Fprintln(c.out, "macOS won't start it at login: turn Claude Manager back on in System Settings, General, Login Items & Extensions.")
 		}
-	default:
-		return errors.New("menubar takes --install-service, --uninstall-service, --service-status, --auto-switch or --no-auto-switch; with none, or --foreground, it opens the app")
 	}
 	return nil
 }
+
+// serviceEnv are the variables a login-started app would lack that the
+// shell installing it has: proxies and certificates for Anthropic, and
+// claude's folder (cswap's launch_agent forwards them).
+var serviceEnv = []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy",
+	"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "CLAUDE_CONFIG_DIR", "PATH"}
 
 func plistPath() string { return filepath.Join(agentsDir(), label+".plist") }
 
 func desktopPath() string { return filepath.Join(autostart(), "claude-manager.desktop") }
 
-func installService(bin string) error {
+func installService(bin, dir string) error {
 	switch goos {
 	case "darwin":
+		env := ""
+		for _, k := range serviceEnv {
+			if v := os.Getenv(k); v != "" {
+				env += "\t\t<key>" + k + "</key><string>" + xmlEscape(v) + "</string>\n"
+			}
+		}
+		if env != "" {
+			env = "\t<key>EnvironmentVariables</key>\n\t<dict>\n" + env + "\t</dict>\n"
+		}
+		logs := xmlEscape(filepath.Join(dir, "menubar.log"))
+		// KeepAlive: started again after a crash, not after a quit (cswap's).
 		plist := `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -286,8 +315,11 @@ func installService(bin string) error {
 	<key>Label</key><string>` + label + `</string>
 	<key>ProgramArguments</key><array><string>` + xmlEscape(bin) + `</string></array>
 	<key>RunAtLoad</key><true/>
+	<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
 	<key>ProcessType</key><string>Interactive</string>
-</dict>
+	<key>StandardOutPath</key><string>` + logs + `</string>
+	<key>StandardErrorPath</key><string>` + logs + `</string>
+` + env + `</dict>
 </plist>
 `
 		if err := os.MkdirAll(agentsDir(), 0o755); err != nil {
@@ -392,4 +424,10 @@ func serviceDisabled() bool {
 var output = func(name string, args ...string) (string, error) {
 	b, err := exec.Command(name, args...).Output()
 	return string(b), err
+}
+
+// launchctlPrint is launchctl's account of the menu bar service.
+var launchctlPrint = func() string {
+	out, _ := exec.Command("launchctl", "print", fmt.Sprintf("gui/%d/%s", os.Getuid(), label)).Output()
+	return string(out)
 }
