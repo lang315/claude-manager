@@ -28,7 +28,7 @@ const bobAccount = `{"accountUuid":"bob","emailAddress":"bob@example.com","organ
 // switchBook is a book whose Claude Code, in a temp home, is signed in to
 // alice through the keychain (with an MCP login beside hers), and which has
 // bob added.
-func switchBook(t *testing.T) (*Book, *Memory, *Home) {
+func switchBook(t *testing.T) (*Book, *Memory, *Home, *anthropic) {
 	t.Helper()
 	f := newAnthropic()
 	f.who["alice-at"], f.who["bob-at"] = alice, bob
@@ -42,7 +42,7 @@ func switchBook(t *testing.T) (*Book, *Memory, *Home) {
 	must(t, v.Put(liveDefault, "me", stored(t, login("alice-at", "alice-rt", t0.Add(time.Hour)))))
 	_, err := b.keep(login("bob-at", "bob-rt", t0.Add(time.Hour)).Marshal(), bob, json.RawMessage(bobAccount))
 	must(t, err)
-	return b, v, h
+	return b, v, h, f
 }
 
 // stored is l as Claude Code stores it, beside an MCP login.
@@ -68,7 +68,7 @@ func get(t *testing.T, v *Memory, service, acct string) []byte {
 }
 
 func TestSwitch(t *testing.T) {
-	b, v, h := switchBook(t)
+	b, v, h, _ := switchBook(t)
 	must(t, b.Switch(ctx, bob.Key()))
 
 	live := get(t, v, liveDefault, "me")
@@ -114,18 +114,17 @@ func TestSwitch(t *testing.T) {
 }
 
 func TestSwitchToAccountInUse(t *testing.T) {
-	b, v, h := switchBook(t)
+	b, v, _, _ := switchBook(t)
 	must(t, b.Switch(ctx, bob.Key()))
 	before := get(t, v, liveDefault, "me")
 	must(t, b.Switch(ctx, bob.Key()))
 	if string(get(t, v, liveDefault, "me")) != string(before) {
 		t.Error("a switch to the account in use wrote its login")
 	}
-	_ = h
 }
 
 func TestSwitchSaveFailsWritesNothing(t *testing.T) {
-	b, v, h := switchBook(t)
+	b, v, h, _ := switchBook(t)
 	before := get(t, v, liveDefault, "me")
 	v.Fail = errors.New("refused")
 	if err := b.Switch(ctx, bob.Key()); err == nil {
@@ -140,8 +139,39 @@ func TestSwitchSaveFailsWritesNothing(t *testing.T) {
 	}
 }
 
+// The first switch adds the account in use: accounts.json must list it
+// before Claude Code's login is overwritten.
+func TestSwitchListsOutgoingFirst(t *testing.T) {
+	b, v, h, _ := switchBook(t)
+	before := get(t, v, liveDefault, "me")
+	must(t, os.Mkdir(filepath.Join(b.Dir, "accounts.json.tmp"), 0o700)) // accounts.json can't be written
+	if err := b.Switch(ctx, bob.Key()); err == nil {
+		t.Fatal("switched without listing alice")
+	}
+	if string(get(t, v, liveDefault, "me")) != string(before) {
+		t.Error("Claude Code's login changed")
+	}
+	if conf, _ := os.ReadFile(h.ClaudeJSON); string(conf) != aliceConf {
+		t.Error("~/.claude.json changed")
+	}
+}
+
+// Claude Code renewed its login between the first read and the locks.
+func TestSwitchLiveMoved(t *testing.T) {
+	renewed := stored(t, login("alice-2", "alice-rt2", t0.Add(2*time.Hour)))
+	// Claude Code renews while the switch asks whose alice's login is.
+	b, v, _, f := switchBook(t)
+	f.onProfile = func() { v.Put(liveDefault, "me", renewed) }
+	if err := b.Switch(ctx, bob.Key()); !errors.Is(err, errLiveMoved) {
+		t.Fatalf("err = %v", err)
+	}
+	if string(get(t, v, liveDefault, "me")) != string(renewed) {
+		t.Error("Claude Code's renewed login was overwritten")
+	}
+}
+
 func TestSwitchRestoresOnFailedWrite(t *testing.T) {
-	b, v, h := switchBook(t)
+	b, v, h, _ := switchBook(t)
 	before := get(t, v, liveDefault, "me")
 	rename = func(from, to string) error {
 		if to == h.ClaudeJSON {
@@ -160,7 +190,7 @@ func TestSwitchRestoresOnFailedWrite(t *testing.T) {
 }
 
 func TestSwitchLapsedLiveLogin(t *testing.T) {
-	b, v, _ := switchBook(t)
+	b, v, _, _ := switchBook(t)
 	// alice is added; her login in use has lapsed, with the same refresh
 	// token as her saved one: hers.
 	must(t, b.Switch(ctx, bob.Key()))
@@ -178,7 +208,7 @@ func TestSwitchLapsedLiveLogin(t *testing.T) {
 }
 
 func TestSwitchNotSignedIn(t *testing.T) {
-	b, v, h := switchBook(t)
+	b, v, h, _ := switchBook(t)
 	must(t, v.Delete(liveDefault, ""))
 	must(t, b.Switch(ctx, bob.Key()))
 	if l, _ := parseLogin(get(t, v, liveDefault, "me")); l.AccessToken != "bob-at" {
@@ -192,7 +222,7 @@ func TestSwitchNotSignedIn(t *testing.T) {
 // Claude Code keeps its login in .credentials.json when the keychain
 // refuses it: the switch writes there, and makes no keychain item.
 func TestSwitchCredentialsFile(t *testing.T) {
-	b, v, h := switchBook(t)
+	b, v, h, _ := switchBook(t)
 	file := filepath.Join(h.Root, ".credentials.json")
 	must(t, os.WriteFile(file, get(t, v, liveDefault, "me"), 0o600))
 	must(t, v.Delete(liveDefault, ""))
@@ -210,7 +240,7 @@ func TestSwitchCredentialsFile(t *testing.T) {
 }
 
 func TestSwitchWaitsForLock(t *testing.T) {
-	b, v, h := switchBook(t)
+	b, v, h, _ := switchBook(t)
 	lockWait = 300 * time.Millisecond
 	t.Cleanup(func() { lockWait = 9 * time.Second })
 	held := h.ClaudeJSON + ".lock"
@@ -234,14 +264,20 @@ func TestSwitchWaitsForLock(t *testing.T) {
 }
 
 func TestSwitchNeedsHome(t *testing.T) {
-	b, _, _ := switchBook(t)
+	b, _, _, _ := switchBook(t)
 	b.Home = nil
 	if b.CanSwitch() || !errors.Is(b.Switch(ctx, bob.Key()), ErrCantSwitch) {
 		t.Fatal("switched without Claude Code's default folder")
 	}
-	b, _, _ = switchBook(t)
+	b, _, _, _ = switchBook(t)
 	if !errors.Is(b.Switch(ctx, carol.Key()), errNotAdded) {
 		t.Fatal("switched to an account not added")
+	}
+	// carol, added before the app kept oauthAccount, needs a sign-in again.
+	_, err := b.keep(login("carol-at", "carol-rt", t0.Add(time.Hour)).Marshal(), carol, nil)
+	must(t, err)
+	if !errors.Is(b.Switch(ctx, carol.Key()), errNoAccount) {
+		t.Fatal("switched with no oauthAccount for carol")
 	}
 }
 
@@ -249,7 +285,7 @@ func TestSwitchNeedsHome(t *testing.T) {
 // account: that account's saved login shares Claude Code's refresh chain,
 // so it is not renewed.
 func TestRefreshLeavesAccountInUse(t *testing.T) {
-	b, v, _ := switchBook(t)
+	b, v, _, _ := switchBook(t)
 	must(t, b.Switch(ctx, bob.Key()))
 	must(t, b.Switch(ctx, alice.Key())) // alice in use, both added
 	must(t, v.Put(liveDefault, "me", stored(t, login("alice-old", "alice-rt", t0.Add(-time.Hour)))))

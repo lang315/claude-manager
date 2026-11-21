@@ -1,7 +1,7 @@
 # Switch Account — Design
 
 Date: 2026-10-28
-Status: approved in conversation, pending written-spec review
+Status: superseded by `2026-11-21-claude-swap-port-design.md` (the app now switches itself)
 
 ## Goal
 

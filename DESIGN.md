@@ -290,6 +290,7 @@ A face per account on the Limits page, padded 14 by 16.
 - **Footer:**
   - An added account ends with its sign-in date, muted, at 12px.
   - Figures from Pitboard end with "Read N min ago by Pitboard", muted, at 12px.
+  - An account only Pitboard holds, while the app can switch, ends with "Add this account here to switch to it.", muted, at 12px.
   - A block with no figures says why, in muted text.
   - A switch under way ends the block with "Switching…", muted, at 12px.
 

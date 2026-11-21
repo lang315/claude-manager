@@ -15,6 +15,8 @@ var (
 	// default one, where the app doesn't switch.
 	ErrCantSwitch = errors.New("Switching works with Claude Code's default folder only.")
 	errNotAdded   = errors.New("Add this account here to switch to it.")
+	// errNoAccount: an account added before the app kept oauthAccount.
+	errNoAccount = errors.New("Sign in again to this account to switch to it.")
 	errLiveMoved  = errors.New("Claude Code renewed its sign-in during the switch. Try again.")
 	errLiveWhose  = errors.New("Claude Code's sign-in has expired, so the app can't tell whose it is to keep it. Open Claude Code to renew it, then switch.")
 	errRestore    = errors.New("The switch failed, and Claude Code's sign-in could not be put back. Run claude and /login.")
@@ -43,6 +45,9 @@ func (b *Book) Switch(ctx context.Context, key string) error {
 	ti := slices.IndexFunc(b.added, func(a Account) bool { return a.Key() == key })
 	if ti < 0 {
 		return errNotAdded
+	}
+	if b.added[ti].OAuthAccount == nil {
+		return errNoAccount
 	}
 	parked, err := b.Vault.Get(ParkService, key)
 	if errors.Is(err, ErrNotFound) {
@@ -85,11 +90,7 @@ func (b *Book) Switch(ctx context.Context, key string) error {
 	if err != nil {
 		return fmt.Errorf("~/.claude.json could not be read: %w", err)
 	}
-	acct := b.added[ti].OAuthAccount
-	if acct == nil {
-		acct = minimalOAuthAccount(b.added[ti])
-	}
-	newConf, err := spliceKey(conf, "oauthAccount", acct)
+	newConf, err := spliceKey(conf, "oauthAccount", b.added[ti].OAuthAccount)
 	if err != nil {
 		return err
 	}
@@ -104,7 +105,17 @@ func (b *Book) Switch(ctx context.Context, key string) error {
 		if keyOf(mine) != who.Key() {
 			mine = nil
 		}
-		if _, err := b.keepLocked(was.data, *who, mine); err != nil {
+		_, err := b.keepLocked(was.data, *who, mine)
+		if err == nil {
+			err = b.save()
+		}
+		if err == nil {
+			saved, gerr := b.Vault.Get(ParkService, who.Key())
+			if gerr != nil || !bytes.Equal(oauthOf(saved), oauthOf(was.data)) {
+				err = errors.Join(gerr, errors.New("it reads back different"))
+			}
+		}
+		if err != nil {
 			return fmt.Errorf("The login in use could not be saved, so nothing was switched: %w", err)
 		}
 	}
@@ -161,17 +172,4 @@ func keyOf(oauthAccount json.RawMessage) string {
 		return ""
 	}
 	return o.AccountUUID + "/" + o.OrgUUID
-}
-
-// minimalOAuthAccount is an oauthAccount object from what the app knows of
-// a.
-// shortcut: accounts added before the app kept oauthAccount get these
-// four fields only; Sign In Again stores the whole object. Claude Code's
-// other fields (display name, role, billing) stay unset until then.
-func minimalOAuthAccount(a Account) json.RawMessage {
-	b, _ := json.Marshal(map[string]string{
-		"accountUuid": a.AccountUUID, "emailAddress": a.Email,
-		"organizationUuid": a.OrgUUID, "organizationName": a.OrgName,
-	})
-	return b
 }

@@ -163,6 +163,9 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 		if b.Added && !b.GoodUntil.IsZero() {
 			ui.Text(c, goodUntil(b.GoodUntil, now)).FontSize(12).TextColor(pal.muted)
 		}
+		if !b.Added && !b.InUse && a.Accounts.CanSwitch() { // Pitboard's: the app holds no login for it
+			ui.Text(c, "Add this account here to switch to it.").FontSize(12).TextColor(pal.muted)
+		}
 		if l.switching == b.Key() {
 			ui.Text(c, "Switching…").FontSize(12).TextColor(pal.muted)
 		}

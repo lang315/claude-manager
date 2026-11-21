@@ -111,6 +111,22 @@ writes `.credentials.json` there; not needed now.)
 
 API-key accounts: not supported (the app has none today).
 
+An added account with no `oauthAccount` kept (added before this change) is
+refused: "Sign in again to this account to switch to it." A made-up object
+might not satisfy Claude Code.
+
+Known limit: once Claude Code renews the login in use, the app's saved copy
+of that account is stale until the next switch saves it again. Changing
+account outside the app (`/login`, Pitboard) leaves that stale copy, which
+then shows "Sign-in expired" until signed in again.
+
+Pitboard: once the app switches, Pitboard must not switch too; two programs
+saving the same login are two renewers on one refresh chain.
+
+Keychain writes: Claude Code's login with MCP logins beside it is ~8 KB,
+over `security -i`'s line, so it goes on `security`'s argument line,
+hex-encoded, for the instant the command runs (claude-swap does the same).
+
 ### UI
 
 The Limits page's switch button shows on every added account not in use.

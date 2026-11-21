@@ -38,6 +38,8 @@ type anthropic struct {
 	status  map[string]int
 	renewed map[string]string
 	calls   []string // "profile <token>", "usage <token>", "renew <refresh token>"
+	// onProfile, when set, runs on each profile ask.
+	onProfile func()
 }
 
 func newAnthropic() *anthropic {
@@ -51,6 +53,9 @@ func (f *anthropic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/oauth/profile":
 		f.calls = append(f.calls, "profile "+tok)
+		if f.onProfile != nil {
+			f.onProfile()
+		}
 		p, ok := f.who[tok]
 		if !ok {
 			w.WriteHeader(http.StatusUnauthorized)

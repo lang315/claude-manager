@@ -346,6 +346,12 @@ func TestLimitsShowsPitboardAccounts(t *testing.T) {
 	if l.tt.HasText("⋯") {
 		t.Error("a Pitboard account offers the app's own actions")
 	}
+	if l.tt.HasText("Add this account here to switch to it.") {
+		t.Error("a switch hint while the app can't switch")
+	}
+	l.book.Home = &account.Home{}
+	must(t, l.tt.Click("Refresh"))
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Add this account here to switch to it.") })
 }
 
 func TestLimitsNotesUnreadablePitboard(t *testing.T) {
@@ -367,6 +373,8 @@ func canSwitch(t *testing.T, l *lim) *account.Home {
 	l.book.Home = h
 	l.book.Live = func() (account.Login, error) { return account.ReadLive(l.vault, "", h.Root) }
 	seedBob(t, l, "bob")
+	must(t, os.WriteFile(filepath.Join(l.book.Dir, "accounts.json"), []byte(`{"accounts":[{"accountUuid":"bob","orgUuid":"org",
+		"email":"bob@example.com","goodUntil":"2026-11-15T12:00:00Z","oauthAccount":{"accountUuid":"bob","organizationUuid":"org"}}]}`), 0o600))
 	return h
 }
 
