@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -226,9 +227,17 @@ func TestExportImportRun(t *testing.T) {
 
 func TestReorder(t *testing.T) {
 	got := reorder([]string{"bob", "--json", "--email", "e@x", "--hold=5", "-", "--", "--x"})
-	want := []string{"--json", "--email", "e@x", "--hold=5", "bob", "-", "--", "--x"}
+	want := []string{"--json", "--email", "e@x", "--hold=5", "--", "bob", "-", "--", "--x"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("%q", got)
+	}
+	// With no account named, the -- for claude comes first: flag.Parse
+	// would take it for its own end of flags.
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs.Bool("no-share", false, "")
+	must(t, fs.Parse(reorder([]string{"--no-share", "--", "-p", "x"})))
+	if got := strings.Join(fs.Args(), " "); got != "-- -p x" {
+		t.Errorf("args %q", got)
 	}
 }
 

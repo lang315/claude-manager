@@ -298,7 +298,7 @@ func reorder(args []string) []string {
 			rest = append(rest, a)
 		}
 	}
-	return append(flags, rest...)
+	return append(append(flags, "--"), rest...) // its own end of flags, so a -- for claude stays
 }
 
 func takesValue(f string) bool {
