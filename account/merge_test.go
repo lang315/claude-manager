@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -92,5 +93,69 @@ func TestRunMergesProfileHistory(t *testing.T) {
 	}
 	if to, err := os.Readlink(filepath.Join(r.dir(), "projects")); err != nil || !strings.HasSuffix(to, "projects") {
 		t.Errorf("not linked: %q %v", to, err)
+	}
+}
+
+// claude-swap's _profile_copy_wins: of two diverged copies of a
+// transcript, the later one stays shared and the other is parked, under
+// shared/ or profile/ for where it came from; never under a live session
+// writing the shared copy. A parked copy never lands on another.
+func TestMergeHistoryLaterCopyWins(t *testing.T) {
+	root, prof, conf := t.TempDir(), t.TempDir(), t.TempDir()
+	src, dest := filepath.Join(root, "projects"), filepath.Join(prof, "projects")
+	old := `{"timestamp":"2026-11-01T10:00:00.000Z"}` + "\n"
+	newer := `{"timestamp":"2026-11-02T10:00:00.000Z"}` + "\n" + `{"type":"last-prompt"}` + "\n"
+	write(t, filepath.Join(src, "p", "s1.jsonl"), old)
+	write(t, filepath.Join(dest, "p", "s1.jsonl"), newer)
+	write(t, filepath.Join(src, "p", "s2.jsonl"), old)
+	write(t, filepath.Join(dest, "p", "s2.jsonl"), newer)
+	live := func(rel string) bool { return strings.Contains(rel, "s2") }
+	_, parked, err := mergeHistoryLive(src, dest, conf, live)
+	must(t, err)
+	if parked != 2 || read(t, filepath.Join(src, "p", "s1.jsonl")) != newer || read(t, filepath.Join(src, "p", "s2.jsonl")) != old {
+		t.Fatalf("parked %d; s1 %q, s2 %q", parked, read(t, filepath.Join(src, "p", "s1.jsonl")), read(t, filepath.Join(src, "p", "s2.jsonl")))
+	}
+	sides := map[string]string{}
+	filepath.WalkDir(conf, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			rel, _ := filepath.Rel(conf, p)
+			sides[strings.SplitN(rel, string(filepath.Separator), 3)[1]+"/"+filepath.Base(p)] = read(t, p)
+		}
+		return nil
+	})
+	if sides["shared/s1.jsonl"] != old || sides["profile/s2.jsonl"] != newer {
+		t.Errorf("parked %v", sides)
+	}
+	// Again in the same second: the earlier parked copy stays.
+	write(t, filepath.Join(src, "p", "s3.jsonl"), "x\n")
+	write(t, filepath.Join(dest, "p", "s3.jsonl"), "y\n")
+	_, _, err = mergeHistoryLive(src, dest, conf, live)
+	must(t, err)
+	write(t, filepath.Join(dest, "p", "s3.jsonl"), "z\n")
+	_, _, err = mergeHistoryLive(src, dest, conf, live)
+	must(t, err)
+	n := 0
+	filepath.WalkDir(conf, func(p string, d os.DirEntry, err error) error {
+		if err == nil && strings.HasPrefix(filepath.Base(p), "s3.jsonl") {
+			n++
+		}
+		return nil
+	})
+	if n != 2 {
+		t.Errorf("%d parked copies of s3, want 2", n)
+	}
+}
+
+func TestLiveTranscripts(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "sessions", "1.json"), `{"pid":`+strconv.Itoa(os.Getpid())+`,"sessionId":"abc"}`)
+	write(t, filepath.Join(root, "sessions", "2.json"), `{"pid":999999999,"sessionId":"gone"}`)
+	live := liveTranscripts(root)
+	if !live("p/abc.jsonl") || !live("p/abc/sub.jsonl") || live("p/gone.jsonl") || live("p/other.jsonl") {
+		t.Error("live sessions misread")
+	}
+	write(t, filepath.Join(root, "sessions", "3.json"), `{`)
+	if !liveTranscripts(root)("p/other.jsonl") {
+		t.Error("an unreadable record must count as live")
 	}
 }

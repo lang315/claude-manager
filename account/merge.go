@@ -3,11 +3,13 @@ package account
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -20,6 +22,14 @@ import (
 // other collision keeps the shared copy and parks the profile's under
 // conflicts. history.jsonl takes the profile's lines it lacks.
 func mergeHistory(src, dest, conflicts string) (moved, parked int, err error) {
+	return mergeHistoryLive(src, dest, conflicts, func(string) bool { return true })
+}
+
+// mergeHistoryLive is mergeHistory where, of two diverged copies, the later
+// stays shared (claude-swap's _profile_copy_wins), unless live reports a
+// session writing the shared copy at rel. The other is parked under
+// shared/ or profile/, for where it came from.
+func mergeHistoryLive(src, dest, conflicts string, live func(rel string) bool) (moved, parked int, err error) {
 	fi, err := os.Lstat(dest)
 	if errors.Is(err, fs.ErrNotExist) || err == nil && fi.Mode()&fs.ModeSymlink != 0 {
 		return 0, 0, nil // nothing of its own, or already the link
@@ -73,12 +83,18 @@ func mergeHistory(src, dest, conflicts string) (moved, parked int, err error) {
 				}
 				continue
 			}
-			to := filepath.Join(conflicts, stamp+"-"+filepath.Base(filepath.Dir(dest)), rel)
-			if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
+			run := filepath.Join(conflicts, stamp+"-"+filepath.Base(filepath.Dir(dest)))
+			loser, side := p, "profile"
+			if profileWins(target, p) && !live(rel) {
+				loser, side = target, "shared"
+			}
+			if err := park(loser, filepath.Join(run, side, rel)); err != nil {
 				return moved, parked, err
 			}
-			if err := os.Rename(p, to); err != nil {
-				return moved, parked, err
+			if side == "shared" {
+				if err := os.Rename(p, target); err != nil {
+					return moved, parked, err
+				}
 			}
 			parked++
 		}
@@ -142,4 +158,54 @@ func appendLines(src, dest string) error {
 		}
 	}
 	return os.Remove(dest)
+}
+
+// park moves path to dest, or dest.2, dest.3...: never over a file.
+func park(path, dest string) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
+		return err
+	}
+	to := dest
+	for n := 2; ; n++ {
+		if _, err := os.Lstat(to); errors.Is(err, fs.ErrNotExist) {
+			return os.Rename(path, to)
+		}
+		to = dest + "." + strconv.Itoa(n)
+	}
+}
+
+// profileWins reports whether the profile's copy of a transcript should
+// replace the shared one: the later last timestamp, then having one at
+// all, then more lines; the shared copy otherwise.
+func profileWins(shared, profile string) bool {
+	s, p := lastTimestamp(shared), lastTimestamp(profile)
+	if s != p {
+		return s == "" || p != "" && p > s
+	}
+	return lineCount(profile) > lineCount(shared)
+}
+
+// lastTimestamp is the last "timestamp" in a JSONL transcript, read from
+// the end: Claude closes most with untimestamped lines. ISO-8601 Zulu, so
+// it compares as text.
+func lastTimestamp(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(string(data), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		var e struct {
+			Timestamp string `json:"timestamp"`
+		}
+		if json.Unmarshal([]byte(lines[i]), &e) == nil && e.Timestamp != "" {
+			return e.Timestamp
+		}
+	}
+	return ""
+}
+
+func lineCount(path string) int {
+	data, _ := os.ReadFile(path)
+	return bytes.Count(data, []byte("\n"))
 }

@@ -191,8 +191,9 @@ func (b *Book) seed(dir string, parked []byte, acct json.RawMessage, share Share
 	if share.History && !busy {
 		// Its own history first goes into ~/.claude's, as claude-swap's;
 		// never under a claude still writing it.
+		live := liveTranscripts(h.Root)
 		for _, name := range history {
-			if _, _, err := mergeHistory(filepath.Join(h.Root, name), filepath.Join(dir, name), filepath.Join(b.Dir, "history-conflicts")); err != nil {
+			if _, _, err := mergeHistoryLive(filepath.Join(h.Root, name), filepath.Join(dir, name), filepath.Join(b.Dir, "history-conflicts"), live); err != nil {
 				return err
 			}
 		}
@@ -365,6 +366,41 @@ func ClaudeRunning(configDir string) (bool, error) {
 // account runs without them, whatever the user's shell exports.
 var authOverrides = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
 	"CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR", "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR"}
+
+// liveTranscripts reports whether a live claude under root may be writing
+// the transcript at rel (<project>/<session>.jsonl, or a file in
+// <project>/<session>/): the session's id is one of its parts. Records
+// that can't be read count as live.
+func liveTranscripts(root string) func(rel string) bool {
+	ids := map[string]bool{}
+	known := true
+	es, err := os.ReadDir(filepath.Join(root, "sessions"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		known = false
+	}
+	for _, e := range es {
+		var r struct {
+			PID       int    `json:"pid"`
+			SessionID string `json:"sessionId"`
+		}
+		data, err := os.ReadFile(filepath.Join(root, "sessions", e.Name()))
+		if err != nil || json.Unmarshal(data, &r) != nil {
+			known = false
+			continue
+		}
+		if pidAlive(r.PID) {
+			ids[r.SessionID] = true
+		}
+	}
+	return func(rel string) bool {
+		if !known {
+			return true
+		}
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		parts[len(parts)-1] = strings.TrimSuffix(parts[len(parts)-1], ".jsonl")
+		return slices.ContainsFunc(parts, func(p string) bool { return ids[p] })
+	}
+}
 
 // RunCommand is the shell command LaunchInTerminal runs: claude with args.
 func RunCommand(folder, configDir string, args ...string) string {
