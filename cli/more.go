@@ -111,7 +111,7 @@ func (c *cmd) pick(ctx context.Context, strategy string) (account.Account, error
 // autoLoop is cswap auto in the foreground: a tick every interval until
 // ctx ends or, in tests, ticks run out.
 func (c *cmd) autoLoop(ctx context.Context, dry, asJSON bool) error {
-	s, err := c.b.AutoSettings()
+	s, err := c.b.AutoInEffect()
 	if err != nil {
 		return err
 	}

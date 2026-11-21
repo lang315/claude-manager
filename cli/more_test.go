@@ -87,11 +87,20 @@ func TestSwitchWithoutAccount(t *testing.T) {
 func TestAutoLoopAndFlags(t *testing.T) {
 	a := newApp(t)
 	maxTicks = 2
-	after = func(time.Duration) <-chan time.Time { c := make(chan time.Time, 1); c <- time.Time{}; return c }
+	var waited []time.Duration
+	after = func(d time.Duration) <-chan time.Time {
+		waited = append(waited, d)
+		c := make(chan time.Time, 1)
+		c <- time.Time{}
+		return c
+	}
 	t.Cleanup(func() { maxTicks, after = 0, time.After })
 	code, out, errs := a.run(t, "", "auto", "--threshold", "40", "--strategy", "best", "--interval", "30")
 	if code != ok || !strings.Contains(out, "Switched to bob@example.com") {
 		t.Fatalf("auto: %d %q %s", code, out, errs)
+	}
+	if len(waited) == 0 || waited[0] != 30*time.Second {
+		t.Errorf("waited %v, want --interval's 30s", waited)
 	}
 	if strings.Count(out, "\n") != 2 {
 		t.Errorf("ticks: %q", out)

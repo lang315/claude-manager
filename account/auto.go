@@ -440,6 +440,15 @@ func (b *Book) AutoSettings() (Auto, error) {
 	return b.auto, err
 }
 
+// AutoInEffect is the auto-switch settings this process goes by: an
+// Override's, else the saved ones.
+func (b *Book) AutoInEffect() (Auto, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	err := b.load()
+	return b.settings(), err
+}
+
 // SetAuto saves auto-switch's settings, kept in their ranges.
 func (b *Book) SetAuto(s Auto) error {
 	b.mu.Lock()

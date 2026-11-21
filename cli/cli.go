@@ -614,7 +614,7 @@ func (c *cmd) auto(ctx context.Context, dry, asJSON bool) (int, error) {
 	if err != nil {
 		return failed, err
 	}
-	if s, serr := c.b.AutoSettings(); serr == nil {
+	if s, serr := c.b.AutoInEffect(); serr == nil { // --model's names too
 		accts, _ := c.b.Blocks()
 		if u := s.Unseen(accts); len(u) > 0 {
 			fmt.Fprintf(c.errs, "autoswitch.model: %s matches no account's windows (typo?).\n", strings.Join(u, ", "))
