@@ -593,3 +593,77 @@ func TestSeedMirrorsMCPServers(t *testing.T) {
 		t.Errorf("the mirrored servers stayed with sharing off: %s", c)
 	}
 }
+
+// claude-swap's _default_login_signed_out: only a login that certainly
+// holds no usable token reads as signed out; anything else keeps the fast path.
+func TestLiveSignedOut(t *testing.T) {
+	past, future := t0.Add(-time.Hour).UnixMilli(), t0.Add(time.Hour).UnixMilli()
+	oauth := func(s string) string { return `{"claudeAiOauth":{` + s + `}}` }
+	for _, c := range []struct {
+		name, blob string
+		want       bool
+	}{
+		{"empty", ``, true},
+		{"blank", " \n", true},
+		{"api key", `sk-ant-api03-xyz`, false},
+		{"not json", `{`, false},
+		{"no oauth object", `{"mcpOAuth":{}}`, false},
+		{"refresh token", oauth(`"accessToken":"","refreshToken":"rt"`), false},
+		{"both tokens empty", oauth(`"accessToken":"","refreshToken":""`), true},
+		{"no tokens", oauth(``), true},
+		{"access token lapsed", oauth(`"accessToken":"at","expiresAt":` + strconv.FormatInt(past, 10)), true},
+		{"access token valid", oauth(`"accessToken":"at","expiresAt":` + strconv.FormatInt(future, 10)), false},
+		{"access token no expiry", oauth(`"accessToken":"at"`), false},
+		{"access token null expiry", oauth(`"accessToken":"at","expiresAt":null`), false},
+		{"access token odd expiry", oauth(`"accessToken":"at","expiresAt":true`), false},
+	} {
+		r := newRunBook(t)
+		must(t, r.v.Put(liveDefault, "me", []byte(c.blob)))
+		if got := r.b.liveSignedOut(); got != c.want {
+			t.Errorf("%s: signed out = %v, want %v", c.name, got, c.want)
+		}
+	}
+	r := newRunBook(t)
+	must(t, r.v.Delete(liveDefault, "me"))
+	if r.b.liveSignedOut() {
+		t.Error("no login at all is not a signed-out login")
+	}
+	r = newRunBook(t)
+	must(t, r.v.Put(liveDefault, "me", []byte(``)))
+	t.Setenv("CLAUDE_SECURESTORAGE_CONFIG_DIR", "/elsewhere")
+	if r.b.liveSignedOut() {
+		t.Error("another credential store than the one read")
+	}
+	t.Setenv("CLAUDE_SECURESTORAGE_CONFIG_DIR", "")
+	r.b.Vault = lockedVault{r.v}
+	if r.b.liveSignedOut() {
+		t.Error("an unreadable keychain")
+	}
+}
+
+// claude-swap's same-account fast path is taken only while the default
+// login holds a usable token; signed out, the stored login launches in
+// the account's profile, and with none stored the old refusal stays.
+func TestRunInUseSignedOut(t *testing.T) {
+	r := newRunBook(t)
+	r.b.Refresh(ctx, true) // alice is added by following her login
+	must(t, r.v.Put(liveDefault, "me", []byte(`{"claudeAiOauth":{"accessToken":"","refreshToken":""}}`)))
+	if !r.b.InUseSignedOut(alice.Key()) || r.b.InUseSignedOut(bob.Key()) {
+		t.Error("InUseSignedOut: alice yes, bob no")
+	}
+	must(t, r.b.Run(alice.Key(), "/work", both))
+	if want := [][2]string{{"/work", r.b.profile(alice.Key())}}; !slices.Equal(r.launched, want) {
+		t.Errorf("launched %q, want %q", r.launched, want)
+	}
+	if _, err := os.Stat(filepath.Join(r.b.profile(alice.Key()), ".credentials.json")); err != nil {
+		t.Errorf("the profile holds no seeded login: %v", err)
+	}
+
+	r = newRunBook(t)
+	r.b.Refresh(ctx, true)
+	must(t, r.v.Put(liveDefault, "me", []byte(``)))
+	must(t, r.v.Delete(ParkService, alice.Key()))
+	if err := r.b.Run(alice.Key(), "/work", both); !errors.Is(err, ErrRunInUse) || len(r.launched) != 0 {
+		t.Errorf("no saved login: %v, launched %q", err, r.launched)
+	}
+}

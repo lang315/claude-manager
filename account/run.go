@@ -93,7 +93,7 @@ func (b *Book) readyRun(key string, share Share) (string, error) {
 		return "", errNotAdded
 	}
 	a := &b.added[i]
-	if key == h.accountKey() {
+	if key == h.accountKey() && !b.inUseSignedOut(key) { // claude-swap: the fast path only on a usable login
 		return "", ErrRunInUse
 	}
 	if a.Terminal.Dir != "" {
@@ -155,6 +155,59 @@ func (b *Book) readyRun(key string, share Share) (string, error) {
 		return "", errors.Join(err, b.save())
 	}
 	return dir, nil
+}
+
+// InUseSignedOut reports whether key is the account in use, Claude Code's
+// login for it holds no usable token, and a login is saved for it: Run
+// then opens it from a profile, as claude-swap does.
+func (b *Book) InUseSignedOut(key string) bool {
+	if b.Home == nil || key != b.Home.accountKey() {
+		return false
+	}
+	return b.inUseSignedOut(key)
+}
+
+func (b *Book) inUseSignedOut(key string) bool {
+	if !b.liveSignedOut() {
+		return false
+	}
+	parked, err := b.Vault.Get(ParkService, key)
+	_, ok := complete(parked)
+	return err == nil && ok
+}
+
+// liveSignedOut is claude-swap's _default_login_signed_out: true only when
+// Claude Code's login certainly holds no usable token. What can't be told
+// from a working login (an unreadable keychain, an API key, an unknown
+// shape) answers false.
+func (b *Book) liveSignedOut() bool {
+	if os.Getenv("CLAUDE_SECURESTORAGE_CONFIG_DIR") != "" { // a store this read doesn't follow
+		return false
+	}
+	lb, err := b.Home.readLive(b.Vault)
+	if err != nil || lb.data == nil {
+		return false
+	}
+	if len(bytes.TrimSpace(lb.data)) == 0 {
+		return true
+	}
+	if IsAPIKey(string(lb.data)) {
+		return false
+	}
+	var o struct {
+		AccessToken  string   `json:"accessToken"`
+		RefreshToken string   `json:"refreshToken"`
+		ExpiresAt    *float64 `json:"expiresAt"`
+	}
+	raw := oauthOf(lb.data)
+	if raw == nil || json.Unmarshal(raw, &o) != nil || o.RefreshToken != "" {
+		return false
+	}
+	if o.AccessToken == "" {
+		return true
+	}
+	// An access token without a refresh token works until it expires.
+	return o.ExpiresAt != nil && *o.ExpiresAt <= float64(b.Now().UnixMilli())
 }
 
 func (b *Book) seed(dir string, parked []byte, acct json.RawMessage, share Share) error {

@@ -319,6 +319,14 @@ func TestAliasMapRun(t *testing.T) {
 	if code, _, _ := a.run(t, "", "run", "alice@example.com", t.TempDir(), "--require-session"); code != failed {
 		t.Error("the account in use with --require-session")
 	}
+	// Signed out of Claude Code, cswap launches from the stored login in a
+	// profile, --require-session or not, and says so.
+	must(t, a.v.Put("Claude Code-credentials", "me", []byte(`{"claudeAiOauth":{"accessToken":"","refreshToken":""}}`)))
+	profile = ""
+	if code, out, errs := a.run(t, "", "run", "alice@example.com", t.TempDir(), "--require-session"); code != ok || profile == "" || !strings.Contains(out, "alice@example.com is the default login, but that login holds no usable token; launching from the stored login in a session profile.") {
+		t.Errorf("the account in use, signed out: %d %s %s %q", code, out, errs, profile)
+	}
+	must(t, a.v.Put("Claude Code-credentials", "me", login("alice")))
 	// An account's name wins over a folder of that name here.
 	here := t.TempDir()
 	t.Chdir(here)

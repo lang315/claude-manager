@@ -854,6 +854,9 @@ func (c *cmd) run(rest []string, share account.Share, requireSession bool) error
 	if err != nil {
 		return err
 	}
+	if c.b.InUseSignedOut(a.Key()) { // cswap's notice, before the launch from the profile
+		fmt.Fprintf(c.out, "%s is the default login, but that login holds no usable token; launching from the stored login in a session profile.\n", a.Email)
+	}
 	if err := c.b.Run(a.Key(), folder, share, forward...); errors.Is(err, account.ErrRunInUse) && !requireSession {
 		return c.runDefault(folder, a.Email+" is the account in use", forward)
 	} else if err != nil {

@@ -639,8 +639,9 @@ bare `switch` (the next slot after the one in use, round; `--strategy best`:
 most quota left; `next-available`: the next with room; held-out accounts
 skipped); `auto` in the foreground, its flags an `Override` for that run,
 never saved; `list --token-status`; `run … -- <args>` forwarded to claude,
-shell-quoted (`--require-session` accepted: the account in use is always
-refused); `export -`, `import -`; `menubar --install-service` (a LaunchAgent
+shell-quoted (`--require-session` accepted: the account in use is refused
+unless Claude Code's login for it holds no usable token and one is saved: then
+it opens from its profile, as cswap's `_default_login_signed_out`); `export -`, `import -`; `menubar --install-service` (a LaunchAgent
 plist bootstrapped with launchctl, as cswap's; an autostart `.desktop` on
 Linux; an HKCU Run value on Windows), `--uninstall-service`,
 `--service-status`, `--auto-switch`, `--no-auto-switch`; `tui`, `watch`,
