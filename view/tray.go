@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -106,7 +108,11 @@ func (a *App) Tray() (title string, items []TrayItem) {
 	}
 	if a.LogPath != "" { // claude-swap's "Open full log…"
 		items = append(items, TrayItem{Label: "Open Log", Do: func() {
-			if err := a.OpenURL("file://" + a.LogPath); err != nil {
+			target := a.LogPath // cswap on_open_log: reveal the log, or its folder when there is none yet
+			if _, err := os.Stat(target); err != nil {
+				target = filepath.Dir(target)
+			}
+			if err := a.Reveal(target); err != nil {
 				a.limits.toast(a, err)
 			}
 		}}, TrayItem{})

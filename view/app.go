@@ -30,6 +30,8 @@ type App struct {
 	OpenFile func(message string) (string, error)
 	// ChooseFolder asks for a folder, as OpenFile does.
 	ChooseFolder func(message string) (string, error)
+	// Reveal shows a file or folder in the file manager: cswap's `open -R`.
+	Reveal func(path string) error
 	// LogPath is the app's log, which the menu bar opens; "" for none.
 	LogPath string
 	// Raise brings the window to the front, for the menu bar's Add and

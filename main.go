@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	osuser "os/user"
 	"path/filepath"
 	"runtime"
@@ -77,6 +78,15 @@ func main() {
 		a.Show("limits") // cswap watch: the dashboard on its live page
 	}
 	a.OpenURL, a.CopyText = mygo.Shell.OpenExternal, mygo.Clipboard.WriteText
+	a.Reveal = func(path string) error { // cswap's `open -R`; elsewhere the folder opens
+		if runtime.GOOS == "darwin" {
+			return exec.Command("open", "-R", path).Run()
+		}
+		if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
+			path = filepath.Dir(path)
+		}
+		return a.OpenURL("file://" + path)
+	}
 	a.LogPath = filepath.Join(appDir(home), "claude-manager.log")
 	jsonFiles := []mygo.FileFilter{{Name: "JSON", Extensions: []string{"json"}}}
 	a.SaveFile = func(name, message string) (string, error) {

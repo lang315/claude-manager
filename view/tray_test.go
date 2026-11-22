@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -318,5 +319,30 @@ func TestTrayTitleSettings(t *testing.T) {
 	l.tt.Frame()
 	if p, _ := l.a.Accounts.Prefs(); p.NoTrayName {
 		t.Errorf("name not back on: %+v", p)
+	}
+}
+
+// claude-swap's on_open_log: `open -R` reveals the log in Finder; with no
+// log yet it is the folder that is revealed.
+func TestTrayOpenLogReveals(t *testing.T) {
+	l := limitsApp(t)
+	l.a.TrayTick()
+	waitFor(t, l.tt, func() bool { return l.a.limits.loaded })
+	dir := t.TempDir()
+	l.a.LogPath = filepath.Join(dir, "claude-manager.log")
+	var got []string
+	l.a.Reveal = func(p string) error { got = append(got, p); return nil }
+	trayItem(t, l, "Open Log").Do()
+	if len(got) != 1 || got[0] != dir { // no log yet: its folder
+		t.Errorf("no log: revealed %v, want [%s]", got, dir)
+	}
+	must(t, os.WriteFile(l.a.LogPath, []byte("x"), 0o644))
+	got = nil
+	trayItem(t, l, "Open Log").Do()
+	if len(got) != 1 || got[0] != l.a.LogPath {
+		t.Errorf("log there: revealed %v, want [%s]", got, l.a.LogPath)
+	}
+	if len(*l.opened) != 0 {
+		t.Errorf("opened %v: the log is revealed, not opened", *l.opened)
 	}
 }
