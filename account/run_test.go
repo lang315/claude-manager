@@ -613,6 +613,7 @@ func TestLiveSignedOut(t *testing.T) {
 		{"both tokens empty", oauth(`"accessToken":"","refreshToken":""`), true},
 		{"no tokens", oauth(``), true},
 		{"access token lapsed", oauth(`"accessToken":"at","expiresAt":` + strconv.FormatInt(past, 10)), true},
+		{"access token lapsed, refresh token", oauth(`"accessToken":"at","refreshToken":"rt","expiresAt":` + strconv.FormatInt(past, 10)), false},
 		{"access token valid", oauth(`"accessToken":"at","expiresAt":` + strconv.FormatInt(future, 10)), false},
 		{"access token no expiry", oauth(`"accessToken":"at"`), false},
 		{"access token null expiry", oauth(`"accessToken":"at","expiresAt":null`), false},

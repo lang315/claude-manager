@@ -41,6 +41,7 @@ func login(name string) []byte {
 
 func newApp(t *testing.T) *app {
 	t.Helper()
+	fakeService(t) // never the real LaunchAgents or launchctl
 	a := &app{usage: map[string]int{"alice": 50, "bob": 10}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimSuffix(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), "-at")
