@@ -140,6 +140,23 @@ func TestRenew(t *testing.T) {
 	}
 }
 
+// the identity fields are best-effort: a malformed one must not lose the rotated refresh token
+func TestRenewIdentityIsBestEffort(t *testing.T) {
+	for _, c := range []struct{ name, extra, acct, org string }{
+		{"account array", `"account":[]`, "", ""},
+		{"organization string", `"account":{"uuid":"u1"},"organization":"x"`, "u1", ""},
+		{"well formed", `"account":{"uuid":"u1"},"organization":{"uuid":"o1"}`, "u1", "o1"},
+	} {
+		a := apiOn(t, func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, `{"access_token":"new","refresh_token":"rt2","expires_in":60,`+c.extra+`}`)
+		})
+		got, err := a.Renew(context.Background(), login("old", "rt", t0), t0)
+		if err != nil || got.RefreshToken != "rt2" || got.TokenAccount != c.acct || got.TokenOrg != c.org {
+			t.Errorf("%s: Renew = %+v, %v", c.name, got, err)
+		}
+	}
+}
+
 func TestRenewAsTheLoginsClient(t *testing.T) {
 	a := apiOn(t, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]string

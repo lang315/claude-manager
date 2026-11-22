@@ -161,17 +161,13 @@ func (a *API) Renew(ctx context.Context, l Login, now time.Time) (Login, error) 
 		return l, err
 	}
 	var r struct {
-		AccessToken      string `json:"access_token"`
-		RefreshToken     string `json:"refresh_token"`
-		ExpiresIn        int64  `json:"expires_in"`
-		RefreshExpiresIn int64  `json:"refresh_token_expires_in"`
-		Scope            string `json:"scope"`
-		Account          struct {
-			UUID string `json:"uuid"`
-		} `json:"account"`
-		Organization struct {
-			UUID string `json:"uuid"`
-		} `json:"organization"`
+		AccessToken      string          `json:"access_token"`
+		RefreshToken     string          `json:"refresh_token"`
+		ExpiresIn        int64           `json:"expires_in"`
+		RefreshExpiresIn int64           `json:"refresh_token_expires_in"`
+		Scope            string          `json:"scope"`
+		Account          json.RawMessage `json:"account"`
+		Organization     json.RawMessage `json:"organization"`
 	}
 	if json.Unmarshal(body, &r) != nil || r.AccessToken == "" || r.ExpiresIn <= 0 {
 		return l, errors.New("Anthropic's token answer was malformed.")
@@ -187,8 +183,14 @@ func (a *API) Renew(ctx context.Context, l Login, now time.Time) (Login, error) 
 	if r.Scope != "" {
 		l.Scopes = strings.Fields(r.Scope)
 	}
-	if u := strings.TrimSpace(r.Account.UUID); u != "" { // claude-swap's extract_token_account: no account uuid, no identity
-		l.TokenAccount, l.TokenOrg = u, r.Organization.UUID
+	// best-effort, as claude-swap's _parse_token_account: a malformed field must not lose the rotated token
+	var acct, org struct {
+		UUID string `json:"uuid"`
+	}
+	_ = json.Unmarshal(r.Account, &acct)
+	_ = json.Unmarshal(r.Organization, &org)
+	if u := strings.TrimSpace(acct.UUID); u != "" { // claude-swap's extract_token_account: no account uuid, no identity
+		l.TokenAccount, l.TokenOrg = u, org.UUID
 	}
 	return l, nil
 }
