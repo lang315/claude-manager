@@ -116,6 +116,7 @@ func main() {
 			}
 		})
 		show := func() { win.Show(); win.Focus() }
+		a.Raise = show
 		mygo.App.OnActivate(func(visible bool) {
 			if !visible {
 				show()
@@ -211,28 +212,12 @@ func setTray(tray *mygo.Tray, a *view.App, show func()) {
 	title, items := a.Tray()
 	login := mygo.App.OpenAtLogin()
 	was := fmt.Sprint(title, login, newer.Load() != nil)
-	for _, it := range items {
-		was += fmt.Sprint("|", it.Label, it.Checked, it.Disabled, it.Do != nil)
-	}
+	was += trayKey(items)
 	if was == trayWas {
 		return
 	}
 	trayWas = was
-	var menu []*mygo.MenuItem
-	for _, it := range items {
-		if it.Label == "" {
-			menu = append(menu, mygo.Separator())
-			continue
-		}
-		m := &mygo.MenuItem{Label: it.Label, Disabled: it.Disabled || it.Do == nil}
-		if it.Toggle || it.Checked {
-			m.Type, m.Checked = mygo.MenuItemCheckbox, it.Checked
-		}
-		if do := it.Do; do != nil {
-			m.Click = func(*mygo.MenuItem, *mygo.Window) { a.Update(do) }
-		}
-		menu = append(menu, m)
-	}
+	menu := trayMenu(a, items)
 	if up := newer.Load(); up != nil {
 		menu = append(menu, mygo.Separator(), &mygo.MenuItem{Label: "Update to " + up.Version + "…", Click: func(*mygo.MenuItem, *mygo.Window) {
 			go func() {
@@ -305,4 +290,37 @@ func accounts(home, configDir, root string) *account.Book {
 		Log:           &logfile.File{Path: filepath.Join(appDir(home), "claude-manager.log"), Max: 1 << 20, Keep: 3},
 		Running:       account.ClaudeRunning,
 	}
+}
+
+// trayMenu is items as mygo's menu items, submenus and all.
+func trayMenu(a *view.App, items []view.TrayItem) []*mygo.MenuItem {
+	var menu []*mygo.MenuItem
+	for _, it := range items {
+		if it.Label == "" {
+			menu = append(menu, mygo.Separator())
+			continue
+		}
+		m := &mygo.MenuItem{Label: it.Label, Disabled: it.Disabled || it.Do == nil && it.Sub == nil}
+		if it.Toggle || it.Checked {
+			m.Type, m.Checked = mygo.MenuItemCheckbox, it.Checked
+		}
+		if do := it.Do; do != nil {
+			m.Click = func(*mygo.MenuItem, *mygo.Window) { a.Update(do) }
+		}
+		if it.Sub != nil {
+			m.Submenu = trayMenu(a, it.Sub)
+		}
+		menu = append(menu, m)
+	}
+	return menu
+}
+
+// trayKey is what the menu shows of items, funcs left out: a menu set
+// again while open would close it.
+func trayKey(items []view.TrayItem) string {
+	k := ""
+	for _, it := range items {
+		k += fmt.Sprint("|", it.Label, it.Checked, it.Disabled, it.Do != nil, "[", trayKey(it.Sub), "]")
+	}
+	return k
 }

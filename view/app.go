@@ -32,6 +32,9 @@ type App struct {
 	ChooseFolder func(message string) (string, error)
 	// LogPath is the app's log, which the menu bar opens; "" for none.
 	LogPath string
+	// Raise brings the window to the front, for the menu bar's Add and
+	// Remove; nil in tests.
+	Raise func()
 
 	root   string // Store.Root as shown, with ~ for the home directory
 	page   string

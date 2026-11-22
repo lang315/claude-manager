@@ -17,6 +17,7 @@ type TrayItem struct {
 	Checked  bool
 	Disabled bool
 	Do       func()
+	Sub      []TrayItem // a submenu, as claude-swap's Add, Remove and Disable menus
 }
 
 // Tray is the menu bar item, as claude-swap's menu bar shows it: the title
@@ -83,6 +84,7 @@ func (a *App) Tray() (title string, items []TrayItem) {
 		TrayItem{Label: "Refresh", Disabled: l.loading, Do: func() { l.load(a, true) }},
 		TrayItem{},
 	)
+	items = append(items, l.trayMenus(a, can)...)
 	if len(l.switches) > 0 { // claude-swap's recent switch history
 		items = append(items, TrayItem{Label: "Recent switches", Disabled: true})
 		for _, s := range l.switches[:min(5, len(l.switches))] {
@@ -231,4 +233,48 @@ func (l *limits) switchPick(a *App, strategy string) {
 			l.startSwitch(a, b)
 		})
 	})
+}
+
+// trayMenus are claude-swap's menu bar submenus: Add account, Remove
+// account, Disable / enable account, and the auto-switch threshold. Add
+// and Remove open the window, where they are asked and confirmed.
+func (l *limits) trayMenus(a *App, can bool) []TrayItem {
+	open := func(f func()) func() {
+		return func() {
+			a.Show("limits")
+			if a.Raise != nil {
+				a.Raise()
+			}
+			f()
+		}
+	}
+	add := TrayItem{Label: "Add Account", Sub: []TrayItem{
+		{Label: "Sign In to Another…", Do: open(func() { l.startAdd(a) })},
+		{Label: "From a Setup-Token or API Key…", Do: open(l.startToken)},
+	}}
+	remove := TrayItem{Label: "Remove Account"}
+	toggle := TrayItem{Label: "Disable / Enable Account"}
+	for _, b := range l.blocks {
+		if !b.Added {
+			continue
+		}
+		remove.Sub = append(remove.Sub, TrayItem{Label: b.Email + "…", Disabled: b.InUse && can || b.Terminal.Dir != "",
+			Do: open(func() { l.removing, l.asking = b, true })})
+		toggle.Sub = append(toggle.Sub, TrayItem{Label: b.Email, Toggle: true, Checked: !b.AutoOff,
+			Do: func() { l.setAccountAuto(a, b.Key(), !b.AutoOff, b.Line, b.Priority) }})
+	}
+	if len(remove.Sub) == 0 {
+		remove.Sub = []TrayItem{{Label: "No added accounts", Disabled: true}}
+		toggle.Sub = remove.Sub
+	}
+	line := TrayItem{Label: "Auto-Switch Threshold"}
+	for _, p := range []float64{70, 80, 85, 90, 95} {
+		line.Sub = append(line.Sub, TrayItem{Label: fmt.Sprintf("%.0f%%", p), Toggle: true, Checked: l.auto.s.Line == p,
+			Disabled: !l.auto.loaded, Do: func() {
+				s := l.auto.s
+				s.Line = p
+				l.saveAuto(a, s)
+			}})
+	}
+	return []TrayItem{add, remove, toggle, line, {}}
 }
