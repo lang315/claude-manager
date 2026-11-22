@@ -344,7 +344,7 @@ func installService(bin, dir string) error {
 		if env != "" {
 			env = "\t<key>EnvironmentVariables</key>\n\t<dict>\n" + env + "\t</dict>\n"
 		}
-		logs := xmlEscape(filepath.Join(dir, "menubar.log"))
+		out, errs := xmlEscape(filepath.Join(dir, "menubar.log")), xmlEscape(filepath.Join(dir, "menubar.err")) // cswap: <label>.log and <label>.err
 		// KeepAlive: started again after a crash, not after a quit (cswap's).
 		plist := `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -355,8 +355,8 @@ func installService(bin, dir string) error {
 	<key>RunAtLoad</key><true/>
 	<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
 	<key>ProcessType</key><string>Interactive</string>
-	<key>StandardOutPath</key><string>` + logs + `</string>
-	<key>StandardErrorPath</key><string>` + logs + `</string>
+	<key>StandardOutPath</key><string>` + out + `</string>
+	<key>StandardErrorPath</key><string>` + errs + `</string>
 ` + env + `</dict>
 </plist>
 `

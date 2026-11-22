@@ -110,6 +110,7 @@ func TestPurgeYesRemovesAgentAndLogs(t *testing.T) {
 	must(t, os.MkdirAll(agentsDir(), 0o755))
 	must(t, os.WriteFile(plistPath(), []byte("x"), 0o644))
 	must(t, os.WriteFile(filepath.Join(a.b.Dir, "menubar.log"), []byte("x"), 0o644))
+	must(t, os.WriteFile(filepath.Join(a.b.Dir, "menubar.err"), []byte("x"), 0o644))
 	if code, out, errs := a.run(t, "", "purge", "--yes"); code != ok || strings.Contains(errs, "Are you sure") || !strings.Contains(out, "Removed 1 accounts") {
 		t.Fatalf("purge --yes: %d %s %s", code, out, errs)
 	}

@@ -178,6 +178,13 @@ func TestMenubarService(t *testing.T) {
 			t.Errorf("no %s in plist %s", want, plist)
 		}
 	}
+	// cswap's StandardOutPath is <label>.log, StandardErrorPath <label>.err: two files.
+	for _, want := range []string{"<key>StandardOutPath</key><string>" + filepath.Join(a.b.Dir, "menubar.log") + "</string>",
+		"<key>StandardErrorPath</key><string>" + filepath.Join(a.b.Dir, "menubar.err") + "</string>"} {
+		if !strings.Contains(string(plist), want) {
+			t.Errorf("no %s in plist %s", want, plist)
+		}
+	}
 	if !slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, "launchctl bootstrap gui/") }) {
 		t.Errorf("calls %q", calls)
 	}
