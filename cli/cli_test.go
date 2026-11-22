@@ -180,7 +180,15 @@ func TestStatusAndSwitch(t *testing.T) {
 		!strings.Contains(out, "50%") || !strings.Contains(out, "Total managed accounts: 2") {
 		t.Fatalf("status: %d %q", code, out)
 	}
-	if _, out, _ := a.run(t, "", "status", "--json"); !strings.Contains(out, `"managed":true`) || !strings.Contains(out, `"totalManagedAccounts":2`) {
+	// cswap: managed sits inside active; totalManagedAccounts only for a managed one.
+	var st struct {
+		Active map[string]any `json:"active"`
+		Total  *int           `json:"totalManagedAccounts"`
+		Top    *bool          `json:"managed"`
+	}
+	_, out, _ := a.run(t, "", "status", "--json")
+	must(t, json.Unmarshal([]byte(out), &st))
+	if st.Active["managed"] != true || st.Total == nil || *st.Total != 2 || st.Top != nil || st.Active["email"] != "alice@example.com" {
 		t.Errorf("status --json: %s", out)
 	}
 	code, out, errs := a.run(t, "", "switch", "bob@example.com", "--json")
@@ -352,6 +360,15 @@ func TestMoveSwapByEmailOrAlias(t *testing.T) {
 
 // cswap's switch --json carries strategy, message and warnings; switching to
 // the account in use, not forced, is a no-op that Switch never sees.
+// The book adds the login in use at each read, so an unmanaged active is
+// reached through statusActive: cswap gives it {email, managed:false} alone.
+func TestStatusActiveUnmanaged(t *testing.T) {
+	got, _ := json.Marshal(statusActive(account.Account{Email: "c@x"}, time.Now()))
+	if string(got) != `{"email":"c@x","managed":false}` {
+		t.Errorf("%s", got)
+	}
+}
+
 func TestSwitchJSONFields(t *testing.T) {
 	a := newApp(t)
 	a.run(t, "", "list") // alice, in use, is Account-2

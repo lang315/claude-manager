@@ -591,6 +591,19 @@ func (c *cmd) instances(w io.Writer) {
 	}
 }
 
+// statusActive is cswap's status "active": managed sits inside it, and an
+// unmanaged account is only its email.
+func statusActive(a account.Account, now time.Time) map[string]any {
+	if !a.Added {
+		return map[string]any{"email": a.Email, "managed": false}
+	}
+	b, _ := json.Marshal(toRow(a, now))
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	m["managed"] = true
+	return m
+}
+
 func (c *cmd) status(ctx context.Context, asJSON bool) error {
 	accts, err := c.read(ctx)
 	if err != nil && len(accts) == 0 {
@@ -604,9 +617,12 @@ func (c *cmd) status(ctx context.Context, asJSON bool) error {
 		}
 	}
 	if asJSON {
-		doc := map[string]any{"schemaVersion": 1, "active": nil, "managed": i >= 0 && accts[i].Added, "totalManagedAccounts": managed}
-		if i >= 0 {
-			doc["active"] = toRow(accts[i], c.b.Now())
+		doc := map[string]any{"schemaVersion": 1, "active": nil}
+		if i >= 0 && accts[i].Email != "" {
+			doc["active"] = statusActive(accts[i], c.b.Now())
+			if accts[i].Added { // cswap: the total only for a managed account
+				doc["totalManagedAccounts"] = managed
+			}
 		}
 		return json.NewEncoder(c.out).Encode(doc)
 	}
