@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -800,11 +801,28 @@ func (c *cmd) remove(name string, yes bool) error {
 }
 
 func (c *cmd) purge(yes bool) error {
-	if !yes { // cswap lists what goes and asks; --yes is for scripts
+	// cswap's _quarantined_history_files: the losing halves of collided transcripts may be the only copy
+	parked := filepath.Join(c.b.Dir, "history-conflicts")
+	files := 0
+	_ = filepath.WalkDir(parked, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			files++
+		}
+		return nil
+	})
+	warn := func(w io.Writer) {
+		if files > 0 {
+			fmt.Fprintf(w, "  - %d quarantined conversation transcript(s) in %s\n    These are the ONLY remaining copy of the losing half of each collided\n    session: history migration parked them here rather than deleting them.\n    Copy them somewhere else first if you want them.\n", files, parked)
+		}
+	}
+	if yes {
+		warn(c.errs)
+	} else { // cswap lists what goes and asks; --yes is for scripts
 		fmt.Fprintf(c.out, "This will remove:\n  - Data folder: %s\n  - Every added account's saved logins, the unclaimed logins and the terminal profiles with their keychain items\n", c.b.Dir)
 		if goos == "darwin" {
 			fmt.Fprintln(c.out, "  - The menu bar start-at-login service and its log")
 		}
+		warn(c.out)
 		fmt.Fprintln(c.out, "Claude Code's own login stays.")
 		if !c.ask("Are you sure you want to purge all data?", false) {
 			fmt.Fprintln(c.out, "Cancelled")

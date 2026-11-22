@@ -402,3 +402,26 @@ func TestNextDelayHoldAndPlan(t *testing.T) {
 
 // The loop's waits go by the interval to the second in tests: no jitter.
 func init() { jitter = func() float64 { return 0.5 } }
+
+// Collided transcripts parked in history-conflicts may be the only copy: purge says so, as cswap does.
+func TestPurgeWarnsOfParkedTranscripts(t *testing.T) {
+	a := newApp(t)
+	fakeService(t)
+	dir := filepath.Join(a.b.Dir, "history-conflicts", "p")
+	must(t, os.MkdirAll(dir, 0o755))
+	must(t, os.WriteFile(filepath.Join(dir, "s.jsonl"), []byte("x"), 0o644))
+	_, _, errs := a.run(t, "", "purge", "--yes")
+	if !strings.Contains(errs, "1 quarantined conversation transcript(s) in "+filepath.Join(a.b.Dir, "history-conflicts")) || !strings.Contains(errs, "Copy them somewhere else first") {
+		t.Errorf("--yes stderr: %q", errs)
+	}
+	b := newApp(t)
+	fakeService(t)
+	must(t, os.MkdirAll(filepath.Join(b.b.Dir, "history-conflicts"), 0o755))
+	if _, out, _ := b.run(t, "", "purge"); strings.Contains(out, "quarantined") {
+		t.Errorf("an empty folder warned: %q", out)
+	}
+	must(t, os.WriteFile(filepath.Join(b.b.Dir, "history-conflicts", "s.jsonl"), []byte("x"), 0o644))
+	if _, out, _ := b.run(t, "", "purge"); !strings.Contains(out, "ONLY remaining copy") {
+		t.Errorf("prompt: %q", out)
+	}
+}
