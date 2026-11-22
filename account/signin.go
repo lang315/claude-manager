@@ -268,6 +268,9 @@ func findTool(name, notFound string, places ...string) (string, error) {
 			return p, nil
 		}
 	}
+	if p, err := exec.LookPath(name); err == nil && filepath.IsAbs(p) { // no zsh (Windows, some Linux): PATH, as claude-swap's shutil.which
+		return p, nil
+	}
 	for _, p := range places {
 		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
 			return p, nil
