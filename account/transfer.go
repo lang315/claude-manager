@@ -78,7 +78,7 @@ func (b *Book) Export(path string, full bool, keys ...string) (n, left int, err 
 		if len(keys) > 0 && !slices.Contains(keys, a.Key()) {
 			continue
 		}
-		blob, err := b.Vault.Get(ParkService, a.Key())
+		blob, err := b.savedLogin(a.Key()) // the renewed one the keychain refused, not its spent one
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return 0, 0, err
 		}

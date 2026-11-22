@@ -121,6 +121,21 @@ func TestExportKeepsNewerSavedLogin(t *testing.T) {
 	}
 }
 
+// A renewed login the keychain refused is the one to export; the keychain's is spent.
+func TestExportTakesUnsavedLogin(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	_, err := b.keep(login("bob-at", "bob-rt", t0.Add(5*time.Hour)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	b.unsaved = map[string][]byte{bob.Key(): login("bob-at2", "bob-rt2", t0.Add(5*time.Hour)).Marshal()}
+	must(t, b.writeUnsaved()) // Export reloads it from unsaved.json
+	path := filepath.Join(t.TempDir(), "out.json")
+	_, _, err = b.Export(path, false)
+	must(t, err)
+	if l, _ := parseLogin(entryOf(t, exportOf(t, path), bob.Email).Credentials); l.RefreshToken != "bob-rt2" {
+		t.Errorf("bob exported with %q", l.RefreshToken)
+	}
+}
+
 // An account added before the app kept oauthAccount can't be switched to
 // on the other Mac either.
 func TestExportSkipsAccountWithoutOAuthAccount(t *testing.T) {
