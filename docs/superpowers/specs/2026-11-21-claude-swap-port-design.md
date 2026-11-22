@@ -818,6 +818,12 @@ Superseded by the table in `docs/roadmap.md` ("claude-swap features, ported
 or not"): the menu bar, start at login, pace and per-model windows moved to
 parts 5 and 6.
 
+- cswap's backfill of a blank account uuid on freshen (`_note_token_identity`):
+  not ported. The account key is `AccountUUID + "/" + OrgUUID`, and the
+  keychain items (ParkService), maps, aliases and history are all keyed by it,
+  so filling the uuid would re-key the account and orphan them; there is no
+  re-key path. A blank uuid is still no conflict, as cswap's.
+
 ## Open before PR 1
 
 - The real Add Account check (PR #9) is still owed; native switch builds on
