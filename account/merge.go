@@ -25,7 +25,7 @@ func mergeHistory(src, dest, conflicts string) (moved, parked int, err error) {
 	return mergeHistoryLive(src, dest, conflicts, func(string) bool { return true })
 }
 
-// mergeHistoryLive is mergeHistory where, of two diverged copies, the later
+// mergeHistoryLive is mergeHistory where, of two diverged transcripts, the later
 // stays shared (claude-swap's _profile_copy_wins), unless live reports a
 // session writing the shared copy at rel. The other is parked under
 // shared/ or profile/, for where it came from.
@@ -85,7 +85,7 @@ func mergeHistoryLive(src, dest, conflicts string, live func(rel string) bool) (
 			}
 			run := filepath.Join(conflicts, stamp+"-"+filepath.Base(filepath.Dir(dest)))
 			loser, side := p, "profile"
-			if profileWins(target, p) && !live(rel) {
+			if filepath.Ext(p) == ".jsonl" && profileWins(target, p) && !live(rel) { // claude-swap: transcripts only
 				loser, side = target, "shared"
 			}
 			if err := park(loser, filepath.Join(run, side, rel)); err != nil {

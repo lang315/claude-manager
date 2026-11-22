@@ -173,3 +173,17 @@ func TestReusedPidIsNoSession(t *testing.T) {
 		t.Error("a reused pid's session reads as live")
 	}
 }
+
+// Only a transcript can win over the shared copy, as claude-swap's: any
+// other file that clashes keeps the shared copy and parks the profile's.
+func TestMergeHistoryOnlyTranscriptsWin(t *testing.T) {
+	root, prof, conf := t.TempDir(), t.TempDir(), t.TempDir()
+	src, dest := filepath.Join(root, "projects"), filepath.Join(prof, "projects")
+	write(t, filepath.Join(src, "p", "memory", "MEMORY.md"), "shared\n")
+	write(t, filepath.Join(dest, "p", "memory", "MEMORY.md"), "profile\nlonger\nstill\n")
+	_, parked, err := mergeHistoryLive(src, dest, conf, func(string) bool { return false })
+	must(t, err)
+	if got := read(t, filepath.Join(src, "p", "memory", "MEMORY.md")); parked != 1 || got != "shared\n" {
+		t.Fatalf("parked %d, shared copy %q", parked, got)
+	}
+}
