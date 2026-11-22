@@ -62,12 +62,12 @@ func (l *limits) load(a *App, force bool) {
 	l.loading = true
 	autoOn := l.auto.s.On && l.switching == ""
 	a.Go(func() {
-		saved, err := a.Accounts.Blocks()
+		saved, serr := a.Accounts.Blocks() // its own err: the closure runs on the UI goroutine after Refresh writes err
 		a.Update(func() {
 			if !l.loaded {
 				l.blocks = saved
 			}
-			l.toast(a, err)
+			l.toast(a, serr)
 		})
 		blocks, err := a.Accounts.Refresh(context.Background(), force)
 		defer func() {
