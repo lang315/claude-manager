@@ -26,6 +26,8 @@ lists every claude-swap feature and where it went.
 | Each added account's saved login | macOS keychain, item `claude-manager-park`, account `<accountUuid>/<orgUuid>`; the one before it in `claude-manager-park-prev` |
 | A setup-token or API key account's token or key | the same `claude-manager-park` item |
 | The log: switches, failures, quarantines (never a token) | `claude-manager.log` in the app's folder, 1 MB, 3 kept |
+| The menu bar service's output | `menubar.log` and `menubar.err` in the app's folder |
+| A renewed login the keychain refused, until it can be written | `unsaved.json` in the app's folder (0600) |
 | A login in use that named no account when switched off | keychain `claude-manager-unclaimed`, by id; `claude-manager unclaimed` lists them |
 | Open in Terminal profiles | `~/Library/Application Support/Claude Manager/profiles/<hash>/` |
 | Claude Code's own login, as the app switches it | keychain `Claude Code-credentials` (or `~/.claude/.credentials.json`), `Claude Code` for an API key, and `~/.claude.json`'s `oauthAccount` |
@@ -44,7 +46,7 @@ claude-manager status [--json]                  the account in use
 claude-manager switch <account> [--json]        put Claude Code on an added account
 claude-manager auto --once [--dry-run] [--json] one auto-switch check: exit 0 switched, 1 error, 2 nothing, 3 blocked
 claude-manager add-token <token|-> [--email E]  a setup-token or a Console API key
-claude-manager remove <account> | purge --yes
+claude-manager remove <account> | purge [--yes]   purge asks first; --yes for scripts
 claude-manager export <file> [--full] | import <file> [--hold SECONDS]
 claude-manager run [<account>] [folder] [--no-share] [--no-share-history | --share-history]
 claude-manager alias | map | unmap | move | swap | unclaimed | config | upgrade | version
@@ -76,7 +78,10 @@ the menu bar); `run.shareHistory`; `updates.check`; `usage.headerProbe`.
 
 ## Uninstall
 
-1. Turn Start at Login off (menu bar item) and quit the app.
-2. `claude-manager purge --yes` removes every added account and its keychain
-   items. It doesn't touch Claude Code's own login.
-3. Delete the app and `~/Library/Application Support/Claude Manager`.
+1. Quit the app.
+2. `claude-manager purge` (it asks; `--yes` skips the question) removes every
+   added account and its keychain items, the app's whole folder
+   (`~/Library/Application Support/Claude Manager`: logs, memos, profiles)
+   and the menu bar's start-at-login service. It doesn't touch Claude Code's
+   own login.
+3. Delete the app.
