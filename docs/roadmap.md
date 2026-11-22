@@ -80,6 +80,7 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **28. Gaps: run fast path, pid reuse, claude check, onboarding, MCP mirror, .config.json, setup-token transfer, locks, swap, hint** (#47, draft).
 - [x] **29. Gaps: list and status detail, JSON kinds and shapes, config, update notice, menu bar service** (#48, draft).
 - [x] **30. Gaps: the no-return bar's release, the plan's own retry, the menu bar (health, title, rows, picks, log, live refresh), notifications, slot and alias in the window** (#49, draft).
+- [x] **31. Gaps: claude-swap's poll plan, auto --json events, config --json, usage log lines, the menu bar's submenus and settings, session-only auto settings** (#50, draft).
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an
