@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -493,5 +496,30 @@ func TestFreshenUsesUnsaved(t *testing.T) {
 		if c == "renew bob-rt" {
 			t.Error("posted the spent refresh token")
 		}
+	}
+}
+
+// A renewed login the keychain refused outlives the app: it is kept in a
+// private file, as claude-swap's stash, and written at the next start.
+func TestUnsavedSurvivesRestart(t *testing.T) {
+	f := newAnthropic()
+	b, v, _, _ := newBook(t, f)
+	_, err := b.keep(login("bob-at", "bob-rt", t0.Add(time.Minute)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	f.renewed["bob-rt"], f.usage["bob-at2"] = "bob-at2", 10
+	v.Fail = errors.New("keychain locked")
+	b.Refresh(ctx, true)
+	v.Fail = nil
+	path := filepath.Join(b.Dir, "unsaved.json")
+	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("unsaved file: %v %v", fi, err)
+	}
+	again := &Book{Dir: b.Dir, Vault: v, API: b.API, Now: b.Now, Live: b.Live}
+	again.Refresh(ctx, true)
+	if l, _ := parseLogin(get(t, v, ParkService, bob.Key())); l.RefreshToken != "bob-rt+" {
+		t.Errorf("after a restart the keychain holds %q", l.RefreshToken)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the file outlived its write: %v", err)
 	}
 }

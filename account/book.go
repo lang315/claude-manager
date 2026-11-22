@@ -202,6 +202,7 @@ func (b *Book) load() error {
 	if !b.cleaned {
 		b.cleaned = true
 		b.cleanLeftovers()
+		b.readUnsaved()
 	}
 	st := stampOf(b.path())
 	data, err := os.ReadFile(b.path())
@@ -478,6 +479,9 @@ func (b *Book) Purge() (int, error) {
 	}
 	n := len(b.added)
 	err := os.RemoveAll(profiles)
+	if rerr := os.Remove(b.unsavedPath()); !errors.Is(rerr, fs.ErrNotExist) {
+		err = errors.Join(err, rerr)
+	}
 	if rerr := os.Remove(b.path()); !errors.Is(rerr, fs.ErrNotExist) {
 		err = errors.Join(err, rerr)
 	}

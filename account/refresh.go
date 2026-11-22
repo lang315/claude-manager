@@ -3,11 +3,14 @@ package account
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -407,7 +410,11 @@ func (b *Book) renew(ctx context.Context, a *Account, blob []byte, l Login, held
 			b.unsaved = map[string][]byte{}
 		}
 		b.unsaved[a.Key()] = saved
+		werr := b.writeUnsaved()
 		b.side.Unlock()
+		if werr != nil {
+			b.logf("%s's renewed sign-in couldn't be kept on disk either: %v", a.Email, werr)
+		}
 		b.logf("%s's renewed sign-in couldn't be saved to the keychain yet: %v", a.Email, err)
 	}
 	if fresh.RefreshTokenExpiresAt > 0 {
@@ -445,16 +452,63 @@ func (b *Book) savedLogin(key string) ([]byte, error) {
 // account went.
 func (b *Book) dropUnsaved(key string) {
 	b.side.Lock()
-	delete(b.unsaved, key)
+	var err error
+	if _, ok := b.unsaved[key]; ok {
+		delete(b.unsaved, key)
+		err = b.writeUnsaved()
+	}
 	b.side.Unlock()
+	if err != nil {
+		b.logf("the unsaved sign-ins couldn't be kept on disk: %v", err)
+	}
 }
 
 // saveUnsaved writes the renewed logins the keychain refused before.
 func (b *Book) saveUnsaved() {
+	n := len(b.unsaved)
 	for k, blob := range b.unsaved {
 		if b.Vault.Put(ParkService, k, blob) == nil {
 			delete(b.unsaved, k)
 		}
+	}
+	if len(b.unsaved) != n {
+		if err := b.writeUnsaved(); err != nil {
+			b.logf("the unsaved sign-ins couldn't be kept on disk: %v", err)
+		}
+	}
+}
+
+// unsavedPath holds the unsaved logins across restarts: the old refresh
+// token is spent, so losing them loses the sign-in. Like claude-swap's
+// stash it is a private file, not the keychain that refused them.
+func (b *Book) unsavedPath() string { return filepath.Join(b.Dir, "unsaved.json") }
+
+// writeUnsaved mirrors b.unsaved to its file, removed once empty; the
+// caller holds b.side or b.mu alone, so it must not log.
+func (b *Book) writeUnsaved() error {
+	var err error
+	if len(b.unsaved) == 0 {
+		if err = os.Remove(b.unsavedPath()); errors.Is(err, fs.ErrNotExist) {
+			err = nil
+		}
+	} else if err = os.MkdirAll(b.Dir, 0o700); err == nil {
+		var data []byte
+		if data, err = json.Marshal(b.unsaved); err == nil {
+			err = writeAtomic(b.unsavedPath(), data, 0o600)
+		}
+	}
+	return err
+}
+
+// readUnsaved loads the unsaved logins a previous run left.
+func (b *Book) readUnsaved() {
+	data, err := os.ReadFile(b.unsavedPath())
+	if err != nil {
+		return
+	}
+	var u map[string][]byte
+	if json.Unmarshal(data, &u) == nil && len(u) > 0 {
+		b.unsaved = u
 	}
 }
 
