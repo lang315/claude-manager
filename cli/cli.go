@@ -843,11 +843,11 @@ func (c *cmd) run(rest []string, share account.Share, requireSession bool) error
 			if requireSession {
 				return fmt.Errorf("No account is mapped to %s: name an account.", folder)
 			}
-			return c.runDefault(folder, fmt.Sprintf("No account is mapped to %s", folder), forward)
+			return c.runDefault("", folder, fmt.Sprintf("No account is mapped to %s", folder), share, forward)
 		}
 		name = key
 		if _, err := find(accts, name); err != nil && !requireSession {
-			return c.runDefault(folder, "The account mapped to "+folder+" is no longer added", forward)
+			return c.runDefault("", folder, "The account mapped to "+folder+" is no longer added", share, forward)
 		}
 	}
 	a, err := find(accts, name)
@@ -858,7 +858,7 @@ func (c *cmd) run(rest []string, share account.Share, requireSession bool) error
 		fmt.Fprintf(c.out, "%s is the default login, but that login holds no usable token; launching from the stored login in a session profile.\n", a.Email)
 	}
 	if err := c.b.Run(a.Key(), folder, share, forward...); errors.Is(err, account.ErrRunInUse) && !requireSession {
-		return c.runDefault(folder, a.Email+" is the account in use", forward)
+		return c.runDefault(a.Key(), folder, a.Email+" is the account in use", share, forward)
 	} else if err != nil {
 		return err
 	}
@@ -1090,9 +1090,13 @@ func (c *cmd) unclaimed(purge string) error {
 // runDefault is cswap run's fast path: Claude Code as the account in use,
 // in its own folder, for a folder mapped to nobody or a run as the account
 // in use (--require-session refuses instead).
-func (c *cmd) runDefault(folder, why string, args []string) error {
-	if err := c.b.RunDefault(folder, args...); err != nil {
+func (c *cmd) runDefault(key, folder, why string, share account.Share, args []string) error {
+	note, err := c.b.RunDefault(key, folder, share, args...)
+	if err != nil {
 		return err
+	}
+	if note != "" {
+		fmt.Fprintln(c.out, "   "+note)
 	}
 	fmt.Fprintf(c.out, "%s: opened Claude Code in Terminal as the account in use.\n", why)
 	return nil

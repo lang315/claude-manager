@@ -244,19 +244,9 @@ func (b *Book) seed(dir string, parked []byte, acct json.RawMessage, share Share
 	if err := writeAtomic(filepath.Join(dir, ".claude.json"), conf, 0o600); err != nil {
 		return err
 	}
-	busy := false
-	if b.Running != nil {
-		running, err := b.Running(dir)
-		busy = running || err != nil
-	}
-	if share.History && !busy {
-		// Its own history first goes into ~/.claude's, as claude-swap's;
-		// never under a claude still writing it.
-		live := liveTranscripts(h.Root)
-		for _, name := range history {
-			if _, _, err := mergeHistoryLive(filepath.Join(h.Root, name), filepath.Join(dir, name), filepath.Join(b.Dir, "history-conflicts"), live); err != nil {
-				return err
-			}
+	if share.History {
+		if err := b.mergeOwnHistory(dir); err != nil {
+			return err
 		}
 	}
 	for _, g := range []struct {
@@ -267,6 +257,24 @@ func (b *Book) seed(dir string, parked []byte, acct json.RawMessage, share Share
 			if err := link(filepath.Join(h.Root, name), filepath.Join(dir, name), g.on); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// mergeOwnHistory moves a profile's own history into ~/.claude's, as
+// claude-swap's; never under a claude still writing it.
+func (b *Book) mergeOwnHistory(dir string) error {
+	if b.Running != nil {
+		if running, err := b.Running(dir); running || err != nil {
+			return nil
+		}
+	}
+	h := b.Home
+	live := liveTranscripts(h.Root)
+	for _, name := range history {
+		if _, _, err := mergeHistoryLive(filepath.Join(h.Root, name), filepath.Join(dir, name), filepath.Join(b.Dir, "history-conflicts"), live); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -466,17 +474,35 @@ func liveTranscripts(root string) func(rel string) bool {
 }
 
 // RunDefault opens Claude Code in a terminal at folder as the account in
-// use, in its own folder: cswap run's fast path, nothing seeded.
-func (b *Book) RunDefault(folder string, args ...string) error {
+// use, in its own folder: cswap run's fast path, nothing seeded. key is the
+// account in use, "" for none: its profile's own history is merged into
+// ~/.claude's when share.History, else note says which history is used
+// (claude-swap's _history_on_the_fast_path).
+func (b *Book) RunDefault(key, folder string, share Share, args ...string) (note string, err error) {
 	if b.Home == nil {
-		return ErrCantSwitch
+		return "", ErrCantSwitch
 	}
 	if b.Claude != nil {
 		if _, err := b.Claude(); err != nil {
-			return err
+			return "", err
 		}
 	}
-	return b.Launch(folder, "", args...)
+	if key != "" { // claude-swap's _history_on_the_fast_path: only a profile's own history counts
+		dir := b.profile(key)
+		own := slices.ContainsFunc(history, func(name string) bool {
+			fi, err := os.Lstat(filepath.Join(dir, name))
+			return err == nil && fi.Mode()&fs.ModeSymlink == 0
+		})
+		switch {
+		case own && share.History:
+			if err := b.mergeOwnHistory(dir); err != nil {
+				return "", err
+			}
+		case own:
+			note = "This launch uses the default login's chat history (~/.claude), not the account's own."
+		}
+	}
+	return note, b.Launch(folder, "", args...)
 }
 
 // RunCommand is the shell command LaunchInTerminal runs: claude with args;

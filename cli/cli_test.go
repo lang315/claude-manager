@@ -327,6 +327,12 @@ func TestAliasMapRun(t *testing.T) {
 		t.Errorf("the account in use, signed out: %d %s %s %q", code, out, errs, profile)
 	}
 	must(t, a.v.Put("Claude Code-credentials", "me", login("alice")))
+	// The fast path says which history it uses when the profile has its own
+	// and sharing is off.
+	must(t, os.Mkdir(filepath.Join(profile, "projects"), 0o700))
+	if code, out, errs := a.run(t, "", "run", "alice@example.com", t.TempDir(), "--no-share-history"); code != ok || !strings.Contains(out, "   This launch uses the default login's chat history (~/.claude), not the account's own.") {
+		t.Errorf("history notice: %d %s %s", code, out, errs)
+	}
 	// An account's name wins over a folder of that name here.
 	here := t.TempDir()
 	t.Chdir(here)

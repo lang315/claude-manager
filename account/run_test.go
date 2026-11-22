@@ -667,3 +667,79 @@ func TestRunInUseSignedOut(t *testing.T) {
 		t.Errorf("no saved login: %v, launched %q", err, r.launched)
 	}
 }
+
+// claude-swap's _history_on_the_fast_path: the profile's own history goes
+// into ~/.claude's when sharing is on; off, the launch says which history
+// it uses; a profile with none of its own, or none, is left alone.
+func TestRunDefaultHistory(t *testing.T) {
+	own := func(r *runBook) (string, string) {
+		dir := r.b.profile(bob.Key())
+		must(t, os.MkdirAll(filepath.Join(dir, "projects", "p"), 0o700))
+		jsonl := filepath.Join(dir, "projects", "p", "s.jsonl")
+		must(t, os.WriteFile(jsonl, []byte("x\n"), 0o600))
+		must(t, os.WriteFile(filepath.Join(dir, "history.jsonl"), []byte("h1\n"), 0o600))
+		return dir, jsonl
+	}
+	shared := func(r *runBook) string { return filepath.Join(r.h.Root, "projects", "p", "s.jsonl") }
+
+	r := newRunBook(t)
+	_, jsonl := own(r)
+	note, err := r.b.RunDefault(bob.Key(), "/work", both)
+	must(t, err)
+	if got, _ := os.ReadFile(shared(r)); string(got) != "x\n" {
+		t.Errorf("shared transcript %q", got)
+	}
+	if _, err := os.Stat(jsonl); err == nil {
+		t.Error("the profile's transcript stayed")
+	}
+	if got, _ := os.ReadFile(filepath.Join(r.h.Root, "history.jsonl")); string(got) != "h1\n" {
+		t.Errorf("shared history.jsonl %q", got)
+	}
+	if note != "" || !slices.Equal(r.launched, [][2]string{{"/work", ""}}) {
+		t.Errorf("note %q, launched %q", note, r.launched)
+	}
+
+	r = newRunBook(t)
+	_, jsonl = own(r)
+	note, err = r.b.RunDefault(bob.Key(), "/work", Share{Setup: true})
+	must(t, err)
+	if _, err := os.Stat(shared(r)); err == nil {
+		t.Error("history merged with sharing off")
+	}
+	if _, err := os.Stat(jsonl); err != nil {
+		t.Error("the profile's transcript went with sharing off")
+	}
+	if note != "This launch uses the default login's chat history (~/.claude), not the account's own." {
+		t.Errorf("note %q", note)
+	}
+
+	r = newRunBook(t) // no profile
+	if note, err = r.b.RunDefault(bob.Key(), "/work", both); err != nil || note != "" {
+		t.Errorf("no profile: %q, %v", note, err)
+	}
+	if note, err = r.b.RunDefault(bob.Key(), "/work", Share{}); err != nil || note != "" {
+		t.Errorf("no profile, not sharing: %q, %v", note, err)
+	}
+	if note, err = r.b.RunDefault("", "/work", Share{}); err != nil || note != "" {
+		t.Errorf("no account: %q, %v", note, err)
+	}
+
+	r = newRunBook(t) // a profile whose history is already linked
+	dir := r.b.profile(bob.Key())
+	must(t, os.MkdirAll(dir, 0o700))
+	must(t, os.MkdirAll(filepath.Join(r.h.Root, "projects"), 0o700))
+	must(t, os.Symlink(filepath.Join(r.h.Root, "projects"), filepath.Join(dir, "projects")))
+	if note, err = r.b.RunDefault(bob.Key(), "/work", Share{}); err != nil || note != "" {
+		t.Errorf("linked: %q, %v", note, err)
+	}
+
+	r = newRunBook(t) // a claude running in the profile: its history is left where it is
+	_, jsonl = own(r)
+	r.running = true
+	if _, err = r.b.RunDefault(bob.Key(), "/work", both); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(jsonl); err != nil {
+		t.Error("history moved under a running claude")
+	}
+}
