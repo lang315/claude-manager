@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -261,6 +262,43 @@ func TestConfigJSON(t *testing.T) {
 
 // purge leaves nothing behind, the update notice's memo included; a
 // negative --hold is refused, as cswap's.
+// cswap's config --json: list names the flag isSet and has unrecognized;
+// get --json is {schemaVersion, key, value, isSet}. Go cannot tell a stored
+// default from an unset key, so isSet stays value != default.
+func TestConfigJSONIsSet(t *testing.T) {
+	a := newApp(t)
+	a.run(t, "", "config", "set", "autoswitch.threshold", "80")
+	_, out, _ := a.run(t, "", "config", "list", "--json")
+	var doc struct {
+		Settings []struct {
+			Key   string
+			IsSet *bool `json:"isSet"`
+			Set   *bool `json:"set"`
+		}
+		Unrecognized []any `json:"unrecognized"`
+	}
+	must(t, json.Unmarshal([]byte(out), &doc))
+	if doc.Unrecognized == nil || len(doc.Unrecognized) != 0 || strings.Contains(out, `"set":`) {
+		t.Errorf("list: %s", out)
+	}
+	for _, s := range doc.Settings {
+		if s.IsSet == nil || *s.IsSet != (s.Key == "autoswitch.threshold") {
+			t.Errorf("isSet of %s: %s", s.Key, out)
+		}
+	}
+	_, out, _ = a.run(t, "", "config", "get", "autoswitch.threshold", "--json")
+	if want := `{"isSet":true,"key":"autoswitch.threshold","schemaVersion":1,"value":"80"}` + "\n"; out != want {
+		t.Errorf("get --json: %q", out)
+	}
+	_, out, _ = a.run(t, "", "config", "get", "ui.theme", "--json")
+	if !strings.Contains(out, `"isSet":false`) {
+		t.Errorf("get unset --json: %q", out)
+	}
+	if _, out, _ = a.run(t, "", "config", "get", "ui.theme"); out != "auto\n" {
+		t.Errorf("get plain: %q", out)
+	}
+}
+
 func TestPurgeNoNoticeAndHoldNonNegative(t *testing.T) {
 	a := newApp(t)
 	Newest = func(context.Context) (string, error) { return "9.9.9", nil }
