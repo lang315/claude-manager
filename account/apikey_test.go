@@ -150,8 +150,9 @@ func TestSwitchAPIKeyRestores(t *testing.T) {
 	}
 }
 
-// claude-swap's includeApiKeyAccounts: a key is the last resort, at the
-// limit or on a failover, never otherwise.
+// claude-swap's includeApiKeyAccounts: a key is the last resort whenever
+// auto-switch must move (at the limit, past the line, on a failover), never
+// for a consume-first or priority nudge.
 func TestDecideAPIKeyLastResort(t *testing.T) {
 	key := Account{AccountUUID: keyUUID + "k", Email: "k", Added: true, APIKey: true, OAuthAccount: json.RawMessage(`{}`)}
 	spent := acct("s", 100, 10, day)
@@ -163,8 +164,13 @@ func TestDecideAPIKeyLastResort(t *testing.T) {
 	if d := decide(t0, s, []Account{inUse(acct("a", 100, 10, day)), spent, key}, memo{}); d.To != key.Key() {
 		t.Errorf("at the limit: %+v", d)
 	}
-	if d := decide(t0, s, []Account{inUse(acct("a", 95, 10, day)), spent, key}, memo{}); d.To != "" {
+	if d := decide(t0, s, []Account{inUse(acct("a", 95, 10, day)), spent, key}, memo{}); d.To != key.Key() {
 		t.Errorf("proactive: %+v", d)
+	}
+	c := s
+	c.Strategy = ConsumeFirst
+	if d := decide(t0, c, []Account{inUse(acct("a", 10, 10, day)), spent, key}, memo{}); d.To != "" {
+		t.Errorf("a consume-first nudge: %+v", d)
 	}
 	if d := decide(t0, s, []Account{inUse(acct("a", 100, 10, day)), acct("b", 10, 10, day), key}, memo{}); d.Email != "b" {
 		t.Errorf("a subscription with room comes first: %+v", d)

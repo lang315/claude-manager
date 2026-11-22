@@ -39,7 +39,8 @@ type Auto struct {
 	// (usage.headerProbe): each is a real request on the account.
 	Probe bool `json:"headerProbe,omitempty"`
 	// Keys lets auto-switch fall back on an API key account when no account
-	// with a subscription has room, at the limit or on a failover
+	// with a subscription has room and it must move: past the line, at the
+	// limit or on a failover, never for a consume-first or priority nudge
 	// (autoswitch.includeApiKeyAccounts).
 	Keys bool `json:"includeApiKeyAccounts,omitempty"`
 	// DryRun decides and says, switching nothing (claude-swap's TUI dry run).
@@ -448,8 +449,9 @@ func decide(now time.Time, s Auto, accts []Account, m memo) Decision {
 		}
 	}
 	slices.SortStableFunc(out, func(x, y ranked) int { return slices.Compare(x.key, y.key) })
-	if len(out) == 0 && escape && s.Keys {
-		// claude-swap's last resort: a key has no limits, and costs per token.
+	if len(out) == 0 && s.Keys && trigger != "consume" && !(priority && !act.over) {
+		// claude-swap's last resort when it must move: a key has no limits,
+		// and costs per token; never for a consume-first or priority nudge.
 		for _, a := range accts {
 			if a.APIKey && !a.InUse && !a.AutoOff {
 				return Decision{To: a.Key(), Email: a.Email, Why: "no account with a subscription has room; it is an API key",
