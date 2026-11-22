@@ -3,6 +3,7 @@ package account
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -164,8 +165,13 @@ func TestLiveTranscripts(t *testing.T) {
 // is no running claude: take-back and Open in Terminal don't wait on it.
 func TestReusedPidIsNoSession(t *testing.T) {
 	dir := t.TempDir()
+	// A process of its own: the test's own arguments may hold "claude" (a
+	// -run pattern), and a claude is never a reused pid.
+	other := exec.Command("sleep", "60")
+	must(t, other.Start())
+	t.Cleanup(func() { other.Process.Kill(); other.Wait() })
 	old := time.Now().Add(-24 * time.Hour).UTC().Format("Mon Jan _2 15:04:05 2006")
-	write(t, filepath.Join(dir, "sessions", "1.json"), `{"pid":`+strconv.Itoa(os.Getpid())+`,"sessionId":"s","procStart":"`+old+`"}`)
+	write(t, filepath.Join(dir, "sessions", "1.json"), `{"pid":`+strconv.Itoa(other.Process.Pid)+`,"sessionId":"s","procStart":"`+old+`"}`)
 	if running, err := ClaudeRunning(dir); err != nil || running {
 		t.Errorf("a reused pid: running %v, %v", running, err)
 	}
