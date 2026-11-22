@@ -146,8 +146,12 @@ func nextDelay(interval time.Duration, blocked, held bool, accts []account.Accou
 	if !blocked {
 		delay := time.Duration(float64(interval) * (0.9 + 0.2*rnd))
 		// _respect_poll_plan: only ever shorter, never under the planner's 60 s URGENT_INTERVAL_S.
-		if i := slices.IndexFunc(accts, func(a account.Account) bool { return a.InUse }); i >= 0 && !accts[i].NextPoll.IsZero() {
-			return min(delay, max(accts[i].NextPoll.Sub(now), time.Minute))
+		if i := slices.IndexFunc(accts, func(a account.Account) bool { return a.InUse }); i >= 0 {
+			// after a failed read NextPoll is stale: Retry and WaitUntil hold the real time
+			due := slices.MaxFunc([]time.Time{accts[i].NextPoll, accts[i].Retry, accts[i].WaitUntil}, time.Time.Compare)
+			if !due.IsZero() {
+				return min(delay, max(due.Sub(now), time.Minute))
+			}
 		}
 		return delay
 	}

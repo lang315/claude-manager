@@ -345,6 +345,8 @@ func TestNextDelay(t *testing.T) {
 		{"jitter low", false, nil, 0, 100 * time.Second, 90 * time.Second},
 		{"jitter mid", false, nil, 0.5, 100 * time.Second, 100 * time.Second},
 		{"jitter high", false, nil, 1, 100 * time.Second, 110 * time.Second},
+		{"in use, read failed: the retry is the next poll, NextPoll is stale", false, []account.Account{{InUse: true, NextPoll: t0.Add(-5 * min), Retry: t0.Add(10 * min)}}, 0.5, 10 * min, 10 * min},
+		{"in use, rate limited: WaitUntil is the next poll", false, []account.Account{{InUse: true, NextPoll: t0.Add(-5 * min), WaitUntil: t0.Add(3 * min)}}, 0.5, 10 * min, 3 * min},
 		{"blocked until the earliest reset and a minute", true, []account.Account{spent(20 * min), spent(8 * min)}, 0.5, min, 9 * min},
 		{"blocked, soon: at least the interval", true, []account.Account{spent(30 * time.Second)}, 0.5, 2 * min, 2 * min},
 		{"blocked, far: ten minutes", true, []account.Account{spent(3 * 60 * min)}, 0.5, min, 10 * min},
