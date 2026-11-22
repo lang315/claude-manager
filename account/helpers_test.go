@@ -170,3 +170,6 @@ type probeAnswer struct {
 	status  int
 	headers map[string]string
 }
+
+// Polls go by their plan to the second in tests: no jitter.
+func init() { jitter = func() float64 { return 0.5 } }

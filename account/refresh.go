@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"math"
+	"math/rand/v2"
 	"os"
 	"slices"
 	"sync"
@@ -246,6 +248,7 @@ func (b *Book) read(ctx context.Context, a *Account, token, held string, now tim
 		var rl *RateLimited
 		if errors.As(err, &rl) {
 			a.WaitUntil = now.Add(rateLimitWait(rl.Wait, a.Failures+1))
+			a.Last429 = now
 		}
 		a.Failures++
 		a.Retry = now.Add(backoff(a.Failures))
@@ -256,10 +259,9 @@ func (b *Book) read(ctx context.Context, a *Account, token, held string, now tim
 	}
 	a.Failures, a.Retry = 0, time.Time{}
 	b.readPlan(ctx, a, used, now)
-	before, _ := stand(*a, Auto{Line: 100})
+	a.PollEvery = nextPoll(a.PollEvery, a.Limits, limits, a == b.inUse || a.InUse, b.settings(), a.Last429, now, jitter())
+	a.NextPoll = now.Add(a.PollEvery)
 	a.Limits, a.ReadAt, a.Err, a.WaitUntil = limits, now, "", time.Time{}
-	after, _ := stand(*a, Auto{Line: 100})
-	a.climbing = before.raw-after.raw >= 1
 }
 
 // backoff is how long a read that failed n times in a row waits:
@@ -303,13 +305,13 @@ func (b *Book) nearLine(now time.Time) bool {
 	return !ok || !usable(*a, now) || st.room <= 15
 }
 
-// due is when a is next read, claude-swap's poll_policy without its
-// jitter and movement scaling: the account in use every 3 minutes, every
-// minute while it climbs near a line; the others every 5, every 3 near a
-// line; a spent one every 10, though a minute after its window resets.
-// claude-swap reads a spent account in use every 10 minutes too, trusting
-// its reading until then; here the account in use stays at 3, so its
-// reading stays fresh for auto-switch.
+// due is when a is next read: a failing read at its back-off, a good one
+// at claude-swap's poll plan (nextPoll, saved for every process); the
+// others every 3 minutes at most while the one in use nears a line; a
+// spent one a minute after its window resets, if sooner. claude-swap
+// reads a spent account in use every 10 minutes too, trusting its reading
+// until then; here the one in use keeps its plan, so its reading stays
+// fresh for auto-switch.
 func (b *Book) due(a *Account, active, near bool) time.Time {
 	switch {
 	case a.Err != "":
@@ -318,14 +320,13 @@ func (b *Book) due(a *Account, active, near bool) time.Time {
 	case a.ReadAt.IsZero():
 		return time.Time{}
 	}
-	every := 5 * time.Minute
-	switch {
-	case active && near && a.climbing:
-		every = time.Minute
-	case active || near:
-		every = floor
+	due := a.NextPoll // claude-swap's poll plan (nextPoll)
+	if due.IsZero() {
+		due = a.ReadAt.Add(5 * time.Minute)
 	}
-	due := a.ReadAt.Add(every)
+	if near && !active && a.ReadAt.Add(floor).Before(due) {
+		due = a.ReadAt.Add(floor) // the others are watched closely while the one in use nears its line
+	}
 	if st, ok := stand(*a, Auto{Line: 100}); ok && st.raw <= 0 && !active {
 		due = a.ReadAt.Add(10 * time.Minute)
 		for _, l := range a.Limits {
@@ -438,3 +439,56 @@ func (b *Book) saveUnsaved() {
 }
 
 var errUnsaved = errors.New("This account's renewed sign-in isn't in the keychain yet: try again in a minute.")
+
+// jitter spreads polls, as claude-swap's JITTER_FRAC; tests fix it.
+var jitter = rand.Float64
+
+// nextPoll is claude-swap's plan_after_fetch: the interval to the next
+// read after one that worked, from how the fullest window moved since
+// prev. Moving (a point or more) halves it, still grows it ×1.5 to the
+// account's ceiling (5 minutes in use, 10 for the others); a window rising
+// within 15 points of its line on the account in use polls every minute;
+// a 429 in the last hour floors it at 6 minutes, growing ×1.5 to 30; a
+// spent account waits 10. r in [0, 1) spreads it ±10%.
+func nextPoll(prevEvery time.Duration, prev, cur []Limit, active bool, s Auto, last429, now time.Time, r float64) time.Duration {
+	const minEvery = 3 * time.Minute
+	def, ceil := 5*time.Minute, 10*time.Minute
+	if active {
+		def, ceil = minEvery, 5*time.Minute
+	}
+	base := prevEvery
+	if base == 0 {
+		base = def
+	}
+	pp, pok := headroom(Account{Limits: prev}, s)
+	cp, cok := headroom(Account{Limits: cur}, s)
+	every := def
+	switch {
+	case !pok || !cok:
+	case math.Abs(cp-pp) >= 1:
+		every = max(minEvery, base/2)
+	default:
+		every = min(ceil, max(minEvery, base*3/2))
+	}
+	recent := !last429.IsZero() && now.Sub(last429) < time.Hour
+	if active && !recent {
+		for _, l := range cur {
+			line := s.Line
+			if l.Kind != "session" && l.Kind != "five_hour" && s.WeeklyLine != 0 {
+				line = s.WeeklyLine
+			}
+			for _, p := range prev {
+				if p.Kind == l.Kind && p.Scope == l.Scope && l.Percent-p.Percent >= 1 && l.Percent >= line-15 {
+					every = time.Minute
+				}
+			}
+		}
+	}
+	if recent {
+		every = min(30*time.Minute, max(every, max(base*3/2, 6*time.Minute)))
+	}
+	if cok && cp <= 0 && !active { // the one in use stays fresh enough for auto-switch
+		every = max(every, 10*time.Minute)
+	}
+	return time.Duration(float64(every) * (1 + 0.1*(2*r-1)))
+}

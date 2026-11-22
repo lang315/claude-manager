@@ -56,20 +56,20 @@ func TestTwoBooksKeepEachOthersChanges(t *testing.T) {
 }
 
 // A re-read keeps a failing account's back-off, saved as Refresh saves it,
-// and what is never saved (climbing).
+// as every process goes by it.
 func TestReReadKeepsBackoff(t *testing.T) {
 	app, v, _, _ := newBook(t, newAnthropic())
 	_, err := app.keep(login("bob-at", "bob-rt", t0.Add(time.Hour)).Marshal(), bob, json.RawMessage(bobAccount))
 	must(t, err)
 	retry := t0.Add(4 * time.Minute)
-	app.added[0].Failures, app.added[0].Retry, app.added[0].climbing = 3, retry, true
+	app.added[0].Failures, app.added[0].Retry = 3, retry
 	must(t, app.save())
 	cli := &Book{Dir: app.Dir, Vault: v, API: app.API, Now: app.Now}
 	must(t, cli.SetAlias(bob.Key(), "dev"))
 	got, _ := app.Blocks()
 	a := blockOf(t, got, "bob@example.com")
-	if a.Alias != "dev" || a.RetryAt() != retry || a.Failures != 3 || !a.climbing {
-		t.Errorf("after a re-read: alias %q, retry %v, failures %d, climbing %v", a.Alias, a.RetryAt(), a.Failures, a.climbing)
+	if a.Alias != "dev" || a.RetryAt() != retry || a.Failures != 3 {
+		t.Errorf("after a re-read: alias %q, retry %v, failures %d", a.Alias, a.RetryAt(), a.Failures)
 	}
 }
 

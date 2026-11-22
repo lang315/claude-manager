@@ -48,20 +48,22 @@ type Account struct {
 	HeldUntil  time.Time `json:"heldUntil,omitzero"`   // read by another Mac: not read here until then
 	// OAuthAccount is Claude Code's oauthAccount object from ~/.claude.json.
 	OAuthAccount json.RawMessage `json:"oauthAccount,omitempty"`
-	AutoOff      bool            `json:"autoOff,omitempty"`  // held out of auto-switch
-	Line         float64         `json:"line,omitempty"`     // its own five-hour line; 0 for the global one
-	Priority     int             `json:"priority,omitempty"` // its tier for priority-consume-first
-	Terminal     Terminal        `json:"terminal,omitzero"`  // open in a terminal from its own profile
-	Token        bool            `json:"token,omitempty"`    // a setup-token account: no refresh token, read by the header probe
-	APIKey       bool            `json:"apiKey,omitempty"`   // a Console API key account: no limits, nothing read
-	Alias        string          `json:"alias,omitempty"`    // a short name for it on the command line
-	Slot         int             `json:"slot,omitempty"`     // its number from 1, as claude-swap's slots
-	InUse        bool            `json:"-"`                  // Claude Code is signed in to it
-	Added        bool            `json:"-"`                  // the app holds a login of its own for it
-	Source       string          `json:"-"`                  // "Pitboard" when Limits are Pitboard's reading
-	climbing     bool            // its fullest window rose a point or more at the last read
-	Failures     int             `json:"failures,omitempty"` // reads failed in a row; saved, so every process backs off
-	Retry        time.Time       `json:"retryAt,omitzero"`   // when a failed read is tried again
+	AutoOff      bool            `json:"autoOff,omitempty"`      // held out of auto-switch
+	Line         float64         `json:"line,omitempty"`         // its own five-hour line; 0 for the global one
+	Priority     int             `json:"priority,omitempty"`     // its tier for priority-consume-first
+	Terminal     Terminal        `json:"terminal,omitzero"`      // open in a terminal from its own profile
+	Token        bool            `json:"token,omitempty"`        // a setup-token account: no refresh token, read by the header probe
+	APIKey       bool            `json:"apiKey,omitempty"`       // a Console API key account: no limits, nothing read
+	Alias        string          `json:"alias,omitempty"`        // a short name for it on the command line
+	Slot         int             `json:"slot,omitempty"`         // its number from 1, as claude-swap's slots
+	InUse        bool            `json:"-"`                      // Claude Code is signed in to it
+	Added        bool            `json:"-"`                      // the app holds a login of its own for it
+	Source       string          `json:"-"`                      // "Pitboard" when Limits are Pitboard's reading
+	Failures     int             `json:"failures,omitempty"`     // reads failed in a row; saved, so every process backs off
+	Retry        time.Time       `json:"retryAt,omitzero"`       // when a failed read is tried again
+	NextPoll     time.Time       `json:"nextPollAt,omitzero"`    // claude-swap's poll plan: when a good read is read again
+	PollEvery    time.Duration   `json:"pollInterval,omitempty"` // and the interval it went by
+	Last429      time.Time       `json:"last429At,omitzero"`     // when Anthropic last asked it to wait
 }
 
 // Key names the account by Anthropic's account and organisation.
@@ -214,25 +216,7 @@ func (b *Book) load() error {
 	if err != nil {
 		return fmt.Errorf("accounts.json could not be read: %w", err)
 	}
-	was := map[string]Account{} // what accounts.json never holds (climbing): a re-read keeps it
-	for _, a := range b.added {
-		was[a.Key()] = a
-	}
-	if b.inUse != nil {
-		was[b.inUse.Key()] = *b.inUse
-	}
 	b.added, b.inUse = s.Accounts, s.InUse
-	keep := func(a *Account) {
-		if w, ok := was[a.Key()]; ok {
-			a.climbing = w.climbing
-		}
-	}
-	for i := range b.added {
-		keep(&b.added[i])
-	}
-	if b.inUse != nil {
-		keep(b.inUse)
-	}
 	b.ensureSlots()
 	b.maps, b.unclaimed, b.history = s.Maps, s.Unclaimed, s.History
 	b.setAutoState(s.AutoState)

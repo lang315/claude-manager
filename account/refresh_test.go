@@ -170,10 +170,16 @@ func TestRefreshFloor(t *testing.T) {
 	if c := f.took(); !slices.Equal(c, []string{"usage live"}) {
 		t.Fatalf("a forced refresh: %v", c)
 	}
-	*now = t0.Add(5 * time.Minute)
+	// Still since: claude-swap's plan grows 3 minutes ×1.5.
+	*now = t0.Add(6 * time.Minute)
+	b.Refresh(ctx, false)
+	if c := f.took(); len(c) != 0 {
+		t.Fatalf("read again before 4.5 minutes: %v", c)
+	}
+	*now = t0.Add(6*time.Minute + 30*time.Second)
 	b.Refresh(ctx, false)
 	if c := f.took(); !slices.Equal(c, []string{"usage live"}) {
-		t.Fatalf("3 minutes on: %v", c)
+		t.Fatalf("4.5 minutes on: %v", c)
 	}
 }
 
@@ -405,5 +411,42 @@ func TestPlanReadWhenUsageFails(t *testing.T) {
 	blocks, _ := b.Blocks()
 	if a := blockOf(t, blocks, "bob@example.com"); PlanLabel(a) != "Max 5x" {
 		t.Errorf("no plan with the usage failing: %+v", a)
+	}
+}
+
+// claude-swap's plan_after_fetch: moving halves the interval, still grows
+// it ×1.5 to the ceiling, a rise near the line is urgent, a recent 429
+// floors it at 6 minutes, a spent account waits 10.
+func TestNextPoll(t *testing.T) {
+	lim := func(p float64) []Limit { return []Limit{{Kind: "session", Percent: p}} }
+	s := Auto{Line: 90}
+	for _, c := range []struct {
+		name      string
+		prevEvery time.Duration
+		prev, new []Limit
+		active    bool
+		since429  time.Duration
+		want      time.Duration
+	}{
+		{"first read, in use", 0, nil, lim(10), true, 0, 3 * time.Minute},
+		{"first read, another", 0, nil, lim(10), false, 0, 5 * time.Minute},
+		{"still, grows", 5 * time.Minute, lim(10), lim(10), false, 0, 7*time.Minute + 30*time.Second},
+		{"still, capped", 8 * time.Minute, lim(10), lim(10), false, 0, 10 * time.Minute},
+		{"moving, halves", 8 * time.Minute, lim(10), lim(20), false, 0, 4 * time.Minute},
+		{"rising near the line, in use", 3 * time.Minute, lim(70), lim(80), true, 0, time.Minute},
+		{"a recent 429", 3 * time.Minute, lim(70), lim(80), true, 10 * time.Minute, 6 * time.Minute},
+		{"spent", 3 * time.Minute, lim(99), lim(100), false, 0, 10 * time.Minute},
+		{"spent, in use", 3 * time.Minute, lim(100), lim(100), true, 0, 4*time.Minute + 30*time.Second},
+	} {
+		last := time.Time{}
+		if c.since429 > 0 {
+			last = t0.Add(-c.since429)
+		}
+		if got := nextPoll(c.prevEvery, c.prev, c.new, c.active, s, last, t0, 0.5); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+	if j := nextPoll(0, nil, lim(10), false, s, time.Time{}, t0, 1); j != 5*time.Minute+30*time.Second {
+		t.Errorf("jitter +10%%: %v", j)
 	}
 }
