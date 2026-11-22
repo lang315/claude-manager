@@ -21,6 +21,16 @@ type Claude struct {
 	Login        string // a file it copies to .credentials.json on the code "good"
 	OAuthAccount string // written to .claude.json on the code "good"
 	Sleep        bool   // prints the link, then waits to be killed
+	Record       string // any args: writes a Run of how it was started to this file, and exits
+}
+
+// Run is what a Record claude saw.
+type Run struct {
+	Args      []string
+	Dir       string
+	ConfigDir string   // CLAUDE_CONFIG_DIR
+	Overrides []string // the auth variables it was given
+	PPID      int
 }
 
 // FakeClaude returns the path of a claude that behaves as c says.
@@ -61,6 +71,18 @@ func RunFakeClaude() {
 	var c Claude
 	if err != nil || json.Unmarshal(raw, &c) != nil {
 		return
+	}
+	if c.Record != "" {
+		r := Run{Args: os.Args[1:], ConfigDir: os.Getenv("CLAUDE_CONFIG_DIR"), PPID: os.Getppid()}
+		r.Dir, _ = os.Getwd()
+		for _, k := range []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"} {
+			if _, ok := os.LookupEnv(k); ok {
+				r.Overrides = append(r.Overrides, k)
+			}
+		}
+		out, _ := json.Marshal(r)
+		os.WriteFile(c.Record, out, 0o600)
+		os.Exit(0)
 	}
 	if strings.Join(os.Args[1:], " ") != "auth login --claudeai" {
 		fmt.Fprintln(os.Stderr, "bad args:", strings.Join(os.Args[1:], " "))

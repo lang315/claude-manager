@@ -18,14 +18,23 @@ func LaunchInTerminal(folder, configDir string, args ...string) error {
 	if err != nil {
 		return err
 	}
+	cmd, err := launchCmd(claude, folder, configDir, args...)
+	if err != nil {
+		return err
+	}
+	return cmd.Start()
+}
+
+// launchCmd is the console LaunchInTerminal starts for the claude at path claude.
+func launchCmd(claude, folder, configDir string, args ...string) (*exec.Cmd, error) {
 	if cmdUnsafePath(claude) {
-		return errors.New("The path of claude holds a character cmd would act on: run it from a console instead.")
+		return nil, errors.New("The path of claude holds a character cmd would act on: run it from a console instead.")
 	}
 	// The outer quotes are cmd /k's: it strips the first and last when the line starts with one.
 	line := `/c start "" cmd /k ""` + claude + `"`
 	for _, a := range args {
 		if strings.ContainsAny(a, "\"&|<>^%!()\r\n") {
-			return errors.New("An argument for claude holds a character cmd would act on: run it from a console instead.")
+			return nil, errors.New("An argument for claude holds a character cmd would act on: run it from a console instead.")
 		}
 		line += ` "` + a + `"`
 	}
@@ -38,5 +47,5 @@ func LaunchInTerminal(folder, configDir string, args ...string) error {
 			return slices.Contains(authOverrides, strings.SplitN(kv, "=", 2)[0])
 		}), "CLAUDE_CONFIG_DIR="+configDir)
 	}
-	return cmd.Start()
+	return cmd, nil
 }
