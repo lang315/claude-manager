@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -261,6 +263,9 @@ func (b *Book) read(ctx context.Context, a *Account, token, held string, now tim
 	b.readPlan(ctx, a, used, now)
 	a.PollEvery = nextPoll(a.PollEvery, a.Limits, limits, a == b.inUse || a.InUse, b.settings(), a.Last429, now, jitter())
 	a.NextPoll = now.Add(a.PollEvery)
+	if line := usageLine(a.Email, limits); line != usageLine(a.Email, a.Limits) && line != "" {
+		b.logf("%s", line) // claude-swap's per-account usage line, when it changes
+	}
 	a.Limits, a.ReadAt, a.Err, a.WaitUntil = limits, now, "", time.Time{}
 }
 
@@ -491,4 +496,30 @@ func nextPoll(prevEvery time.Duration, prev, cur []Limit, active bool, s Auto, l
 		every = max(every, 10*time.Minute)
 	}
 	return time.Duration(float64(every) * (1 + 0.1*(2*r-1)))
+}
+
+// usageLine is claude-swap's log line for an account's limits: "usage
+// email: 5h 62% (resets 15:00) · 7d 40%"; "" with neither window.
+func usageLine(email string, limits []Limit) string {
+	var parts []string
+	for _, l := range limits {
+		var name string
+		switch l.Kind {
+		case "session", "five_hour":
+			name = "5h"
+		case "weekly_all", "seven_day":
+			name = "7d"
+		default:
+			continue
+		}
+		p := fmt.Sprintf("%s %.0f%%", name, l.Percent)
+		if !l.ResetsAt.IsZero() {
+			p += " (resets " + l.ResetsAt.Local().Format("Jan 2 15:04") + ")"
+		}
+		parts = append(parts, p)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "usage " + email + ": " + strings.Join(parts, " · ")
 }

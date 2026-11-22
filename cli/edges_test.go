@@ -223,3 +223,10 @@ func TestUpdateHint(t *testing.T) {
 		t.Error("a notice with --json")
 	}
 }
+
+func TestConfigJSON(t *testing.T) {
+	a := newApp(t)
+	if _, out, _ := a.run(t, "", "config", "--json"); !strings.Contains(out, `"key":"autoswitch.threshold"`) || !strings.Contains(out, `"path":`) {
+		t.Errorf("config --json: %s", out)
+	}
+}

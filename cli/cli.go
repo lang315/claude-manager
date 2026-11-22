@@ -118,7 +118,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 	case "unmap":
 		err = c.unmap(one(rest))
 	case "config":
-		err = c.config(rest)
+		err = c.config(rest, *jsonOut)
 	case "history":
 		var hs []account.Switched
 		if hs, err = b.Switches(); err == nil {
@@ -953,7 +953,7 @@ func (c *cmd) unmap(dir string) error {
 	return nil
 }
 
-func (c *cmd) config(rest []string) error {
+func (c *cmd) config(rest []string, asJSON bool) error {
 	verb := one(rest)
 	if verb == "" {
 		verb = "list"
@@ -972,6 +972,15 @@ func (c *cmd) config(rest []string) error {
 	}
 	switch verb {
 	case "list":
+		if asJSON { // cswap's config --json
+			doc := map[string]any{"schemaVersion": 1, "path": filepath.Join(c.b.Dir, "accounts.json")}
+			list := []map[string]any{}
+			for _, s := range all {
+				list = append(list, map[string]any{"key": s.Key, "value": s.Value, "default": s.Default, "range": s.Range, "set": s.Value != s.Default})
+			}
+			doc["settings"] = list
+			return json.NewEncoder(c.out).Encode(doc)
+		}
 		for _, s := range all {
 			v := s.Value
 			if v == s.Default {

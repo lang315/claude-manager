@@ -109,3 +109,18 @@ func TestHistoryCapped(t *testing.T) {
 		t.Errorf("%d kept", len(b.history))
 	}
 }
+
+// claude-swap logs each account's 5h and 7d use when it changes, never a
+// token.
+func TestUsageLogLine(t *testing.T) {
+	b, _, _, f := switchBook(t)
+	var log bytes.Buffer
+	b.Log = &log
+	f.usage["alice-at"], f.usage["bob-at"] = 30, 10
+	b.Refresh(ctx, true)
+	b.Now = func() time.Time { return t0.Add(10 * time.Minute) }
+	b.Refresh(ctx, true) // the same: not logged again
+	if n := strings.Count(log.String(), "usage bob@example.com: 5h 10%"); n != 1 || strings.Contains(log.String(), "-at") {
+		t.Errorf("log %q", log.String())
+	}
+}
