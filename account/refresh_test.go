@@ -576,3 +576,41 @@ func TestUnsavedFromAnotherProcess(t *testing.T) {
 		t.Errorf("the keychain holds %q", l.RefreshToken)
 	}
 }
+
+// An unsaved login whose file couldn't be written stays in memory: the
+// next load must not take the missing file for "none".
+func TestUnsavedKeptWhenItsFileFails(t *testing.T) {
+	f := newAnthropic()
+	b, v, _, _ := newBook(t, f)
+	_, err := b.keep(login("bob-at", "bob-rt", t0.Add(time.Minute)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	block := filepath.Join(b.Dir, "unsaved.json", "x") // a folder where the file goes: the write fails
+	must(t, os.MkdirAll(block, 0o700))
+	f.renewed["bob-rt"], f.usage["bob-at2"] = "bob-at2", 10
+	v.Fail = errors.New("keychain locked")
+	b.Refresh(ctx, true)
+	v.Fail = nil
+	must(t, os.RemoveAll(filepath.Dir(block)))
+	delete(f.renewed, "bob-rt") // spent
+	b.Refresh(ctx, true)
+	if l, _ := parseLogin(get(t, v, ParkService, bob.Key())); l.RefreshToken != "bob-rt+" {
+		t.Errorf("the keychain holds %q", l.RefreshToken)
+	}
+}
+
+// Purge takes unsaved.json with it.
+func TestPurgeRemovesUnsaved(t *testing.T) {
+	f := newAnthropic()
+	b, v, _, _ := newBook(t, f)
+	_, err := b.keep(login("bob-at", "bob-rt", t0.Add(time.Minute)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	f.renewed["bob-rt"], f.usage["bob-at2"] = "bob-at2", 10
+	v.Fail = errors.New("keychain locked")
+	b.Refresh(ctx, true)
+	v.Fail = nil
+	_, err = b.Purge()
+	must(t, err)
+	if _, err := os.Stat(filepath.Join(b.Dir, "unsaved.json")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("unsaved.json outlived purge: %v", err)
+	}
+}

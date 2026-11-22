@@ -497,22 +497,36 @@ func (b *Book) writeUnsaved() error {
 			err = writeAtomic(b.unsavedPath(), data, 0o600)
 		}
 	}
+	b.unsavedFailed = err != nil
 	return err
 }
 
 // readUnsaved takes the unsaved logins from their file, which every
 // process writes under the book's lock: what it says is the latest. An
-// unreadable file leaves what this process holds.
+// unreadable file leaves what this process holds, as does a failed last
+// write: the file is then behind, and memory holds the only copy.
 func (b *Book) readUnsaved() {
 	data, err := os.ReadFile(b.unsavedPath())
-	if errors.Is(err, fs.ErrNotExist) {
-		b.unsaved = nil
+	var u map[string][]byte
+	if err == nil && json.Unmarshal(data, &u) != nil {
 		return
 	}
-	var u map[string][]byte
-	if err == nil && json.Unmarshal(data, &u) == nil {
-		b.unsaved = u
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return
 	}
+	if b.unsavedFailed { // merge, then try the write again
+		if b.unsaved == nil {
+			b.unsaved = map[string][]byte{}
+		}
+		for k, blob := range u {
+			if _, ok := b.unsaved[k]; !ok {
+				b.unsaved[k] = blob
+			}
+		}
+		b.writeUnsaved()
+		return
+	}
+	b.unsaved = u
 }
 
 var errUnsaved = errors.New("This account's renewed sign-in isn't in the keychain yet: try again in a minute.")

@@ -97,31 +97,32 @@ type Book struct {
 	Log     io.Writer
 	Running func(configDir string) (bool, error)
 
-	mu         bookMu
-	stamp      stamp      // accounts.json as this book last read or wrote it
-	side       sync.Mutex // who, dead, told and Log: Refresh reads accounts in parallel
-	loaded     bool
-	cleaned    bool // cleanLeftovers ran
-	added      []Account
-	inUse      *Account             // the account in use, when it is not an added one
-	nobody     *Account             // stands in for it when the login in use can't be read
-	who        map[[32]byte]Profile // an access token's SHA-256: whose it is
-	others     []Account            // Pitboard's accounts, as last read
-	auto       Auto
-	lastSwitch time.Time
-	lastFailed time.Time
-	bar        memo              // the no-return bar auto-switch set
-	maps       map[string]string // folder → account key
-	prefs      Prefs
-	history    []Switched
-	switched   int               // switches made, to tell one was
-	told       map[string]string // the last body told per event kind
-	override   *Auto             // auto-switch settings for this process only (Override)
-	unclaimed  []Unclaimed
-	unreadable time.Time           // since when the account in use can't be read
-	dead       map[string][32]byte // an account's refresh token Anthropic refused: its SHA-256
-	unsaved    map[string][]byte   // renewed logins the keychain refused, written at the next refresh
-	note       atomic.Value        // string: why Pitboard's files could not be read; read without the lock
+	mu            bookMu
+	stamp         stamp      // accounts.json as this book last read or wrote it
+	side          sync.Mutex // who, dead, told and Log: Refresh reads accounts in parallel
+	loaded        bool
+	cleaned       bool // cleanLeftovers ran
+	added         []Account
+	inUse         *Account             // the account in use, when it is not an added one
+	nobody        *Account             // stands in for it when the login in use can't be read
+	who           map[[32]byte]Profile // an access token's SHA-256: whose it is
+	others        []Account            // Pitboard's accounts, as last read
+	auto          Auto
+	lastSwitch    time.Time
+	lastFailed    time.Time
+	bar           memo              // the no-return bar auto-switch set
+	maps          map[string]string // folder → account key
+	prefs         Prefs
+	history       []Switched
+	switched      int               // switches made, to tell one was
+	told          map[string]string // the last body told per event kind
+	override      *Auto             // auto-switch settings for this process only (Override)
+	unclaimed     []Unclaimed
+	unreadable    time.Time           // since when the account in use can't be read
+	dead          map[string][32]byte // an account's refresh token Anthropic refused: its SHA-256
+	unsaved       map[string][]byte   // renewed logins the keychain refused, written at the next refresh
+	unsavedFailed bool                // unsaved.json is behind b.unsaved: its last write failed
+	note          atomic.Value        // string: why Pitboard's files could not be read; read without the lock
 }
 
 type saved struct {
