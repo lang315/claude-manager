@@ -526,8 +526,9 @@ Verified: `TestAddToken`, `TestProbe`, `TestRefreshSetupToken`,
 - In use: the key item (else `primaryApiKey`) equal to an API key account's
   key. Auto-switch holds on it ("it has no limits"); with "Fall back on an
   API key account when no account has room" (`includeApiKeyAccounts`) it
-  lands on one at the limit or on a failover when no subscription account
-  has room.
+  lands on one whenever it must move (past the line, at the limit, on a
+  failover) and no subscription account has room; never for a
+  consume-first or priority nudge.
 - Export writes it as claude-swap does (`kind: api_key`, the key as a
   string); Import adds it, or leaves it when the same key is there.
 

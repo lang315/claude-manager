@@ -81,6 +81,7 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **29. Gaps: list and status detail, JSON kinds and shapes, config, update notice, menu bar service** (#48, draft).
 - [x] **30. Gaps: the no-return bar's release, the plan's own retry, the menu bar (health, title, rows, picks, log, live refresh), notifications, slot and alias in the window** (#49, draft).
 - [x] **31. Gaps: claude-swap's poll plan, auto --json events, config --json, usage log lines, the menu bar's submenus and settings, session-only auto settings** (#50, draft).
+- [x] **32. Verification fixes: the menu bar row's note for an unread account, unsaved logins kept in `unsaved.json`, no renewal without a refresh token, only transcripts win a history merge, the API key fallback past the line, purge and `--hold`, the menu bar's thresholds and history** (draft).
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an

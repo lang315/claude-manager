@@ -172,6 +172,11 @@ func TestDecideAPIKeyLastResort(t *testing.T) {
 	if d := decide(t0, c, []Account{inUse(acct("a", 10, 10, day)), spent, key}, memo{}); d.To != "" {
 		t.Errorf("a consume-first nudge: %+v", d)
 	}
+	p := s
+	p.Strategy = ByPriority
+	if d := decide(t0, p, []Account{inUse(Account{AccountUUID: "a", Email: "a", Added: true, OAuthAccount: json.RawMessage(`{}`)}), spent, key}, memo{failover: true}); d.To != key.Key() {
+		t.Errorf("a failover under priority: %+v", d)
+	}
 	if d := decide(t0, s, []Account{inUse(acct("a", 100, 10, day)), acct("b", 10, 10, day), key}, memo{}); d.Email != "b" {
 		t.Errorf("a subscription with room comes first: %+v", d)
 	}

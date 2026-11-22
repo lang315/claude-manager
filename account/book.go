@@ -195,6 +195,7 @@ func (b *Book) load() error {
 		}
 		b.mu.release = release
 	}
+	b.readUnsaved() // another process may have kept or written one since
 	if b.loaded && stampOf(b.path()).same(b.stamp) {
 		return nil
 	}
@@ -202,7 +203,6 @@ func (b *Book) load() error {
 	if !b.cleaned {
 		b.cleaned = true
 		b.cleanLeftovers()
-		b.readUnsaved()
 	}
 	st := stampOf(b.path())
 	data, err := os.ReadFile(b.path())

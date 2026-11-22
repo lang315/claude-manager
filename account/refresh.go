@@ -500,14 +500,17 @@ func (b *Book) writeUnsaved() error {
 	return err
 }
 
-// readUnsaved loads the unsaved logins a previous run left.
+// readUnsaved takes the unsaved logins from their file, which every
+// process writes under the book's lock: what it says is the latest. An
+// unreadable file leaves what this process holds.
 func (b *Book) readUnsaved() {
 	data, err := os.ReadFile(b.unsavedPath())
-	if err != nil {
+	if errors.Is(err, fs.ErrNotExist) {
+		b.unsaved = nil
 		return
 	}
 	var u map[string][]byte
-	if json.Unmarshal(data, &u) == nil && len(u) > 0 {
+	if err == nil && json.Unmarshal(data, &u) == nil {
 		b.unsaved = u
 	}
 }

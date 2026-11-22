@@ -449,7 +449,7 @@ func decide(now time.Time, s Auto, accts []Account, m memo) Decision {
 		}
 	}
 	slices.SortStableFunc(out, func(x, y ranked) int { return slices.Compare(x.key, y.key) })
-	if len(out) == 0 && s.Keys && trigger != "consume" && !(priority && !act.over) {
+	if len(out) == 0 && s.Keys && trigger != "consume" && trigger != "priority" {
 		// claude-swap's last resort when it must move: a key has no limits,
 		// and costs per token; never for a consume-first or priority nudge.
 		for _, a := range accts {

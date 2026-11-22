@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -515,11 +516,63 @@ func TestUnsavedSurvivesRestart(t *testing.T) {
 		t.Fatalf("unsaved file: %v %v", fi, err)
 	}
 	again := &Book{Dir: b.Dir, Vault: v, API: b.API, Now: b.Now, Live: b.Live}
+	f.took()
 	again.Refresh(ctx, true)
+	if slices.Contains(f.took(), "renew bob-rt") {
+		t.Error("posted the spent refresh token after a restart")
+	}
 	if l, _ := parseLogin(get(t, v, ParkService, bob.Key())); l.RefreshToken != "bob-rt+" {
 		t.Errorf("after a restart the keychain holds %q", l.RefreshToken)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("the file outlived its write: %v", err)
+	}
+}
+
+// A saved login with no refresh token is never posted: the account says
+// to sign in again, and a real login brings it back.
+func TestNoRefreshTokenIsNotPosted(t *testing.T) {
+	f := newAnthropic()
+	b, _, _, _ := newBook(t, f)
+	_, err := b.keep(login("bob-at", "", t0.Add(-time.Minute)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	f.took()
+	got, _ := b.Refresh(ctx, true)
+	for _, c := range f.took() {
+		if strings.HasPrefix(c, "renew") {
+			t.Errorf("posted %q", c)
+		}
+	}
+	if e := blockOf(t, got, "bob@example.com").Err; e != ErrInvalidGrant.Error() {
+		t.Errorf("err %q", e)
+	}
+	_, err = b.keep(login("bob-at2", "bob-rt2", t0.Add(time.Hour)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	f.usage["bob-at2"] = 10
+	got, _ = b.Refresh(ctx, true)
+	if e := blockOf(t, got, "bob@example.com").Err; e != "" {
+		t.Errorf("after signing in again: %q", e)
+	}
+}
+
+// A process already running takes up what another left in unsaved.json
+// (a CLI run, the LaunchAgent), and does not write over it.
+func TestUnsavedFromAnotherProcess(t *testing.T) {
+	f := newAnthropic()
+	gui, v, _, _ := newBook(t, f)
+	_, err := gui.keep(login("bob-at", "bob-rt", t0.Add(time.Hour)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	f.usage["bob-at"] = 5
+	gui.Refresh(ctx, false) // loaded, nothing unsaved
+	cli := &Book{Dir: gui.Dir, Vault: v, API: gui.API, Now: gui.Now, Live: gui.Live}
+	delete(f.usage, "bob-at") // refused: renewed by the other process
+	f.renewed["bob-rt"], f.usage["bob-at2"] = "bob-at2", 10
+	v.Fail = errors.New("keychain locked")
+	cli.Refresh(ctx, true)
+	v.Fail = nil
+	delete(f.renewed, "bob-rt") // spent
+	gui.Refresh(ctx, true)
+	if l, _ := parseLogin(get(t, v, ParkService, bob.Key())); l.RefreshToken != "bob-rt+" {
+		t.Errorf("the keychain holds %q", l.RefreshToken)
 	}
 }
