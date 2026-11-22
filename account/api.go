@@ -135,6 +135,9 @@ const renewTimeout = 10 * time.Second
 // Renew asks for fresh tokens for l, as Claude Code renews its own login,
 // and returns l with them. An answer without a refresh token keeps l's.
 func (a *API) Renew(ctx context.Context, l Login, now time.Time) (Login, error) {
+	if l.RefreshToken == "" { // claude-swap's no_refresh_token: nothing to renew with, ever
+		return l, ErrInvalidGrant
+	}
 	client := l.ClientID
 	if client == "" {
 		client = claudeCodeClient

@@ -215,3 +215,14 @@ func TestRenewOutwaitsReads(t *testing.T) {
 		t.Errorf("Renew = %+v, %v", got, err)
 	}
 }
+
+// A login with no refresh token is not posted: claude-swap's
+// no_refresh_token, as final as a refused one.
+func TestRenewWithoutRefreshToken(t *testing.T) {
+	a := apiOn(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("posted an empty refresh token")
+	})
+	if _, err := a.Renew(context.Background(), login("old", "", t0), t0); !errors.Is(err, ErrInvalidGrant) {
+		t.Fatalf("err = %v", err)
+	}
+}
