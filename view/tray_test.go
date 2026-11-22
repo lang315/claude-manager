@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lang315/claude-manager/account"
+	"github.com/lang315/claude-manager/internal/fixture"
 )
 
 func trayItem(t *testing.T, l *lim, prefix string) TrayItem {
@@ -344,5 +345,49 @@ func TestTrayOpenLogReveals(t *testing.T) {
 	}
 	if len(*l.opened) != 0 {
 		t.Errorf("opened %v: the log is revealed, not opened", *l.opened)
+	}
+}
+
+// claude-swap's health row dates the account in use's own reading, stale
+// past max(3 refresh intervals, 15 minutes).
+func TestTrayHealthAge(t *testing.T) {
+	now := fixture.Now
+	for _, c := range []struct {
+		name  string
+		read  time.Time
+		every time.Duration
+		want  string
+	}{
+		{"never read", time.Time{}, 5 * time.Minute, "Auto-switch off · no usage reading yet"},
+		{"fresh", now.Add(-2 * time.Minute), 30 * time.Second, "Auto-switch off · usage read " + ago(now.Add(-2*time.Minute), now)},
+		{"15 minutes is not stale", now.Add(-15 * time.Minute), 30 * time.Second, "Auto-switch off · usage read " + ago(now.Add(-15*time.Minute), now)},
+		{"stale past the 15 minute floor", now.Add(-16 * time.Minute), 30 * time.Second, "Auto-switch off · usage stale, read " + ago(now.Add(-16*time.Minute), now)},
+		{"3 long intervals outlast the floor", now.Add(-20 * time.Minute), 10 * time.Minute, "Auto-switch off · usage read " + ago(now.Add(-20*time.Minute), now)},
+		{"stale past 3 long intervals", now.Add(-31 * time.Minute), 10 * time.Minute, "Auto-switch off · usage stale, read " + ago(now.Add(-31*time.Minute), now)},
+	} {
+		if got := health(false, c.read, now, c.every); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+	}
+	if got := health(true, now, now, time.Minute); !strings.HasPrefix(got, "Auto-switch on · ") {
+		t.Errorf("on: %q", got)
+	}
+}
+
+// The row's age is the in-use block's ReadAt, not when the menu last redrew.
+func TestTrayHealthUsesTheAccountInUse(t *testing.T) {
+	l := limitsApp(t)
+	l.a.TrayTick()
+	waitFor(t, l.tt, func() bool { return l.a.limits.loaded })
+	now := l.a.Store.Now()
+	for _, c := range []struct {
+		read time.Time
+		want string
+	}{{time.Time{}, "no usage reading yet"}, {now.Add(-2 * time.Hour), "usage stale, read "}, {now.Add(-time.Minute), "usage read "}} {
+		in := account.Account{AccountUUID: "a", Email: "a@x", Added: true, InUse: true, ReadAt: c.read, Limits: []account.Limit{{Kind: "session", Percent: 30}}}
+		other := account.Account{AccountUUID: "b", Email: "b@x", Added: true, ReadAt: now}
+		l.tt.Update(func() { l.a.limits.blocks, l.a.limits.updated = []account.Account{other, in}, now })
+		l.tt.Frame()
+		trayItem(t, l, "Auto-switch off · "+c.want)
 	}
 }

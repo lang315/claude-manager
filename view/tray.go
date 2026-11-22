@@ -35,7 +35,13 @@ func (a *App) Tray() (title string, items []TrayItem) {
 		return title, []TrayItem{{Label: "Limits are unavailable.", Disabled: true}}
 	}
 	now := a.Store.Now()
-	items = append(items, TrayItem{Label: health(l.auto.s.On, l.updated, now), Disabled: true})
+	var read time.Time // cswap's active_usage_age: the account in use's own reading, not the last redraw
+	for _, b := range l.blocks {
+		if b.InUse {
+			read = b.ReadAt
+		}
+	}
+	items = append(items, TrayItem{Label: health(l.auto.s.On, read, now, a.prefs.TrayInterval()), Disabled: true})
 	if l.auto.s.On && l.auto.why != "" {
 		items = append(items, TrayItem{Label: l.auto.why, Disabled: true})
 	}
@@ -134,8 +140,9 @@ func menuNote(s string) string {
 }
 
 // health is claude-swap's first row: whether auto-switch is on, and how
-// old the reading is, stale past 15 minutes.
-func health(on bool, read, now time.Time) string {
+// old the account in use's own reading is, stale past the longer of 3
+// refresh intervals and 15 minutes (cswap's health_label).
+func health(on bool, read, now time.Time, every time.Duration) string {
 	s := "Auto-switch off"
 	if on {
 		s = "Auto-switch on"
@@ -143,7 +150,7 @@ func health(on bool, read, now time.Time) string {
 	switch {
 	case read.IsZero():
 		return s + " · no usage reading yet"
-	case now.Sub(read) > 15*time.Minute:
+	case now.Sub(read) > max(3*every, 15*time.Minute):
 		return s + " · usage stale, read " + ago(read, now)
 	}
 	return s + " · usage read " + ago(read, now)
