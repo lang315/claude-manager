@@ -56,6 +56,12 @@ func (a *App) Tray() (title string, items []TrayItem) {
 		if w := windows(b, now); w != "" {
 			name += "  " + w
 		}
+		switch { // claude-swap's note for an account it cannot read
+		case b.Err == account.ErrInvalidGrant.Error():
+			name += "  re-login needed"
+		case len(b.Limits) == 0 && b.Err != "":
+			name += "  " + menuNote(b.Err)
+		}
 		if b.AutoOff {
 			name += "  (disabled)"
 		}
@@ -109,6 +115,15 @@ func (a *App) Tray() (title string, items []TrayItem) {
 		items = append(items, TrayItem{Label: t.label, Toggle: true, Checked: on, Do: func() { a.setTheme(t.theme) }})
 	}
 	return title, items
+}
+
+// menuNote cuts a note to claude-swap's 40 characters, so one failing
+// account does not widen the whole menu.
+func menuNote(s string) string {
+	if r := []rune(s); len(r) > 40 {
+		return strings.TrimRight(string(r[:39]), " ") + "…"
+	}
+	return s
 }
 
 // health is claude-swap's first row: whether auto-switch is on, and how

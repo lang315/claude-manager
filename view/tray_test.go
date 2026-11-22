@@ -208,3 +208,23 @@ func TestTrayTitleModes(t *testing.T) {
 		}
 	}
 }
+
+// An account that cannot be read says so on its row, as claude-swap's
+// note: "re-login needed" for a refused sign-in, else the error itself.
+func TestTrayRowsSayWhyUnread(t *testing.T) {
+	l := limitsApp(t)
+	l.a.TrayTick()
+	waitFor(t, l.tt, func() bool { return l.a.limits.loaded })
+	dead := account.Account{AccountUUID: "d", Email: "dead@x", Added: true, Err: account.ErrInvalidGrant.Error(),
+		Limits: []account.Limit{{Kind: "session", Percent: 10}}}
+	down := account.Account{AccountUUID: "u", Email: "down@x", Added: true, Err: "Anthropic did not answer: a very long reason that runs on and on."}
+	l.tt.Update(func() { l.a.limits.blocks = []account.Account{dead, down} })
+	l.tt.Frame()
+	if it := trayItem(t, l, "dead@x"); !strings.Contains(it.Label, "re-login needed") {
+		t.Errorf("dead %q", it.Label)
+	}
+	it := trayItem(t, l, "down@x")
+	if !strings.Contains(it.Label, "Anthropic did not answer") || !strings.HasSuffix(it.Label, "…") {
+		t.Errorf("down %q", it.Label)
+	}
+}
