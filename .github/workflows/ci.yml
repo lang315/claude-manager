@@ -51,8 +51,7 @@ jobs:
       fail-fast: false
       matrix:
         # macOS runs the keychain tests against their own keychain file; ubuntu, the linux paths.
-        # shortcut: no windows tests, the suite stubs claude and security with sh scripts and checks 0600 modes; windows is vetted and built only, until those tests are ported
-        os: [macos-latest, ubuntu-latest]
+        os: [macos-latest, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
