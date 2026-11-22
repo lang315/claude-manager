@@ -173,7 +173,11 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 		err = c.status(ctx, *jsonOut)
 	case "switch":
 		name := one(rest)
+		strat := "direct" // cswap's strategy label: direct for a named account
 		if name == "" {
+			if strat = *strategy; strat != "best" && strat != "next-available" {
+				strat = "rotation"
+			}
 			if *model != "" { // claude-swap's switch --model: its windows count in best and next-available
 				s, _ := c.b.AutoInEffect()
 				s.Model = *model
@@ -187,7 +191,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 			if errors.As(err, &stay) { // nothing to gain: said, not failed
 				err = nil
 				if *jsonOut {
-					err = json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "switched": false, "reason": stay.Reason, "message": stay.Message})
+					err = json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "switched": false, "strategy": strat, "reason": stay.Reason, "message": stay.Message, "warnings": []string{}})
 				} else {
 					fmt.Fprintln(c.out, stay.Message)
 				}
@@ -198,7 +202,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 			}
 			name = a.Key()
 		}
-		err = c.switchTo(ctx, name, *jsonOut, *force)
+		err = c.switchTo(ctx, name, strat, *jsonOut, *force)
 	case "auto":
 		if err = c.autoFlags(*threshold, *weeklyThreshold, *model, *strategy, *interval, *cooldown, *keys); err != nil {
 			break
@@ -635,7 +639,7 @@ func (c *cmd) inUse() string {
 	return ""
 }
 
-func (c *cmd) switchTo(ctx context.Context, name string, asJSON, force bool) error {
+func (c *cmd) switchTo(ctx context.Context, name, strategy string, asJSON, force bool) error {
 	accts, _ := c.b.Blocks()
 	a, err := c.pickOne(accts, name, "switch to")
 	if err != nil {
@@ -646,7 +650,16 @@ func (c *cmd) switchTo(ctx context.Context, name string, asJSON, force bool) err
 	if i := slices.IndexFunc(accts, func(x account.Account) bool { return x.InUse }); i >= 0 && accts[i].Slot > 0 {
 		fromN = accts[i].Slot
 	}
-	if a.InUse && !force && !asJSON {
+	var toN any
+	if a.Slot > 0 {
+		toN = a.Slot
+	}
+	if a.InUse && !force { // cswap's _switch_noop; --json says it too
+		if asJSON {
+			ref := map[string]any{"number": toN, "email": a.Email}
+			return json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "switched": false, "from": ref, "to": ref, "strategy": strategy,
+				"reason": "already-active", "message": fmt.Sprintf("Already on Account-%v (%s)", toN, a.Email), "warnings": []string{}})
+		}
 		fmt.Fprintf(c.out, "Already on %s. switch --force puts its saved login in use.\n", a.Email)
 		return nil
 	}
@@ -659,15 +672,12 @@ func (c *cmd) switchTo(ctx context.Context, name string, asJSON, force bool) err
 		return err
 	}
 	if asJSON {
-		reason := "switched"
+		reason, verb := "switched", "Switched to"
 		if from == a.Email {
-			reason = "already-active"
+			reason, verb = "already-active", "Already on" // cswap's _switch_result_from_op: from == to
 		}
-		var toN any
-		if a.Slot > 0 {
-			toN = a.Slot
-		}
-		return json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "switched": from != a.Email, "reason": reason,
+		return json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "switched": from != a.Email, "strategy": strategy, "reason": reason,
+			"message": fmt.Sprintf("%s Account-%v (%s)", verb, toN, a.Email), "warnings": []string{},
 			"from": map[string]any{"number": fromN, "email": from}, "to": map[string]any{"number": toN, "email": a.Email}})
 	}
 	if now, _ := c.b.UnclaimedLogins(); len(now) > len(kept) {

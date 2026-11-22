@@ -350,6 +350,43 @@ func TestMoveSwapByEmailOrAlias(t *testing.T) {
 	}
 }
 
+// cswap's switch --json carries strategy, message and warnings; switching to
+// the account in use, not forced, is a no-op that Switch never sees.
+func TestSwitchJSONFields(t *testing.T) {
+	a := newApp(t)
+	a.run(t, "", "list") // alice, in use, is Account-2
+	live, _ := a.v.Get("Claude Code-credentials", "me")
+	_, out, _ := a.run(t, "", "switch", "alice@example.com", "--json")
+	var doc map[string]any
+	must(t, json.Unmarshal([]byte(out), &doc))
+	if doc["switched"] != false || doc["strategy"] != "direct" || doc["reason"] != "already-active" ||
+		doc["message"] != "Already on Account-2 (alice@example.com)" || fmt.Sprint(doc["warnings"]) != "[]" ||
+		fmt.Sprint(doc["from"]) != fmt.Sprint(doc["to"]) {
+		t.Errorf("no-op: %s", out)
+	}
+	if now, _ := a.v.Get("Claude Code-credentials", "me"); !bytes.Equal(now, live) {
+		t.Error("a no-op switch rewrote the live login")
+	}
+	_, out, _ = a.run(t, "", "switch", "bob@example.com", "--json")
+	doc = nil
+	must(t, json.Unmarshal([]byte(out), &doc))
+	if doc["switched"] != true || doc["strategy"] != "direct" || doc["reason"] != "switched" ||
+		doc["message"] != "Switched to Account-1 (bob@example.com)" || fmt.Sprint(doc["warnings"]) != "[]" {
+		t.Errorf("switched: %s", out)
+	}
+	// Bare switch names its strategy: cswap's "rotation" unless best or next-available.
+	for strat, want := range map[string]string{"": "rotation", "next-available": "next-available"} {
+		args := []string{"switch", "--json"}
+		if strat != "" {
+			args = append(args, "--strategy", strat)
+		}
+		_, out, _ = a.run(t, "", args...)
+		if !strings.Contains(out, `"strategy":"`+want+`"`) || !strings.Contains(out, `"warnings":[]`) {
+			t.Errorf("%q: %s", strat, out)
+		}
+	}
+}
+
 func TestFindAmbiguous(t *testing.T) {
 	accts := []account.Account{{AccountUUID: "x", OrgUUID: "o1", Email: "e@x"}, {AccountUUID: "x", OrgUUID: "o2", Email: "e@x"}}
 	if _, err := find(accts, "e@x"); err == nil || !strings.Contains(err.Error(), "x/o1, x/o2") {
