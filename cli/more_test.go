@@ -318,3 +318,40 @@ func TestSwitchBestStays(t *testing.T) {
 		t.Errorf("best onto more room: %d %s", code, out)
 	}
 }
+
+// claude-swap's _next_delay: +-10% jitter on the interval; when every
+// account is spent, until the earliest recovery plus 60 s, at least the
+// interval and at most 10 minutes; 5 minutes when no recovery is known.
+func TestNextDelay(t *testing.T) {
+	spent := func(resets time.Duration) account.Account {
+		return account.Account{Limits: []account.Limit{{Kind: "session", Percent: 100, ResetsAt: t0.Add(resets)}}}
+	}
+	min := time.Minute
+	for _, c := range []struct {
+		name     string
+		blocked  bool
+		accts    []account.Account
+		rnd      float64
+		interval time.Duration
+		want     time.Duration
+	}{
+		{"jitter low", false, nil, 0, 100 * time.Second, 90 * time.Second},
+		{"jitter mid", false, nil, 0.5, 100 * time.Second, 100 * time.Second},
+		{"jitter high", false, nil, 1, 100 * time.Second, 110 * time.Second},
+		{"blocked until the earliest reset and a minute", true, []account.Account{spent(20 * min), spent(8 * min)}, 0.5, min, 9 * min},
+		{"blocked, soon: at least the interval", true, []account.Account{spent(30 * time.Second)}, 0.5, 2 * min, 2 * min},
+		{"blocked, far: ten minutes", true, []account.Account{spent(3 * 60 * min)}, 0.5, min, 10 * min},
+		{"blocked, latest window of an account", true, []account.Account{{Limits: []account.Limit{{Percent: 100, ResetsAt: t0.Add(5 * min)}, {Percent: 100, ResetsAt: t0.Add(30 * min)}}}}, 0.5, min, 10 * min},
+		{"blocked, a reset unknown", true, []account.Account{spent(8 * min), {Limits: []account.Limit{{Percent: 100}}}}, 0.5, min, 5 * min},
+		{"blocked, already past reset: unprovable", true, []account.Account{spent(0)}, 0.5, min, 5 * min},
+		{"blocked, none known", true, nil, 0.5, min, 5 * min},
+		{"blocked, none known, interval longer", true, nil, 0.5, 8 * min, 8 * min},
+	} {
+		if got := nextDelay(c.interval, c.blocked, c.accts, t0, c.rnd); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// The loop's waits go by the interval to the second in tests: no jitter.
+func init() { jitter = func() float64 { return 0.5 } }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,17 +119,54 @@ func (c *cmd) autoLoop(ctx context.Context, dry, asJSON bool) error {
 		return err
 	}
 	for n := 0; maxTicks == 0 || n < maxTicks; n++ {
-		if _, err := c.auto(ctx, dry, asJSON); err != nil {
+		code, err := c.auto(ctx, dry, asJSON)
+		if err != nil {
 			fmt.Fprintln(c.errs, err)
 		}
+		accts, _ := c.b.Blocks()
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-after(s.Every()):
+		case <-after(nextDelay(s.Every(), code == blocked, accts, c.b.Now(), jitter())):
 		}
 	}
 	return nil
 }
+
+// nextDelay is how long auto waits, as claude-swap's _next_delay: the
+// interval, +-10% so machines don't hit the API together; when every
+// account is spent, until the earliest recovery and a minute (at least the
+// interval, at most 10 minutes), 5 minutes when none is known.
+// shortcut: no idle-hold crawl, no shortening to the in-use account's next poll.
+func nextDelay(interval time.Duration, blocked bool, accts []account.Account, now time.Time, rnd float64) time.Duration {
+	if !blocked {
+		return time.Duration(float64(interval) * (0.9 + 0.2*rnd))
+	}
+	var earliest time.Time
+	for _, a := range accts {
+		var usable time.Time // when it is usable again: the latest reset of its spent windows
+		for _, l := range a.Limits {
+			if l.Percent >= 100 && l.ResetsAt.After(usable) {
+				usable = l.ResetsAt
+			}
+		}
+		spent := slices.ContainsFunc(a.Limits, func(l account.Limit) bool { return l.Percent >= 100 })
+		switch {
+		case !spent:
+		case !usable.After(now): // its recovery can't be proven: don't oversleep
+			return max(interval, 5*time.Minute)
+		case earliest.IsZero() || usable.Before(earliest):
+			earliest = usable
+		}
+	}
+	if earliest.IsZero() {
+		return max(interval, 5*time.Minute)
+	}
+	return min(max(earliest.Add(time.Minute).Sub(now), interval), 10*time.Minute)
+}
+
+// jitter is the random part of the wait; tests fix it.
+var jitter = rand.Float64
 
 // maxTicks and after let tests run autoLoop a few ticks without waiting.
 var (
