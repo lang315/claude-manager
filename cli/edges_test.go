@@ -170,6 +170,32 @@ func TestLockstep(t *testing.T) {
 	}
 }
 
+// cswap's tolerance: equal percents, resets within 5s (_LOCKSTEP_RESET_TOLERANCE_S).
+func TestLockstepTolerance(t *testing.T) {
+	now := time.Now()
+	mk := func(email string, pct float64, d5, d7 time.Duration) account.Account {
+		return account.Account{Email: email, Added: true, Limits: []account.Limit{
+			{Kind: "session", Percent: pct, ResetsAt: now.Add(time.Hour + d5)}, {Kind: "weekly_all", Percent: 12, ResetsAt: now.Add(48*time.Hour + d7)}}}
+	}
+	for name, c := range map[string]struct {
+		b    account.Account
+		want int
+	}{
+		"within 5s":       {mk("b@x", 33, 5*time.Second, -5*time.Second), 1},
+		"5h reset 6s":     {mk("b@x", 33, 6*time.Second, 0), 0},
+		"7d reset 6s":     {mk("b@x", 33, 0, 6*time.Second), 0},
+		"percent differs": {mk("b@x", 34, 0, 0), 0},
+	} {
+		if got := lockstep([]account.Account{mk("a@x", 33, 0, 0), c.b}); len(got) != c.want {
+			t.Errorf("%s: %v", name, got)
+		}
+	}
+	// One warning per slot though several earlier ones match, as cswap's break.
+	if got := lockstep([]account.Account{mk("a@x", 33, 0, 0), mk("b@x", 33, time.Second, 0), mk("c@x", 33, 2*time.Second, 0)}); len(got) != 2 || got[1] != [2]string{"a@x", "c@x"} {
+		t.Errorf("break: %v", got)
+	}
+}
+
 // cswap's usageStatus kinds, for scripts to tell why there is no usage.
 func TestUsageStatus(t *testing.T) {
 	for want, a := range map[string]account.Account{

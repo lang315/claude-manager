@@ -530,14 +530,19 @@ func (c *cmd) list(ctx context.Context, asJSON bool) error {
 			rows = append(rows, r)
 		}
 		doc["accounts"] = rows
-		dup, lock := []string{}, []string{} // cswap's warning arrays
+		var dup, lock []string // cswap adds each array only when it has a warning
 		for _, d := range c.b.Duplicates() {
 			dup = append(dup, d[0]+" and "+d[1]+" hold the same login")
 		}
 		for _, d := range lockstep(accts) {
 			lock = append(lock, d[0]+" and "+d[1]+" report identical usage and resets")
 		}
-		doc["duplicateAccountWarnings"], doc["lockstepUsageWarnings"] = dup, lock
+		if dup != nil {
+			doc["duplicateAccountWarnings"] = dup
+		}
+		if lock != nil {
+			doc["lockstepUsageWarnings"] = lock
+		}
 		return json.NewEncoder(c.out).Encode(doc)
 	}
 	w := bufio.NewWriter(c.out)
@@ -1220,39 +1225,41 @@ func money(v float64, currency string) string {
 // use and resets (cswap's _lockstep_usage_warnings): one account added
 // twice, or a login that drifted to another.
 func lockstep(accts []account.Account) [][2]string {
-	key := func(a account.Account) string {
-		var s, w string
+	type row struct {
+		email          string
+		s, w           float64
+		sReset, wReset time.Time
+	}
+	var rows []row
+	for _, a := range accts {
+		if !a.Added {
+			continue
+		}
+		r, hs, hw := row{email: a.Email}, false, false
 		for _, l := range a.Limits {
 			if l.ResetsAt.IsZero() { // two fresh accounts at 0% match without being one
 				continue
 			}
 			switch l.Kind {
 			case "session", "five_hour":
-				s = fmt.Sprintf("%.0f@%d", l.Percent, l.ResetsAt.Unix())
+				r.s, r.sReset, hs = l.Percent, l.ResetsAt, true
 			case "weekly_all", "seven_day":
-				w = fmt.Sprintf("%.0f@%d", l.Percent, l.ResetsAt.Unix())
+				r.w, r.wReset, hw = l.Percent, l.ResetsAt, true
 			}
 		}
-		if s == "" || w == "" {
-			return ""
+		if hs && hw {
+			rows = append(rows, r)
 		}
-		return s + "/" + w
 	}
-	seen := map[string]string{}
+	near := func(a, b time.Time) bool { return a.Sub(b).Abs() <= 5*time.Second } // _LOCKSTEP_RESET_TOLERANCE_S
 	var out [][2]string
-	for _, a := range accts {
-		if !a.Added {
-			continue
+	for i, r := range rows {
+		for _, o := range rows[:i] {
+			if r.s == o.s && r.w == o.w && near(r.sReset, o.sReset) && near(r.wReset, o.wReset) {
+				out = append(out, [2]string{o.email, r.email})
+				break // one warning per slot, as cswap's
+			}
 		}
-		k := key(a)
-		if k == "" {
-			continue
-		}
-		if first, ok := seen[k]; ok {
-			out = append(out, [2]string{first, a.Email})
-			continue
-		}
-		seen[k] = a.Email
 	}
 	return out
 }

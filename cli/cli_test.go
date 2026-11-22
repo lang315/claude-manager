@@ -331,10 +331,15 @@ func TestListUnavailable(t *testing.T) {
 	a := newApp(t)
 	delete(a.usage, "bob")
 	_, out, _ := a.run(t, "", "list", "--json")
-	for _, want := range []string{`"email":"bob@example.com"`, `"organizationUuid":"org","isOrganization":true,"key":"bob/org","active":false,"added":true,"usageStatus":"unavailable"`,
-		`"duplicateAccountWarnings":[]`, `"lockstepUsageWarnings":[]`} {
+	for _, want := range []string{`"email":"bob@example.com"`, `"organizationUuid":"org","isOrganization":true,"key":"bob/org","active":false,"added":true,"usageStatus":"unavailable"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no %s in list %s", want, out)
+		}
+	}
+	// cswap adds the warning arrays only when there is a warning.
+	for _, no := range []string{"duplicateAccountWarnings", "lockstepUsageWarnings"} {
+		if strings.Contains(out, no) {
+			t.Errorf("clean list has %s: %s", no, out)
 		}
 	}
 }
