@@ -497,7 +497,7 @@ func TestLimitsExtraUsage(t *testing.T) {
 	var title string
 	l.tt.Update(func() { title, _ = l.a.Tray() })
 	l.tt.Frame()
-	if title != "62%" {
+	if title != "62% · 10%" {
 		t.Errorf("title %q: extra usage is no window", title)
 	}
 	if it := trayItem(t, l, "alice@example.com"); !strings.HasSuffix(it.Label, "extra 90%") {

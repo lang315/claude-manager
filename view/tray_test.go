@@ -16,7 +16,7 @@ func trayItem(t *testing.T, l *lim, prefix string) TrayItem {
 	l.tt.Update(func() {
 		_, items := l.a.Tray()
 		for _, it := range items {
-			if strings.HasPrefix(it.Label, prefix) {
+			if strings.HasPrefix(it.Label, prefix) || strings.Contains(it.Label, "  "+prefix) { // after a slot number
 				got, found = it, true
 			}
 		}
@@ -38,16 +38,24 @@ func TestTray(t *testing.T) {
 	var title string
 	l.tt.Update(func() { title, _ = l.a.Tray() })
 	l.tt.Frame()
-	if title != "62%" {
-		t.Errorf("title %q, want alice's fullest window", title)
+	if title != "62% · 40%" { // claude-swap's: the 5h and 7d windows
+		t.Errorf("title %q, want alice's 5h and 7d windows", title)
 	}
 	alice := trayItem(t, l, "alice@example.com")
-	if alice.Label != "alice@example.com  5h 62% · 7d 40%" || !alice.Checked || !alice.Disabled {
+	if !strings.Contains(alice.Label, "alice@example.com  5h 62% (") || !strings.Contains(alice.Label, "· 7d 40%") || !alice.Checked || !alice.Disabled {
 		t.Errorf("alice %+v", alice)
 	}
 	bob := trayItem(t, l, "bob@example.com")
 	if bob.Checked || bob.Disabled || bob.Do == nil {
 		t.Fatalf("bob %+v", bob)
+	}
+	if h := trayItem(t, l, "Auto-switch off · usage read"); !h.Disabled { // claude-swap's health row
+		t.Errorf("health %+v", h)
+	}
+	for _, p := range []string{"Switch to the Next Account", "Switch to the Next Available"} {
+		if it := trayItem(t, l, p); it.Do == nil {
+			t.Errorf("%s %+v", p, it)
+		}
 	}
 	if auto := trayItem(t, l, "Auto-switch"); !auto.Toggle || auto.Checked || auto.Disabled {
 		t.Errorf("auto-switch %+v", auto)

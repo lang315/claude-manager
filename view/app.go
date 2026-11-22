@@ -30,6 +30,8 @@ type App struct {
 	OpenFile func(message string) (string, error)
 	// ChooseFolder asks for a folder, as OpenFile does.
 	ChooseFolder func(message string) (string, error)
+	// LogPath is the app's log, which the menu bar opens; "" for none.
+	LogPath string
 
 	root   string // Store.Root as shown, with ~ for the home directory
 	page   string

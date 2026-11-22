@@ -77,6 +77,7 @@ func main() {
 		a.Show("limits") // cswap watch: the dashboard on its live page
 	}
 	a.OpenURL, a.CopyText = mygo.Shell.OpenExternal, mygo.Clipboard.WriteText
+	a.LogPath = filepath.Join(appDir(home), "claude-manager.log")
 	jsonFiles := []mygo.FileFilter{{Name: "JSON", Extensions: []string{"json"}}}
 	a.SaveFile = func(name, message string) (string, error) {
 		return mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "Export Accounts", DefaultPath: filepath.Join(home, "Desktop", name),
