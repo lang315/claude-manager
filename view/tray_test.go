@@ -2,6 +2,7 @@ package view
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -189,12 +190,12 @@ func TestAutoForThisSession(t *testing.T) {
 	}
 	// A threshold from the menu bar stays this session's too.
 	th := trayItem(t, l, "Auto-Switch Threshold")
-	l.tt.Update(th.Sub[0].Do) // 70%
+	l.tt.Update(th.Sub[0].Do) // 80%
 	l.tt.Frame()
-	if saved, _ := l.book.AutoSettings(); saved.DryRun || saved.Line == 70 {
+	if saved, _ := l.book.AutoSettings(); saved.DryRun || saved.Line == 80 {
 		t.Errorf("a change in the session saved it: %+v", saved)
 	}
-	if s, _ := l.book.AutoInEffect(); s.Line != 70 || !s.DryRun {
+	if s, _ := l.book.AutoInEffect(); s.Line != 80 || !s.DryRun {
 		t.Errorf("in effect %+v", s)
 	}
 }
@@ -226,5 +227,38 @@ func TestTrayRowsSayWhyUnread(t *testing.T) {
 	it := trayItem(t, l, "down@x")
 	if !strings.Contains(it.Label, "Anthropic did not answer") || !strings.HasSuffix(it.Label, "…") {
 		t.Errorf("down %q", it.Label)
+	}
+}
+
+// claude-swap's menu bar choices: thresholds 80/90/95/98, the last 10
+// switches.
+func TestTrayChoicesAsClaudeSwap(t *testing.T) {
+	l := limitsApp(t)
+	l.a.TrayTick()
+	waitFor(t, l.tt, func() bool { return l.a.limits.loaded })
+	var got []string
+	for _, it := range trayItem(t, l, "Auto-Switch Threshold").Sub {
+		got = append(got, it.Label)
+	}
+	if strings.Join(got, " ") != "80% 90% 95% 98%" {
+		t.Errorf("thresholds %v", got)
+	}
+	var sw []account.Switched
+	for i := range 12 {
+		sw = append(sw, account.Switched{At: time.Date(2026, 11, 1, i, 0, 0, 0, time.Local), To: fmt.Sprintf("s%d@x", i)})
+	}
+	l.tt.Update(func() { l.a.limits.switches = sw })
+	l.tt.Frame()
+	var items []TrayItem
+	l.tt.Update(func() { _, items = l.a.Tray() })
+	l.tt.Frame()
+	n := 0
+	for _, it := range items {
+		if strings.Contains(it.Label, "(by hand)") {
+			n++
+		}
+	}
+	if n != 10 {
+		t.Errorf("%d recent switches shown, want 10", n)
 	}
 }

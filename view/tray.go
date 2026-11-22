@@ -94,7 +94,7 @@ func (a *App) Tray() (title string, items []TrayItem) {
 	items = append(items, l.trayMenus(a, can)...)
 	if len(l.switches) > 0 { // claude-swap's recent switch history
 		items = append(items, TrayItem{Label: "Recent switches", Disabled: true})
-		for _, s := range l.switches[:min(5, len(l.switches))] {
+		for _, s := range l.switches[:min(10, len(l.switches))] {
 			how := "by hand"
 			if s.Auto {
 				how = "auto"
@@ -294,7 +294,7 @@ func (l *limits) trayMenus(a *App, can bool) []TrayItem {
 		toggle.Sub = remove.Sub
 	}
 	line := TrayItem{Label: "Auto-Switch Threshold"}
-	for _, p := range []float64{70, 80, 85, 90, 95} {
+	for _, p := range []float64{80, 90, 95, 98} { // claude-swap's AUTO_THRESHOLD_CHOICES
 		line.Sub = append(line.Sub, TrayItem{Label: fmt.Sprintf("%.0f%%", p), Toggle: true, Checked: l.auto.s.Line == p,
 			Disabled: !l.auto.loaded, Do: func() {
 				s := l.auto.s
