@@ -527,6 +527,9 @@ func (b *Book) freshen(ctx context.Context, key string, now time.Time) error {
 	if err != nil {
 		return err
 	}
+	if b.isDead(key, blob) { // claude-swap drops quarantined slots from the candidates
+		return errors.New("its sign-in was refused or belongs to another account")
+	}
 	l, err := parseLogin(blob)
 	if err != nil || !l.expiresBy(now.Add(freshenAhead)) {
 		return err

@@ -653,6 +653,10 @@ func TestAutoSwitchFreshenIdentity(t *testing.T) {
 		if b.isDead(bob.Key(), withTokens(saved, login("bob-at2", "bob-rt+", t0))) != c.conflict {
 			t.Errorf("%s: quarantined = %v", c.name, !c.conflict)
 		}
+		// the renewed login no longer expires soon; still no target
+		if err = b.freshen(ctx, bob.Key(), t0); (err != nil) != c.conflict {
+			t.Errorf("%s: second freshen err = %v", c.name, err)
+		}
 	}
 }
 
