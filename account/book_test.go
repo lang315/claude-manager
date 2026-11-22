@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -31,10 +32,10 @@ func TestBookKeepSavesNoSecret(t *testing.T) {
 	if s := string(data); !strings.Contains(s, "bob@example.com") || strings.Contains(s, "bob-at") || strings.Contains(s, "bob-rt") {
 		t.Fatalf("accounts.json = %s", s)
 	}
-	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+	if fi, err := os.Stat(path); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Fatalf("accounts.json mode = %v, %v", fi.Mode(), err)
 	}
-	if fi, err := os.Stat(b.Dir); err != nil || fi.Mode().Perm() != 0o700 {
+	if fi, err := os.Stat(b.Dir); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != 0o700 {
 		t.Fatalf("folder mode = %v, %v", fi.Mode(), err)
 	}
 }

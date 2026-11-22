@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -362,8 +363,8 @@ func TestUsageAdvisorTakesParentModes(t *testing.T) {
 
 // A folder under projects/ that can't be read counts as unreadable.
 func TestUsageUnreadableFolderCounts(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root reads any folder")
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root reads any folder; windows ignores chmod 0")
 	}
 	s, d, _ := newStore(t)
 	locked := filepath.Join(d.Root, "projects", "-Users-me-locked")

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -71,7 +72,7 @@ func TestRunSeedsProfile(t *testing.T) {
 	if l, _ := parseLogin(creds); l.RefreshToken != "bob-rt" || strings.Contains(string(creds), "mcpOAuth") {
 		t.Errorf("seed %s", creds)
 	}
-	if fi, _ := os.Stat(filepath.Join(dir, ".credentials.json")); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(filepath.Join(dir, ".credentials.json")); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("seed mode %v", fi.Mode().Perm())
 	}
 	conf, err := os.ReadFile(filepath.Join(dir, ".claude.json"))
@@ -325,6 +326,9 @@ func TestClaudeRunning(t *testing.T) {
 
 // The command reaches claude with both paths whole, whatever they hold.
 func TestRunCommandQuoting(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("RunCommand is a POSIX shell line: windows opens claude through cmd")
+	}
 	root := t.TempDir()
 	folder := filepath.Join(root, `it's a "dir" $HOME`)
 	profile := filepath.Join(root, "Application Support", `o'k`)

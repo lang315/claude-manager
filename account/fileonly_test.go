@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -24,7 +25,7 @@ func TestFileVault(t *testing.T) {
 	if got, err := v.Get("t", ""); err != nil || string(got) != "3" {
 		t.Errorf("any account: %q %v", got, err)
 	}
-	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(path); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v", fi.Mode().Perm())
 	}
 	must(t, v.Delete("s", "a"))

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -39,6 +40,9 @@ func TestMemoryVault(t *testing.T) {
 // and stdin in its folder, then runs then.
 func fakeSecurity(t *testing.T, then string) (Keychain, string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the keychain is macOS's: windows keeps logins in a file")
+	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "security")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + dir + "/args'\ncat > '" + dir + "/stdin'\n" + then + "\n"

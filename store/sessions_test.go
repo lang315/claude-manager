@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -252,8 +253,8 @@ func movedSession(t *testing.T, d fixture.Dirs) (dir, id string) {
 // A head that couldn't be read is read again on the next scan, once the
 // file can be: the error isn't kept.
 func TestProjectsRetriesFailedHead(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root reads any file")
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root reads any file; windows ignores chmod 0")
 	}
 	s, d, _ := newStore(t)
 	recent := filepath.Join(d.Root, fixture.Other, fixture.Recent+".jsonl")

@@ -3,6 +3,7 @@ package logfile
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -22,7 +23,7 @@ func TestRotates(t *testing.T) {
 	if _, err := os.Stat(p + ".3"); err == nil {
 		t.Error("kept more than Keep")
 	}
-	if fi, _ := os.Stat(p); fi.Mode().Perm() != 0o600 || strings.Contains(read(p), "a") {
+	if fi, _ := os.Stat(p); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 || strings.Contains(read(p), "a") {
 		t.Error("mode or content")
 	}
 }

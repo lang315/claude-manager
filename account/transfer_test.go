@@ -53,7 +53,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	}
 	fi, err := os.Stat(path)
 	must(t, err)
-	if fi.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v", fi.Mode().Perm())
 	}
 	f := exportOf(t, path)
@@ -175,7 +175,7 @@ func TestExportMakesReplacedFilePrivate(t *testing.T) {
 	must(t, err)
 	fi, err := os.Stat(path)
 	must(t, err)
-	if fi.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v", fi.Mode().Perm())
 	}
 }

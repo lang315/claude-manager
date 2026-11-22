@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +26,7 @@ func TestLimitsExportImport(t *testing.T) {
 	if said != exportWarning+" "+twoMacs {
 		t.Errorf("save panel said %q", said)
 	}
-	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+	if fi, err := os.Stat(path); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Fatalf("export file: %v %v", fi, err)
 	}
 

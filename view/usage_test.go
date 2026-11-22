@@ -4,6 +4,7 @@ import (
 	"image"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -257,8 +258,8 @@ func inlineApp(t *testing.T) (*App, fixture.Dirs) {
 }
 
 func TestUsageUnreadableToastsOnce(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root reads any file")
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root reads any file; windows ignores chmod 0")
 	}
 	a, d := inlineApp(t)
 	recent := filepath.Join(d.Root, fixture.Other, fixture.Recent+".jsonl")
@@ -314,8 +315,8 @@ func TestCostText(t *testing.T) {
 }
 
 func TestUsageScanErrorKeepsFigures(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root reads any folder")
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root reads any folder; windows ignores chmod 0")
 	}
 	a, d := inlineApp(t)
 	a.Rescan()
@@ -351,8 +352,8 @@ func TestUsagePeriodChangesTablesAndChart(t *testing.T) {
 
 // A warning held back by a pending notice shows on the next scan.
 func TestUsageHeldBackToastShowsLater(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root reads any file")
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root reads any file; windows ignores chmod 0")
 	}
 	a, d := inlineApp(t)
 	recent := filepath.Join(d.Root, fixture.Other, fixture.Recent+".jsonl")

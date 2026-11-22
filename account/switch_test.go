@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -253,7 +254,7 @@ func TestSwitchCredentialsFile(t *testing.T) {
 	if _, err := v.Get(liveDefault, ""); !errors.Is(err, ErrNotFound) {
 		t.Error("a keychain item was made")
 	}
-	if fi, _ := os.Stat(file); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(file); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v", fi.Mode().Perm())
 	}
 }

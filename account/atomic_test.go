@@ -3,6 +3,7 @@ package account
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -14,7 +15,7 @@ func TestWriteAtomic(t *testing.T) {
 	must(t, os.WriteFile(p, []byte("old"), 0o644))
 	must(t, os.Chmod(p, 0o644)) // whatever the umask
 	must(t, writeAtomic(p, []byte("new"), 0o600))
-	if fi, _ := os.Stat(p); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(p); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v", fi.Mode().Perm())
 	}
 	real := filepath.Join(dir, "dotfiles", "claude.json")

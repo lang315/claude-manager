@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -512,7 +513,7 @@ func TestUnsavedSurvivesRestart(t *testing.T) {
 	b.Refresh(ctx, true)
 	v.Fail = nil
 	path := filepath.Join(b.Dir, "unsaved.json")
-	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+	if fi, err := os.Stat(path); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Fatalf("unsaved file: %v %v", fi, err)
 	}
 	again := &Book{Dir: b.Dir, Vault: v, API: b.API, Now: b.Now, Live: b.Live}
