@@ -20,7 +20,11 @@ var terminals = []struct {
 // configDir as its CLAUDE_CONFIG_DIR. Under WSL it opens Windows Terminal
 // (wt.exe) on this distribution.
 func LaunchInTerminal(folder, configDir string, args ...string) error {
-	cmd := RunCommand(folder, configDir, args...)
+	claude, err := FindClaude()
+	if err != nil {
+		return err
+	}
+	cmd := RunCommand(claude, folder, configDir, args...)
 	if os.Getenv("WSL_DISTRO_NAME") != "" {
 		if wt, err := exec.LookPath("wt.exe"); err == nil {
 			return exec.Command(wt, "wsl.exe", "-d", os.Getenv("WSL_DISTRO_NAME"), "--", "sh", "-c", cmd).Start()

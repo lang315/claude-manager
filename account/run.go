@@ -505,11 +505,13 @@ func (b *Book) RunDefault(key, folder string, share Share, args ...string) (note
 	return note, b.Launch(folder, "", args...)
 }
 
-// RunCommand is the shell command LaunchInTerminal runs: claude with args;
-// with no configDir, plain claude in the shell's own environment.
-func RunCommand(folder, configDir string, args ...string) string {
+// RunCommand is the shell command LaunchInTerminal runs: the claude binary
+// FindClaude resolved, with args (claude-swap runs the path shutil.which
+// found, not the bare name); with no configDir, in the shell's own
+// environment.
+func RunCommand(claude, folder, configDir string, args ...string) string {
 	if configDir == "" {
-		cmd := "cd " + shellQuote(folder) + " && exec claude"
+		cmd := "cd " + shellQuote(folder) + " && exec " + shellQuote(claude)
 		for _, a := range args {
 			cmd += " " + shellQuote(a)
 		}
@@ -519,7 +521,7 @@ func RunCommand(folder, configDir string, args ...string) string {
 	for _, v := range authOverrides {
 		cmd += " -u " + v
 	}
-	cmd += " CLAUDE_CONFIG_DIR=" + shellQuote(configDir) + " claude"
+	cmd += " CLAUDE_CONFIG_DIR=" + shellQuote(configDir) + " " + shellQuote(claude)
 	for _, a := range args {
 		cmd += " " + shellQuote(a)
 	}

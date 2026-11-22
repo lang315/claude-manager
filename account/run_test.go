@@ -332,10 +332,11 @@ func TestRunCommandQuoting(t *testing.T) {
 	bin := filepath.Join(root, "bin")
 	must(t, os.Mkdir(bin, 0o700))
 	must(t, os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\nprintf '%s\\n%s' \"$PWD\" \"$CLAUDE_CONFIG_DIR$ANTHROPIC_API_KEY$CLAUDE_CODE_OAUTH_TOKEN\"\n"), 0o755))
-	cmd := exec.Command("/bin/sh", "-c", RunCommand(folder, profile))
+	// claude is where FindClaude's fallbacks may have found it, not on PATH.
+	cmd := exec.Command("/bin/sh", "-c", RunCommand(filepath.Join(bin, "claude"), folder, profile))
 	// A key or token the user's shell exports would override the profile's
 	// login (cswap's AUTH_OVERRIDE_ENV_VARS): claude gets none.
-	cmd.Env = append(os.Environ(), "PATH="+bin+":/usr/bin:/bin", "ANTHROPIC_API_KEY=leak", "CLAUDE_CODE_OAUTH_TOKEN=leak")
+	cmd.Env = append(os.Environ(), "PATH=/usr/bin:/bin", "ANTHROPIC_API_KEY=leak", "CLAUDE_CODE_OAUTH_TOKEN=leak")
 	out, err := cmd.Output()
 	must(t, err)
 	real, _ := filepath.EvalSymlinks(folder)
@@ -559,7 +560,7 @@ func TestSeedSkipsOnboarding(t *testing.T) {
 
 // The account in use runs plain claude, its shell's environment as it is.
 func TestRunCommandDefault(t *testing.T) {
-	if got := RunCommand("/f", "", "--resume"); got != `cd '/f' && exec claude '--resume'` {
+	if got := RunCommand("/bin/it's claude", "/f", "", "--resume"); got != `cd '/f' && exec '/bin/it'\''s claude' '--resume'` {
 		t.Errorf("RunCommand = %s", got)
 	}
 }

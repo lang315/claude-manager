@@ -134,7 +134,7 @@ func TestTokenStatusRunArgsStdio(t *testing.T) {
 	if code, _, errs := a.run(t, "", "run", "bob@example.com", t.TempDir(), "--", "--resume", "x y"); code != ok || !slices.Equal(got, []string{"--resume", "x y"}) {
 		t.Errorf("run args: %d %s %q", code, errs, got)
 	}
-	if !strings.HasSuffix(account.RunCommand("/f", "/p", "--resume", "x y"), ` claude '--resume' 'x y'`) {
+	if !strings.HasSuffix(account.RunCommand("/c/claude", "/f", "/p", "--resume", "x y"), ` '/c/claude' '--resume' 'x y'`) {
 		t.Error("RunCommand args")
 	}
 	b := newApp(t)
