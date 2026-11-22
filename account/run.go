@@ -235,6 +235,12 @@ func (b *Book) seed(dir string, parked []byte, acct json.RawMessage, share Share
 	if err == nil { // claude-swap's _bootstrap: a profile kept from before doesn't onboard again
 		conf, err = spliceKey(conf, "hasCompletedOnboarding", json.RawMessage(`true`))
 	}
+	if err == nil { // claude-swap's setdefault("theme", saved theme or "dark"): claude onboards without one
+		var own map[string]json.RawMessage
+		if json.Unmarshal(conf, &own) == nil && own["theme"] == nil {
+			conf, err = spliceKey(conf, "theme", b.theme())
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -260,6 +266,16 @@ func (b *Book) seed(dir string, parked []byte, acct json.RawMessage, share Share
 		}
 	}
 	return nil
+}
+
+// theme is ~/.claude.json's theme, else "dark".
+func (b *Book) theme() json.RawMessage {
+	var c struct{ Theme string }
+	if data, err := os.ReadFile(b.Home.ClaudeJSON); err == nil && json.Unmarshal(data, &c) == nil && c.Theme != "" {
+		t, _ := json.Marshal(c.Theme)
+		return t
+	}
+	return json.RawMessage(`"dark"`)
 }
 
 // mergeOwnHistory moves a profile's own history into ~/.claude's, as

@@ -744,3 +744,35 @@ func TestRunDefaultHistory(t *testing.T) {
 		t.Error("history moved under a running claude")
 	}
 }
+
+// claude-swap's _bootstrap: claude shows onboarding unless the config has a
+// theme, so a profile gets one when it has none: the account's saved
+// config's, else "dark".
+func TestSeedTheme(t *testing.T) {
+	for _, c := range []struct{ name, home, own, want string }{
+		{"default", `{"numStartups":3}`, ``, `"dark"`},
+		{"home's", `{"theme":"light"}`, ``, `"light"`},
+		{"home's empty", `{"theme":""}`, ``, `"dark"`},
+		{"home's not a string", `{"theme":3}`, ``, `"dark"`},
+		{"no home config", ``, ``, `"dark"`},
+		{"profile's own wins", `{"theme":"light"}`, `{"theme":"dark-ansi"}`, `"dark-ansi"`},
+		{"profile's own, none at home", ``, `{"theme":"light"}`, `"light"`},
+	} {
+		r := newRunBook(t)
+		if c.home == "" {
+			must(t, os.Remove(r.h.ClaudeJSON))
+		} else {
+			write(t, r.h.ClaudeJSON, c.home)
+		}
+		if c.own != "" {
+			write(t, filepath.Join(r.dir(), ".claude.json"), c.own)
+		}
+		must(t, r.b.Run(bob.Key(), "/a", both))
+		conf, _ := os.ReadFile(filepath.Join(r.dir(), ".claude.json"))
+		var got struct{ Theme json.RawMessage }
+		must(t, json.Unmarshal(conf, &got))
+		if string(got.Theme) != c.want {
+			t.Errorf("%s: theme %s in %s, want %s", c.name, got.Theme, conf, c.want)
+		}
+	}
+}
