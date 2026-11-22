@@ -46,8 +46,13 @@ jobs:
             GOOS=$os go build ./...
           done
 
-  test: # macOS: the keychain tests run /usr/bin/security against their own keychain file
-    runs-on: macos-latest
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS runs the keychain tests against their own keychain file; the others cover the windows and linux paths
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -63,4 +68,5 @@ jobs:
           cache-dependency-path: claude-manager/go.sum
       - name: go test -race
         working-directory: claude-manager
+        shell: bash
         run: go test -race -count=1 ./...
