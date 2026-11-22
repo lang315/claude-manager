@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -275,6 +276,9 @@ func frontMatter(text string) (fields [][2]string, body string) {
 // gone, the rest of the name is its last part, dashes kept.
 func projectPath(name string) string {
 	dir, rest := "/", name
+	if runtime.GOOS == "windows" && len(name) > 2 && name[1:3] == "--" { // C:\ is "C-" and its "\" a "-"
+		dir, rest = name[:1]+`:\`, name[2:]
+	}
 	for rest != "" {
 		if rest[0] != '-' {
 			return name // not an encoded path

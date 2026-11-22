@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -24,6 +25,9 @@ func TestSameProcess(t *testing.T) {
 	old := time.Now().Add(-24 * time.Hour).UTC().Format("Mon Jan _2 15:04:05 2006")
 	if SameProcess(me, old) {
 		t.Error("a reused pid passed")
+	}
+	if runtime.GOOS == "windows" {
+		return // no exec -a to name a process claude
 	}
 	// A claude at the pid is kept, reused or not.
 	sleep := exec.Command("bash", "-c", "exec -a claude sleep 5") // dash, /bin/sh on Ubuntu, has no exec -a

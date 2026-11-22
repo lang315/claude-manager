@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"testing"
 	"time"
 
@@ -14,7 +15,7 @@ func TestPIDAlive(t *testing.T) {
 		t.Error("own PID reads as dead")
 	}
 	// launchd belongs to root: Kill answers EPERM, and the process is alive.
-	if !PIDAlive(1) {
+	if runtime.GOOS != "windows" && !PIDAlive(1) {
 		t.Error("PID 1 reads as dead")
 	}
 	cmd := exec.Command("true")

@@ -3,7 +3,6 @@ package store
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -55,14 +54,6 @@ func Stamp(raw json.RawMessage) string {
 // lstart parses ps's lstart, "Wed Sep  2 20:35:59 2026", in UTC.
 func lstart(s string) (time.Time, error) {
 	return time.Parse("Mon Jan _2 15:04:05 2006", strings.Join(strings.Fields(s), " "))
-}
-
-func ps(pid int, field ...string) (string, error) {
-	args := append([]string{"-p", strconv.Itoa(pid), "-o"}, field...)
-	cmd := exec.Command("ps", args...)
-	cmd.Env = append(os.Environ(), "LC_ALL=C", "TZ=UTC") // as claude stamps procStart
-	out, err := cmd.Output()
-	return strings.TrimSpace(string(out)), err
 }
 
 // startTicks is field 22 of /proc/<pid>/stat, "" off Linux or unreadable.

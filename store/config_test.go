@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -80,8 +81,8 @@ func TestPluginSizeAndState(t *testing.T) {
 	}
 	// Two installs of one plugin share a path; it counts once.
 	installed := `{"plugins":{"small@m":[{"version":"1"}],"big@m":[` +
-		`{"installPath":"` + inst + `","version":"1","lastUpdated":"2026-01-01T00:00:00Z"},` +
-		`{"installPath":"` + inst + `","version":"2","lastUpdated":"2026-02-01T00:00:00Z"}]}}`
+		`{"installPath":"` + filepath.ToSlash(inst) + `","version":"1","lastUpdated":"2026-01-01T00:00:00Z"},` +
+		`{"installPath":"` + filepath.ToSlash(inst) + `","version":"2","lastUpdated":"2026-02-01T00:00:00Z"}]}}`
 	if err := os.WriteFile(filepath.Join(d.Root, "plugins", "installed_plugins.json"), []byte(installed), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -118,15 +119,15 @@ func TestProjectPath(t *testing.T) {
 	if got := projectPath(name); got != dir {
 		t.Errorf("projectPath(%q) = %q, want %q", name, got, dir)
 	}
-	if got := projectPath("-no-such-place-here"); got != "/no-such-place-here" {
+	if got := projectPath("-no-such-place-here"); got != filepath.FromSlash("/no-such-place-here") {
 		t.Errorf("a gone path gave %q", got)
 	}
 }
 
 // A doc that exists but can't be read is reported, not dropped in silence.
 func TestConfigReportsUnreadableDocs(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("root reads a file of mode 0")
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root reads a file of mode 0; windows ignores chmod 0")
 	}
 	s, d, _ := newStore(t)
 	f := filepath.Join(d.Root, "skills", "demo", "SKILL.md")
