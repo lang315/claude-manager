@@ -227,15 +227,7 @@ func claudeAt(t *testing.T) string {
 	dir := t.TempDir()
 	login := filepath.Join(dir, "login.json")
 	must(t, os.WriteFile(login, account.Login{AccessToken: "bob", RefreshToken: "bob-rt", ExpiresAt: fixture.Now.Add(time.Hour).UnixMilli()}.Marshal(), 0o600))
-	bin := filepath.Join(dir, "claude")
-	must(t, os.WriteFile(bin, []byte(`#!/bin/sh
-echo "Visit: https://claude.ai/oauth/authorize?state=abc"
-printf 'Paste code here if prompted > '
-read code
-[ "$code" = "good" ] || { echo "Invalid code" >&2; exit 1; }
-cp '`+login+`' "$CLAUDE_CONFIG_DIR/.credentials.json"
-`), 0o755))
-	return bin
+	return fixture.FakeClaude(t, fixture.Claude{Link: "https://claude.ai/oauth/authorize?state=abc", Login: login})
 }
 
 func TestLimitsRemove(t *testing.T) {

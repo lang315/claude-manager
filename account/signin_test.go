@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lang315/claude-manager/internal/fixture"
 )
 
 const signLink = "https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a&state=abc"
@@ -19,32 +21,13 @@ const signLink = "https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a
 // and writes bob's oauthAccount in the folder's .claude.json.
 func fakeClaude(t *testing.T, loginFile string) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "claude")
-	script := `#!/bin/sh
-[ "$*" = "auth login --claudeai" ] || { echo "bad args: $*" >&2; exit 2; }
-echo "Opening browser to sign in…"
-printf 'Visit: \033[1m\033]8;;%s\033\\%s\033]8;;\033\\\033[0m\n' "` + signLink + `" "` + signLink + `"
-printf 'Paste code here if prompted > '
-read code
-[ "$code" = "good" ] || { echo "Invalid code" >&2; exit 1; }
-if [ -n '` + loginFile + `' ]; then cp '` + loginFile + `' "$CLAUDE_CONFIG_DIR/.credentials.json"; fi
-echo '{"oauthAccount":` + bobAccount + `}' > "$CLAUDE_CONFIG_DIR/.claude.json"
-echo "Login successful."
-`
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return bin
+	return fixture.FakeClaude(t, fixture.Claude{Link: signLink, Escapes: true, Login: loginFile, OAuthAccount: bobAccount})
 }
 
 // sleepyClaude prints a link, then waits for good.
 func sleepyClaude(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "claude")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"Visit: https://claude.ai/x\"\nexec sleep 30\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return bin
+	return fixture.FakeClaude(t, fixture.Claude{Link: "https://claude.ai/x", Sleep: true})
 }
 
 // signInBook is a book on a fake Anthropic that knows bob's token bob-1.
@@ -262,8 +245,9 @@ func TestLoadRemovesLeftovers(t *testing.T) {
 
 func TestSignInEnv(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "leak")
-	env := strings.Join(signInEnv("/d", "/opt/x/bin/claude"), "\n")
-	if !strings.Contains(env, "CLAUDE_CONFIG_DIR=/d") || !strings.Contains(env, "PATH=/opt/x/bin:") || strings.Contains(env, "leak") {
+	dir, bin := filepath.FromSlash("/d"), filepath.FromSlash("/opt/x/bin/claude")
+	env := strings.Join(signInEnv(dir, bin), "\n")
+	if !strings.Contains(env, "CLAUDE_CONFIG_DIR="+dir) || !strings.Contains(env, "PATH="+filepath.Dir(bin)+string(os.PathListSeparator)) || strings.Contains(env, "leak") {
 		t.Fatalf("env:\n%s", env)
 	}
 }
