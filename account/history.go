@@ -71,6 +71,8 @@ func (b *Book) record(from, to, why string, auto bool) {
 	b.logf("switch %s -> %s (%s)", from, to, why)
 	if auto {
 		b.event("auto-switched", "Auto-switched account", fmt.Sprintf("%s: %s.", to, why))
+	} else { // claude-swap's menu bar tells a switch by hand too
+		b.event("switched", "Switched account", "Claude Code is on "+to+".")
 	}
 }
 

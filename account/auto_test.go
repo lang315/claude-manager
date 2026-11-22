@@ -599,3 +599,24 @@ func TestAutoSwitchFreshenFallsThrough(t *testing.T) {
 		t.Errorf("switched %+v, login in use %q", d, l.AccessToken)
 	}
 }
+
+// claude-swap's menu bar notifications: a switch by hand, and a model name
+// no account has a window for.
+func TestNotifications(t *testing.T) {
+	b, _, _, f := switchBook(t)
+	var told []string
+	b.Events = func(title, body string) { told = append(told, title+": "+body) }
+	f.usage["alice-at"], f.usage["bob-at"] = 10, 10
+	b.Refresh(ctx, true)
+	must(t, b.Switch(ctx, bob.Key()))
+	s := DefaultAuto()
+	s.On, s.Model = true, "fabel"
+	must(t, b.SetAuto(s))
+	b.Refresh(ctx, true)
+	b.AutoSwitch(ctx)
+	b.AutoSwitch(ctx)
+	want := []string{"Switched account: Claude Code is on bob@example.com.", "Configuration warning: autoswitch.model: fabel matches no account's windows (typo?)."}
+	if !slices.Equal(told, want) {
+		t.Errorf("told %q", told)
+	}
+}

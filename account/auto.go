@@ -599,6 +599,9 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 		return Decision{Why: "Waiting after a failed switch."}, nil
 	}
 	accts := b.blocks()
+	if u := b.settings().Unseen(accts); len(u) > 0 { // claude-swap's "Configuration warning"
+		b.event("config-warning", "Configuration warning", "autoswitch.model: "+strings.Join(u, ", ")+" matches no account's windows (typo?).")
+	}
 	m := b.bar
 	m.last = b.lastSwitch
 	i := slices.IndexFunc(accts, func(a Account) bool { return a.InUse })

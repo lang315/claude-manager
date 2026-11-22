@@ -31,7 +31,8 @@ func TestHistoryEventsLog(t *testing.T) {
 	if len(hs) != 3 || !hs[0].Auto || hs[0].To != "bob@example.com" || hs[0].From != "alice@example.com" || hs[2].Why != "by hand" || hs[2].Auto {
 		t.Fatalf("history %+v", hs)
 	}
-	if len(told) != 1 || told[0] != "Auto-switched account" {
+	// Switches by hand are told too, as claude-swap's menu bar.
+	if !slices.Equal(told, []string{"Switched account", "Switched account", "Auto-switched account"}) {
 		t.Errorf("told %q", told)
 	}
 	if !strings.Contains(log.String(), "switch alice@example.com -> bob@example.com") || strings.Contains(log.String(), "-at") {
