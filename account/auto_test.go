@@ -655,3 +655,39 @@ func TestAutoSwitchFreshenIdentity(t *testing.T) {
 		}
 	}
 }
+
+// claude-swap drops its unhealthy count unless it was saved for the account
+// in use and its stamp is no older than 2*IDLE_HOLD_MAX_S (an hour): "can't
+// be read since" is about this account, and recent.
+func TestUnreadableSinceIsOfTheAccountAndRecent(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		key  func(*Book) string // the account the count was saved for
+		gap  time.Duration      // since the count's last tick
+		fail bool
+	}{
+		{"same account, recent", func(*Book) string { return alice.Key() }, 5 * time.Minute, true},
+		{"same account, an hour old", func(*Book) string { return alice.Key() }, time.Hour, true},
+		{"same account, stale", func(*Book) string { return alice.Key() }, time.Hour + time.Minute, false},
+		{"another account", func(*Book) string { return "other/org" }, 5 * time.Minute, false},
+	} {
+		b, v, _, f := switchBook(t)
+		f.usage["alice-at"], f.usage["bob-at"] = 50, 10
+		b.Refresh(ctx, true)
+		s := DefaultAuto()
+		s.On = true
+		must(t, b.SetAuto(s))
+		must(t, v.Put(liveDefault, "me", stored(t, login("alice-at", "alice-rt", t0.Add(5*time.Hour)))))
+		f.status["alice-at"] = 500
+		f.renewed["bob-rt"] = "bob-at"
+		now := t0.Add(120 * time.Minute)
+		b.Now = func() time.Time { return now }
+		b.Refresh(ctx, true)
+		// unreadable for 10 minutes already, last counted gap ago
+		b.unreadable, b.unreadableKey, b.unreadableTick = now.Add(-10*time.Minute-c.gap), c.key(b), now.Add(-c.gap)
+		d, _ := b.AutoSwitch(ctx)
+		if (d.Email == "bob@example.com") != c.fail {
+			t.Errorf("%s: failed over = %v: %+v", c.name, !c.fail, d)
+		}
+	}
+}

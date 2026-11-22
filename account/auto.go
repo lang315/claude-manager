@@ -166,6 +166,8 @@ type autoState struct {
 	LastSwitch   time.Time `json:"lastSwitchAt,omitzero"`
 	LastFailed   time.Time `json:"lastFailedAt,omitzero"`
 	Unreadable   time.Time `json:"unreadableSince,omitzero"`
+	UnreadableOf string    `json:"unreadableAccount,omitempty"`
+	UnreadableAt time.Time `json:"unreadableTickAt,omitzero"`
 	BarTo        string    `json:"lastSwitchTo,omitempty"`
 	BarFrom      string    `json:"lastSwitchFrom,omitempty"`
 	LeftHeadroom float64   `json:"leftHeadroom,omitempty"`
@@ -174,14 +176,14 @@ type autoState struct {
 }
 
 func (b *Book) autoState() autoState {
-	return autoState{b.lastSwitch, b.lastFailed, b.unreadable, b.bar.barTo, b.bar.barFrom, b.bar.leftLH, b.bar.leftResets, b.bar.leftWhy}
+	return autoState{b.lastSwitch, b.lastFailed, b.unreadable, b.unreadableKey, b.unreadableTick, b.bar.barTo, b.bar.barFrom, b.bar.leftLH, b.bar.leftResets, b.bar.leftWhy}
 }
 
 func (b *Book) setAutoState(s *autoState) {
 	if s == nil {
 		s = &autoState{}
 	}
-	b.lastSwitch, b.lastFailed, b.unreadable = s.LastSwitch, s.LastFailed, s.Unreadable
+	b.lastSwitch, b.lastFailed, b.unreadable, b.unreadableKey, b.unreadableTick = s.LastSwitch, s.LastFailed, s.Unreadable, s.UnreadableOf, s.UnreadableAt
 	b.bar = memo{barTo: s.BarTo, barFrom: s.BarFrom, leftLH: s.LeftHeadroom, leftResets: s.LeftResets, leftWhy: s.LeftWhy}
 }
 
@@ -654,9 +656,15 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 		b.unreadable = time.Time{}
 		return Decision{Why: "Claude Code's sign-in has lapsed; it renews on your next message, so auto-switch holds."}, nil
 	default:
+		// claude-swap keeps the count only for the account it was of, and
+		// when it was last counted no more than 2*IDLE_HOLD_MAX_S ago.
+		if age := now.Sub(b.unreadableTick); b.unreadableKey != accts[i].Key() || age < 0 || age > time.Hour {
+			b.unreadable = time.Time{}
+		}
 		if b.unreadable.IsZero() {
 			b.unreadable = now
 		}
+		b.unreadableKey, b.unreadableTick = accts[i].Key(), now
 		if wait := b.settings().failoverAfter() - now.Sub(b.unreadable); wait > 0 {
 			return Decision{Why: fmt.Sprintf("The account in use can't be read; moving on in %s if it stays so.", wait.Round(time.Minute))}, nil
 		}
