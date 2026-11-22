@@ -256,8 +256,9 @@ From claude-swap's `autoswitch.py`, `usage_store.py` and `poll_policy.py`:
   3 while the account in use is within 15 of a line or unreadable; a spent
   account (a 5h or 7d window at 100%) other than the one in use every 10,
   but a minute after that window resets; the one in use stays at 3, so its
-  reading stays fresh (claude-swap trusts it until its next poll instead). Refresh by hand reads all. Not ported: movement scaling,
-  jitter, one candidate per tick, the 429 AIMD (Anthropic's Retry-After
+  reading stays fresh (claude-swap trusts it until its next poll instead). Refresh by hand reads all. Ported in `nextPoll`: movement scaling
+  and jitter, and every account's poll capped a minute past its soonest
+  reset. Not ported: one candidate per tick, the 429 AIMD (Anthropic's Retry-After
   already holds an account).
 - Model names (`_check_model_names`): once every added account has been
   read, a Model windows name no account has a window for shows in the
@@ -801,6 +802,14 @@ Verified: the three above, `TestKeychainGuard`, `TestFailureDialog`,
 folder's keychain items read by Claude Code (writing them would change the
 user's own Claude Code), and real Anthropic answers for an OAuth switch
 through the binary.
+
+- Auto-switch freshen checks identity (`_note_token_identity`): the renewal's
+  answer names its account and organization; one of another account, or of
+  another organization (both known), quarantines the target like a refused
+  token, and the loop moves to the next candidate. No account uuid in the
+  answer is no conflict.
+- `error.type` in JSON keeps Go's four kinds (network, auth, keychain, error)
+  rather than claude-swap's Python class names: deliberate, a user decision.
 
 ## Not ported
 
