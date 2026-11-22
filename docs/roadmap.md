@@ -82,6 +82,10 @@ in Go, one PR each. Design: `superpowers/specs/2026-11-21-claude-swap-port-desig
 - [x] **30. Gaps: the no-return bar's release, the plan's own retry, the menu bar (health, title, rows, picks, log, live refresh), notifications, slot and alias in the window** (#49, draft).
 - [x] **31. Gaps: claude-swap's poll plan, auto --json events, config --json, usage log lines, the menu bar's submenus and settings, session-only auto settings** (#50, draft).
 - [x] **32. Verification fixes: the menu bar row's note for an unread account, unsaved logins kept in `unsaved.json`, no renewal without a refresh token, only transcripts win a history merge, the API key fallback past the line, purge and `--hold`, the menu bar's thresholds and history** (draft).
+- [x] **33. Reviewer gaps, auto-switch and credentials: identity check on freshen, "unreadable since" tied to the account, keychain read tried twice, polls capped at a reset, the auto loop's wait, the export envelope** (draft).
+- [x] **34. Reviewer gaps, run: a signed-out login in use opens from its profile, history on the fast path, the resolved claude path, a profile's theme, claude found on PATH** (draft).
+- [x] **35. Reviewer gaps, command line: purge asks and removes all app data and the menu bar agent (`--yes` for scripts), lockstep within 5 s, move/swap by email or alias, switch/status/config JSON as cswap's, import checks** (draft).
+- [x] **36. Reviewer gaps, menu bar: account name and per-model limits in the title, Open Log reveals, menubar.err, the health row ages the account in use's reading** (draft).
 - [x] **9. Command line.** `claude-manager list|status|switch|auto --once|add-token|remove|purge|export|import|run`, as cswap's (#27, draft).
 - Owed for all: the real runs (Add Account, switch A → B → A, export and
   import between two Macs, Open in Terminal, the menu bar, a setup-token, an
