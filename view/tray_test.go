@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lang315/claude-manager/account"
 )
@@ -159,4 +160,10 @@ func TestTrayRecentSwitches(t *testing.T) {
 		t.Error("header")
 	}
 	trayItem(t, l, l.a.limits.switches[0].At.Local().Format("Jan 2 15:04")+"  bob@example.com (by hand)")
+}
+
+func TestPollSummary(t *testing.T) {
+	if got := pollSummary([]account.Account{{InUse: true, PollEvery: 4*time.Minute + 30*time.Second}}); got != "Reads it every 4m30s" {
+		t.Errorf("summary %q", got)
+	}
 }

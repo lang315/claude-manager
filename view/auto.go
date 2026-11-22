@@ -84,6 +84,9 @@ func (l *limits) autoRow(c *ui.Context, a *App, pal *palette) {
 			if next := nextBest(u.ranked); next != "" {
 				ui.Text(c, "Next: "+next).FontSize(12).TextColor(pal.muted).SingleLine()
 			}
+			if p := pollSummary(l.blocks); p != "" { // claude-swap's auto view: poll every Ns
+				ui.Text(c, p).FontSize(12).TextColor(pal.muted).SingleLine()
+			}
 		case u.s.On:
 			ui.Text(c, "Checks every minute while the app is open.").FontSize(12).TextColor(pal.muted)
 		}
@@ -289,4 +292,15 @@ func (u *autoUI) logWhy(now time.Time, why string) {
 	if len(u.log) > 50 {
 		u.log = u.log[:50]
 	}
+}
+
+// pollSummary is claude-swap's "poll every Ns": how often the account in
+// use is read now, by its poll plan.
+func pollSummary(blocks []account.Account) string {
+	for _, b := range blocks {
+		if b.InUse && b.PollEvery > 0 {
+			return "Reads it every " + b.PollEvery.Round(time.Second).String()
+		}
+	}
+	return ""
 }
