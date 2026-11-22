@@ -74,6 +74,7 @@ type API struct {
 	Base     string // https://api.anthropic.com
 	AuthBase string // https://platform.claude.com
 	Agent    string // the User-Agent
+	Version  string // the app's, as an export's swapVersion
 	Client   *http.Client
 	Debug    io.Writer // when set, each request's method, path, status and time: never a token
 }
@@ -83,7 +84,7 @@ type API struct {
 func NewAPI(version string) *API {
 	return &API{
 		Base: "https://api.anthropic.com", AuthBase: "https://platform.claude.com",
-		Agent: "claude-manager/" + version, Client: &http.Client{Timeout: 5 * time.Second},
+		Agent: "claude-manager/" + version, Version: version, Client: &http.Client{Timeout: 5 * time.Second},
 	}
 }
 

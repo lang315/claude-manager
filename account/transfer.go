@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"runtime"
 	"slices"
 	"strings"
 )
@@ -18,7 +19,9 @@ type exportFile struct {
 	Version      int           `json:"version"`
 	ExportedAt   string        `json:"exportedAt"`
 	ExportedFrom string        `json:"exportedFrom"`
+	SwapVersion  string        `json:"swapVersion,omitempty"`
 	Encrypted    bool          `json:"encrypted"`
+	Active       *int          `json:"activeAccountNumber"` // the account in use's slot, when it is in the file
 	Accounts     []exportEntry `json:"accounts"`
 }
 
@@ -66,7 +69,10 @@ func (b *Book) Export(path string, full bool, keys ...string) (n, left int, err 
 		}
 	}
 	now := b.Now().UTC().Format("2006-01-02T15:04:05Z")
-	f := exportFile{Version: 1, ExportedAt: now, ExportedFrom: "macos"}
+	f := exportFile{Version: 1, ExportedAt: now, ExportedFrom: platformTag()}
+	if b.API != nil {
+		f.SwapVersion = b.API.Version
+	}
 	for _, a := range b.added {
 		if len(keys) > 0 && !slices.Contains(keys, a.Key()) {
 			continue
@@ -127,6 +133,12 @@ func (b *Book) Export(path string, full bool, keys ...string) (n, left int, err 
 	}
 	if len(f.Accounts) == 0 {
 		return 0, left, errNothingToExport
+	}
+	for _, a := range b.added { // claude-swap's activeAccountNumber: only a slot in the file
+		if a.Key() == inUse && slices.ContainsFunc(f.Accounts, func(e exportEntry) bool { return e.Number == max(a.Slot, 1) && e.Email == a.Email }) {
+			n := max(a.Slot, 1)
+			f.Active = &n
+		}
 	}
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
@@ -402,4 +414,17 @@ func (b *Book) takeSlot(key string, n int) {
 		return
 	}
 	b.added[i].Slot = n
+}
+
+// platformTag is claude-swap's exportedFrom for this system.
+func platformTag() string {
+	switch {
+	case runtime.GOOS == "darwin":
+		return "macos"
+	case runtime.GOOS == "linux" && os.Getenv("WSL_DISTRO_NAME") != "":
+		return "wsl"
+	case runtime.GOOS == "linux", runtime.GOOS == "windows":
+		return runtime.GOOS
+	}
+	return "unknown"
 }

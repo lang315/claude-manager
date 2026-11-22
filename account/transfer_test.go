@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -456,5 +457,32 @@ func TestExportImportSetupToken(t *testing.T) {
 	}
 	if blob, _ := v2.Get(ParkService, tokenUUID+"ci@example.com/"); !strings.Contains(string(blob), "sk-ant-oat01-tok") {
 		t.Errorf("saved %s", blob)
+	}
+}
+
+// claude-swap's envelope: swapVersion, the platform it came from, and the
+// account in use's slot when that account is in the file.
+func TestExportEnvelope(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	b.API.Version = "9.9.9"
+	b.Refresh(ctx, true)
+	path := filepath.Join(t.TempDir(), "out.json")
+	_, _, err := b.Export(path, false)
+	must(t, err)
+	var env map[string]any
+	data, _ := os.ReadFile(path)
+	must(t, json.Unmarshal(data, &env))
+	want := map[string]string{"darwin": "macos", "linux": "linux", "windows": "windows"}[runtime.GOOS]
+	alice := entryOf(t, exportOf(t, path), "alice@example.com")
+	if env["swapVersion"] != "9.9.9" || env["exportedFrom"] != want || env["activeAccountNumber"] != float64(alice.Number) {
+		t.Errorf("envelope %v", env)
+	}
+	_, _, err = b.Export(path, false, bob.Key())
+	must(t, err)
+	data, _ = os.ReadFile(path)
+	env = nil
+	must(t, json.Unmarshal(data, &env))
+	if v, ok := env["activeAccountNumber"]; !ok || v != nil {
+		t.Errorf("an account not exported is named active: %v", env)
 	}
 }
