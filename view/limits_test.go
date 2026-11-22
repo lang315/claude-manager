@@ -525,3 +525,16 @@ func TestLimitsLapsedPlan(t *testing.T) {
 	l.open(t)
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") && l.tt.HasText("Free (lapsed)") })
 }
+
+// load off the main thread, as the app runs it: under -race, a closure the
+// main thread runs must share no variable the worker writes after it.
+func TestLimitsLoadOffTheMainThread(t *testing.T) {
+	l := limitsApp(t)
+	l.open(t)
+	l.a.Go = func(f func()) { go f() }
+	for range 5 {
+		n := l.usage.Load()
+		l.a.Update(func() { l.a.limits.load(l.a, true) })
+		waitFor(t, l.tt, func() bool { return l.usage.Load() > n && !l.a.limits.loading })
+	}
+}
