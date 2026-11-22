@@ -26,7 +26,7 @@ func TestSameProcess(t *testing.T) {
 		t.Error("a reused pid passed")
 	}
 	// A claude at the pid is kept, reused or not.
-	sleep := exec.Command("/bin/sh", "-c", "exec -a claude sleep 5")
+	sleep := exec.Command("bash", "-c", "exec -a claude sleep 5") // dash, /bin/sh on Ubuntu, has no exec -a
 	if err := sleep.Start(); err != nil {
 		t.Fatal(err)
 	}
