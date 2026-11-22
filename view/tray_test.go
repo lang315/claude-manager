@@ -167,3 +167,24 @@ func TestPollSummary(t *testing.T) {
 		t.Errorf("summary %q", got)
 	}
 }
+
+// claude-swap's auto view adjusts for the session only: Override, not saved.
+func TestAutoForThisSession(t *testing.T) {
+	l := limitsApp(t)
+	canSwitch(t, l)
+	l.a.AutoTick()
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.a.limits.auto.loaded })
+	must(t, l.tt.Click("Auto-Switch Settings…"))
+	l.tt.Frame()
+	must(t, l.tt.Click("Dry run: say what it would do, switch nothing"))
+	l.tt.Frame()
+	must(t, l.tt.Click("Use for This Session"))
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Auto-switch (this session)") })
+	if saved, _ := l.book.AutoSettings(); saved.DryRun {
+		t.Error("a session's setting was saved")
+	}
+	if s, _ := l.book.AutoInEffect(); !s.DryRun {
+		t.Error("not in effect")
+	}
+}

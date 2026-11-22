@@ -264,6 +264,14 @@ func (b *Book) Override(s Auto) error {
 	return nil
 }
 
+// ClearOverride ends an Override: the saved settings hold again.
+func (b *Book) ClearOverride() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.override = nil
+	return nil
+}
+
 // LoginTimes is when the added account key's saved login lapses (its
 // access token) and when it can no longer be renewed (its refresh token);
 // zero where it doesn't say, as for a setup-token.

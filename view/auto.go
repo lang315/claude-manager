@@ -23,6 +23,7 @@ type autoUI struct {
 	log             []string            // claude-swap's TUI event log: the last decisions, the latest first
 	ranked          []account.Candidate // its "next best" list
 	showLog, goLive bool
+	session         bool // settings for this session only (claude-swap's auto view): Override, not saved
 	confirmLive     bool
 	pending         account.Auto
 	ticked          time.Time // the last tick that ran
@@ -50,7 +51,7 @@ func (a *App) AutoTick() {
 		return
 	}
 	a.Go(func() {
-		s, err := a.Accounts.AutoSettings()
+		s, err := a.Accounts.AutoInEffect() // a session's settings, when set
 		p, _ := a.Accounts.Prefs()
 		a.Update(func() {
 			a.prefs = p
@@ -68,7 +69,11 @@ func (l *limits) autoRow(c *ui.Context, a *App, pal *palette) {
 	u := &l.auto
 	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 		on := u.s.On
-		ui.Checkbox(c, &on, "Auto-switch").Disabled(!u.loaded || !a.Accounts.CanSwitch())
+		label := "Auto-switch"
+		if u.session {
+			label += " (this session)"
+		}
+		ui.Checkbox(c, &on, label).Disabled(!u.loaded || !a.Accounts.CanSwitch())
 		if on != u.s.On {
 			s := u.s
 			s.On = on
@@ -115,11 +120,12 @@ func (l *limits) saveAuto(a *App, s account.Auto) {
 		l.auto.pending, l.auto.confirmLive = s, true
 		return
 	}
-	l.auto.goLive = false
+	l.auto.goLive, l.auto.session = false, false
 	l.auto.s = s
 	a.Go(func() {
+		_ = a.Accounts.ClearOverride() // a save ends this session's settings
 		err := a.Accounts.SetAuto(s)
-		saved, _ := a.Accounts.AutoSettings()
+		saved, _ := a.Accounts.AutoInEffect()
 		a.Update(func() {
 			l.auto.s = saved
 			l.toast(a, err)
@@ -228,7 +234,7 @@ func (l *limits) autoDialogs(c *ui.Context, a *App) {
 				if ui.Button(c, "Cancel").Clicked() {
 					u.editing = false
 				}
-				if ui.PrimaryButton(c, "Save").Clicked() {
+				draft := func() account.Auto {
 					s := u.draft
 					if !u.weekly {
 						s.WeeklyLine = 0
@@ -236,6 +242,18 @@ func (l *limits) autoDialogs(c *ui.Context, a *App) {
 					s.Cooldown = int(u.cooldown * 60)
 					s.Interval, s.Ticks = int(u.interval), int(u.ticks)
 					s.Strategy = strategies[max(0, slices.Index(strategyLabels, u.strategy))]
+					return s
+				}
+				if ui.Button(c, "Use for This Session").Clicked() { // claude-swap's auto view: not saved
+					s := draft()
+					u.editing, u.session, u.s = false, true, s
+					a.Go(func() {
+						err := a.Accounts.Override(s)
+						a.Update(func() { l.toast(a, err) })
+					})
+				}
+				if ui.PrimaryButton(c, "Save").Clicked() {
+					s := draft()
 					u.editing = false
 					l.saveAuto(a, s)
 				}
