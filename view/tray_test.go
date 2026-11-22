@@ -188,3 +188,13 @@ func TestAutoForThisSession(t *testing.T) {
 		t.Error("not in effect")
 	}
 }
+
+// claude-swap's title percentage: both windows, one, or none.
+func TestTrayTitleModes(t *testing.T) {
+	b := account.Account{Limits: []account.Limit{{Kind: "session", Percent: 62}, {Kind: "weekly_all", Percent: 40}}}
+	for mode, want := range map[string]string{"": "62% · 40%", "5h": "62%", "7d": "40%", "off": "CM"} {
+		if got := trayTitle(b, mode); got != want {
+			t.Errorf("%q: %q, want %q", mode, got, want)
+		}
+	}
+}

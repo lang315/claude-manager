@@ -142,7 +142,12 @@ func main() {
 		a.TrayTick()
 		go checkUpdates(a)
 		go func() {
-			for range time.Tick(5 * time.Minute) {
+			for { // as often as menubar.refreshSeconds says, claude-swap's refresh interval
+				every := 5 * time.Minute
+				if p, err := a.Accounts.Prefs(); err == nil {
+					every = p.TrayInterval()
+				}
+				time.Sleep(every)
 				a.TrayTick()
 			}
 		}()

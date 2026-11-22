@@ -38,7 +38,7 @@ func (a *App) Tray() (title string, items []TrayItem) {
 	items = append(items, TrayItem{})
 	for _, b := range l.blocks {
 		if b.InUse {
-			if t := trayTitle(b); t != "" {
+			if t := trayTitle(b, a.prefs.TrayTitle); t != "" {
 				title = t
 			}
 		}
@@ -127,12 +127,17 @@ func health(on bool, read, now time.Time) string {
 }
 
 // trayTitle is the menu bar title for the account in use: its five-hour
-// and 7-day shares, as claude-swap's.
-func trayTitle(b account.Account) string {
+// and 7-day shares, or one of them, or none, as claude-swap's title
+// percentage (mode "", "5h", "7d" or "off").
+func trayTitle(b account.Account, mode string) string {
+	if mode == "off" {
+		return "CM"
+	}
 	var s []string
 	for _, x := range b.Limits {
-		switch x.Kind {
-		case "session", "five_hour", "weekly_all", "seven_day":
+		switch {
+		case (x.Kind == "session" || x.Kind == "five_hour") && mode != "7d",
+			(x.Kind == "weekly_all" || x.Kind == "seven_day") && mode != "5h":
 			s = append(s, fmt.Sprintf("%.0f%%", x.Percent))
 		}
 	}
@@ -276,5 +281,34 @@ func (l *limits) trayMenus(a *App, can bool) []TrayItem {
 				l.saveAuto(a, s)
 			}})
 	}
-	return []TrayItem{add, remove, toggle, line, {}}
+	set := func(key, value string) func() {
+		return func() {
+			a.Go(func() {
+				err := a.Accounts.Set(key, value)
+				p, _ := a.Accounts.Prefs()
+				a.Update(func() {
+					a.prefs = p
+					l.toast(a, err)
+				})
+			})
+		}
+	}
+	settings := TrayItem{Label: "Menu Bar"}
+	for _, t := range []struct{ label, mode string }{{"Title: 5h · 7d", ""}, {"Title: Session (5h)", "5h"}, {"Title: Weekly (7d)", "7d"}, {"Title: None", "off"}} {
+		v := t.mode
+		if v == "" {
+			v = "both"
+		}
+		settings.Sub = append(settings.Sub, TrayItem{Label: t.label, Toggle: true, Checked: a.prefs.TrayTitle == t.mode, Do: set("menubar.title", v)})
+	}
+	settings.Sub = append(settings.Sub, TrayItem{})
+	for _, secs := range []int{30, 60, 300} {
+		label := fmt.Sprintf("Refresh Every %d s", secs)
+		if secs >= 60 {
+			label = fmt.Sprintf("Refresh Every %d min", secs/60)
+		}
+		settings.Sub = append(settings.Sub, TrayItem{Label: label, Toggle: true, Checked: int(a.prefs.TrayInterval().Seconds()) == secs,
+			Do: set("menubar.refreshSeconds", fmt.Sprint(secs))})
+	}
+	return []TrayItem{add, remove, toggle, line, settings, {}}
 }

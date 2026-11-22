@@ -16,6 +16,16 @@ type Prefs struct {
 	Theme          string `json:"theme,omitempty"`          // "auto" (as macOS), "light" or "dark"; "" is auto
 	NoUpdates      bool   `json:"noUpdates,omitempty"`      // don't look for a newer version
 	NoShareHistory bool   `json:"noShareHistory,omitempty"` // Open in Terminal shares no chat history unless asked
+	TrayTitle      string `json:"trayTitle,omitempty"`      // the menu bar title: "" both windows, "5h", "7d" or "off" (claude-swap's title percentage)
+	TrayEvery      int    `json:"trayEvery,omitempty"`      // seconds between the menu bar's refreshes; 0 is 300
+}
+
+// TrayInterval is how often the menu bar refreshes.
+func (p Prefs) TrayInterval() time.Duration {
+	if p.TrayEvery <= 0 {
+		return 5 * time.Minute
+	}
+	return time.Duration(p.TrayEvery) * time.Second
 }
 
 // Prefs returns the app's settings.
@@ -50,6 +60,7 @@ var settingKeys = []string{
 	"autoswitch.threshold", "autoswitch.weeklyThreshold", "autoswitch.intervalSeconds", "autoswitch.cooldownSeconds",
 	"autoswitch.hysteresisPct", "autoswitch.strategy", "autoswitch.includeApiKeyAccounts", "autoswitch.unhealthyTicks",
 	"autoswitch.model", "autoswitch.enabled", "ui.theme", "run.shareHistory", "updates.check", "usage.headerProbe",
+	"menubar.title", "menubar.refreshSeconds",
 }
 
 // Settings lists every setting with its value, default and range.
@@ -115,6 +126,14 @@ func settingOf(key string, s Auto, p Prefs) Setting {
 		return Setting{key, bo(!p.NoShareHistory), "true", "true, false"}
 	case "updates.check":
 		return Setting{key, bo(!p.NoUpdates), "true", "true, false"}
+	case "menubar.title":
+		t := p.TrayTitle
+		if t == "" {
+			t = "both"
+		}
+		return Setting{key, t, "both", "both, 5h, 7d, off"}
+	case "menubar.refreshSeconds":
+		return Setting{key, fmt.Sprint(int(p.TrayInterval().Seconds())), "300", "30, 60, 300"}
 	case "usage.headerProbe":
 		return Setting{key, bo(s.Probe), "false", "true, false"}
 	}
@@ -232,6 +251,22 @@ func (b *Book) Set(key, value string) error {
 			v, err = boolean()
 		}
 		p.NoShareHistory = !v
+	case "menubar.title":
+		p.TrayTitle = ""
+		if !unset && value != "both" {
+			if !slices.Contains([]string{"5h", "7d", "off"}, value) {
+				err = fmt.Errorf("%s is both, 5h, 7d or off.", key)
+			}
+			p.TrayTitle = value
+		}
+	case "menubar.refreshSeconds":
+		p.TrayEvery = 0
+		if !unset {
+			var v float64
+			if v, err = whole(30, 3600); err == nil {
+				p.TrayEvery = int(v)
+			}
+		}
 	case "updates.check":
 		v := true
 		if !unset {
