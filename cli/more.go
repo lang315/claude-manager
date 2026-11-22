@@ -127,7 +127,7 @@ func (c *cmd) autoLoop(ctx context.Context, dry, asJSON bool) error {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-after(nextDelay(s.Every(), code == blocked, accts, c.b.Now(), jitter())):
+		case <-after(nextDelay(s.Every(), code == blocked, c.held && code == nothing, accts, c.b.Now(), jitter())):
 		}
 	}
 	return nil
@@ -136,11 +136,20 @@ func (c *cmd) autoLoop(ctx context.Context, dry, asJSON bool) error {
 // nextDelay is how long auto waits, as claude-swap's _next_delay: the
 // interval, +-10% so machines don't hit the API together; when every
 // account is spent, until the earliest recovery and a minute (at least the
-// interval, at most 10 minutes), 5 minutes when none is known.
-// shortcut: no idle-hold crawl, no shortening to the in-use account's next poll.
-func nextDelay(interval time.Duration, blocked bool, accts []account.Account, now time.Time, rnd float64) time.Duration {
+// interval, at most 10 minutes), 5 minutes when none is known. An idle hold
+// crawls at 5 minutes (at least the interval); a normal wait is shortened to
+// the account in use's next poll, as _respect_poll_plan.
+func nextDelay(interval time.Duration, blocked, held bool, accts []account.Account, now time.Time, rnd float64) time.Duration {
+	if held { // _next_delay: NO_ACTION in an idle hold crawls
+		return max(interval, 5*time.Minute)
+	}
 	if !blocked {
-		return time.Duration(float64(interval) * (0.9 + 0.2*rnd))
+		delay := time.Duration(float64(interval) * (0.9 + 0.2*rnd))
+		// _respect_poll_plan: only ever shorter, never under the planner's 60 s URGENT_INTERVAL_S.
+		if i := slices.IndexFunc(accts, func(a account.Account) bool { return a.InUse }); i >= 0 && !accts[i].NextPoll.IsZero() {
+			return min(delay, max(accts[i].NextPoll.Sub(now), time.Minute))
+		}
+		return delay
 	}
 	var earliest time.Time
 	for _, a := range accts {

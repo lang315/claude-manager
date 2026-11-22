@@ -234,7 +234,7 @@ func TestAutoSwitchHoldsOnLapsedLogin(t *testing.T) {
 	for m := 120; m < 300; m += 10 {
 		b.Now = func() time.Time { return t0.Add(time.Duration(m) * time.Minute) }
 		b.Refresh(ctx, true)
-		if d, _ := b.AutoSwitch(ctx); d.To != "" || !strings.Contains(d.Why, "holds") {
+		if d, _ := b.AutoSwitch(ctx); d.To != "" || !strings.Contains(d.Why, "holds") || !d.Hold {
 			t.Fatalf("minute %d: %+v", m, d)
 		}
 	}

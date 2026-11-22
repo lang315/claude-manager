@@ -361,6 +361,7 @@ type cmd struct {
 	in        io.Reader
 	br        *bufio.Reader
 	out, errs io.Writer
+	held      bool // the last auto tick was an idle hold
 }
 
 // find is the account email (or its key) names among accts.
@@ -722,6 +723,7 @@ func (c *cmd) auto(ctx context.Context, dry, asJSON bool) (int, error) {
 			fmt.Fprintf(c.errs, "autoswitch.model: %s matches no account's windows (typo?).\n", strings.Join(u, ", "))
 		}
 	}
+	c.held = d.Hold
 	code := nothing
 	switch {
 	case d.To != "" && !dry:

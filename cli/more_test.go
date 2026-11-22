@@ -354,7 +354,45 @@ func TestNextDelay(t *testing.T) {
 		{"blocked, none known", true, nil, 0.5, min, 5 * min},
 		{"blocked, none known, interval longer", true, nil, 0.5, 8 * min, 8 * min},
 	} {
-		if got := nextDelay(c.interval, c.blocked, c.accts, t0, c.rnd); got != c.want {
+		if got := nextDelay(c.interval, c.blocked, false, c.accts, t0, c.rnd); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// claude-swap's _next_delay for an idle hold (a crawl of at least 300 s) and
+// _respect_poll_plan (a normal wait shortened to the account in use's next
+// poll, never below 60 s, never lengthened).
+func TestNextDelayHoldAndPlan(t *testing.T) {
+	inUse := func(due time.Duration) []account.Account {
+		a := account.Account{InUse: true}
+		if due != 0 {
+			a.NextPoll = t0.Add(due)
+		}
+		return []account.Account{{NextPoll: t0.Add(time.Second)}, a} // another account's plan is not the one in use's
+	}
+	s := time.Second
+	for _, c := range []struct {
+		name     string
+		blocked  bool
+		held     bool
+		accts    []account.Account
+		interval time.Duration
+		want     time.Duration
+	}{
+		{"hold crawls at 300 s", false, true, nil, time.Minute, 300 * s},
+		{"hold, longer interval", false, true, nil, 400 * s, 400 * s},
+		{"hold is not shortened by the plan", false, true, inUse(10 * s), time.Minute, 300 * s},
+		{"blocked is not shortened by the plan", true, false, inUse(10 * s), time.Minute, 5 * time.Minute},
+		{"next poll sooner than the wait", false, false, inUse(80 * s), 100 * s, 80 * s},
+		{"next poll sooner than the floor: 60 s", false, false, inUse(30 * s), 100 * s, 60 * s},
+		{"next poll overdue: 60 s", false, false, inUse(-5 * time.Minute), 100 * s, 60 * s},
+		{"next poll later: the wait stands", false, false, inUse(10 * time.Minute), 100 * s, 100 * s},
+		{"no plan: the wait stands", false, false, inUse(0), 100 * s, 100 * s},
+		{"no account in use: the wait stands", false, false, []account.Account{{NextPoll: t0.Add(s)}}, 100 * s, 100 * s},
+		{"a wait under the floor is never raised", false, false, inUse(5 * s), 15 * s, 15 * s},
+	} {
+		if got := nextDelay(c.interval, c.blocked, c.held, c.accts, t0, 0.5); got != c.want {
 			t.Errorf("%s: %v, want %v", c.name, got, c.want)
 		}
 	}

@@ -142,6 +142,7 @@ const fresh = 5 * time.Minute
 type Decision struct {
 	To, Email, Why string
 	Blocked        bool // it should move, and no account has room
+	Hold           bool // the idle hold: Claude Code's sign-in lapsed, nothing changes until the user is back
 
 	trigger    string    // at-limit, proactive, consume, priority or failover
 	from       string    // the account left
@@ -655,7 +656,7 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 		// never does, so on an idle Mac it is the rule, and Claude Code
 		// renews it on the next message.
 		b.unreadable = time.Time{}
-		return Decision{Why: "Claude Code's sign-in has lapsed; it renews on your next message, so auto-switch holds."}, nil
+		return Decision{Why: "Claude Code's sign-in has lapsed; it renews on your next message, so auto-switch holds.", Hold: true}, nil
 	default:
 		// claude-swap keeps the count only for the account it was of, and
 		// when it was last counted no more than 2*IDLE_HOLD_MAX_S ago.
