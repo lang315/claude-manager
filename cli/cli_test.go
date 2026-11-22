@@ -316,6 +316,40 @@ func TestReorder(t *testing.T) {
 	}
 }
 
+// cswap's move takes NUM|EMAIL|ALIAS for the account and a number for the
+// target; swap takes either for both.
+func TestMoveSwapByEmailOrAlias(t *testing.T) {
+	a := newApp(t)
+	slot := func(email string) int {
+		accts, _ := a.b.Blocks()
+		for _, x := range accts {
+			if x.Email == email {
+				return x.Slot
+			}
+		}
+		return -1
+	}
+	a.run(t, "", "list") // takes alice, the login in use, into the book
+	must(t, a.b.SetAlias("bob/org", "dev"))
+	if code, _, errs := a.run(t, "", "swap", "alice@example.com", "dev"); code != ok || slot("alice@example.com") != 1 || slot("bob@example.com") != 2 {
+		t.Fatalf("swap: %d %s alice %d bob %d", code, errs, slot("alice@example.com"), slot("bob@example.com"))
+	}
+	if code, _, errs := a.run(t, "", "move", "dev", "5"); code != ok || slot("bob@example.com") != 5 {
+		t.Fatalf("move alias: %d %s bob %d", code, errs, slot("bob@example.com"))
+	}
+	if code, _, errs := a.run(t, "", "move", "alice@example.com", "3"); code != ok || slot("alice@example.com") != 3 {
+		t.Fatalf("move email: %d %s", code, errs)
+	}
+	if code, _, errs := a.run(t, "", "move", "3", "4"); code != ok || slot("alice@example.com") != 4 {
+		t.Fatalf("move num: %d %s", code, errs)
+	}
+	for _, args := range [][]string{{"move", "dev", "alice@example.com"}, {"move", "nobody", "2"}, {"swap", "dev", "nobody"}} {
+		if code, _, _ := a.run(t, "", args...); code != failed {
+			t.Errorf("%v succeeded", args)
+		}
+	}
+}
+
 func TestFindAmbiguous(t *testing.T) {
 	accts := []account.Account{{AccountUUID: "x", OrgUUID: "o1", Email: "e@x"}, {AccountUUID: "x", OrgUUID: "o2", Email: "e@x"}}
 	if _, err := find(accts, "e@x"); err == nil || !strings.Contains(err.Error(), "x/o1, x/o2") {

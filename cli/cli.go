@@ -1063,21 +1063,37 @@ func slotOf(a account.Account) string {
 
 func (c *cmd) reslot(verb string, rest []string) error {
 	if len(rest) != 2 {
-		return fmt.Errorf("%s takes two slot numbers", verb)
+		return fmt.Errorf("%s takes two arguments", verb)
 	}
-	x, err1 := strconv.Atoi(rest[0])
-	y, err2 := strconv.Atoi(rest[1])
-	if err1 != nil || err2 != nil {
-		return fmt.Errorf("%s takes two slot numbers", verb)
+	accts, _ := c.b.Blocks()
+	accts = slices.DeleteFunc(accts, func(a account.Account) bool { return !a.Added })
+	slotArg := func(name string) (int, error) { // cswap's _resolve_account_identifier: NUM|EMAIL|ALIAS
+		if n, err := strconv.Atoi(name); err == nil {
+			return n, nil
+		}
+		a, err := c.pickOne(accts, name, verb)
+		return a.Slot, err
+	}
+	x, err := slotArg(rest[0])
+	if err != nil {
+		return err
+	}
+	var y int
+	if verb == "move" { // the target is a number, as cswap's
+		if y, err = strconv.Atoi(rest[1]); err != nil {
+			return fmt.Errorf("move takes an account and a slot number")
+		}
+	} else if y, err = slotArg(rest[1]); err != nil {
+		return err
 	}
 	if verb == "move" {
-		err := c.b.Move(x, y)
+		err = c.b.Move(x, y)
 		if err == nil {
 			fmt.Fprintf(c.out, "Moved slot %d to %d.\n", x, y)
 		}
 		return err
 	}
-	err := c.b.Swap(x, y)
+	err = c.b.Swap(x, y)
 	if err == nil {
 		fmt.Fprintf(c.out, "Swapped slots %d and %d.\n", x, y)
 	}
