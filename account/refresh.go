@@ -319,7 +319,8 @@ func (b *Book) nearLine(now time.Time) bool {
 // spent one a minute after its window resets, if sooner. claude-swap
 // reads a spent account in use every 10 minutes too, trusting its reading
 // until then; here the one in use keeps its plan, so its reading stays
-// fresh for auto-switch.
+// fresh for auto-switch. Every account's poll is capped a minute past its
+// soonest reset.
 func (b *Book) due(a *Account, active, near bool) time.Time {
 	switch {
 	case a.Err != "":
@@ -341,6 +342,13 @@ func (b *Book) due(a *Account, active, near bool) time.Time {
 			if l.Percent >= 100 && l.ResetsAt.After(a.ReadAt) && l.ResetsAt.Add(time.Minute).Before(due) {
 				due = l.ResetsAt.Add(time.Minute)
 			}
+		}
+	}
+	// claude-swap's RESET_SLACK_S: no account is polled later than a minute
+	// past its soonest window reset, the one in use included.
+	for _, l := range a.Limits {
+		if l.ResetsAt.After(a.ReadAt) && l.ResetsAt.Add(time.Minute).Before(due) {
+			due = l.ResetsAt.Add(time.Minute)
 		}
 	}
 	return due

@@ -614,3 +614,33 @@ func TestPurgeRemovesUnsaved(t *testing.T) {
 		t.Errorf("unsaved.json outlived purge: %v", err)
 	}
 }
+
+// claude-swap's poll_policy: no account's next poll is later than its
+// soonest future reset plus RESET_SLACK_S (60 s), the one in use included.
+func TestDueCappedAtAReset(t *testing.T) {
+	b := &Book{}
+	limits := func(resets ...time.Duration) []Limit {
+		var ls []Limit
+		for _, r := range resets {
+			ls = append(ls, Limit{Kind: "session", Percent: 40, ResetsAt: t0.Add(r)})
+		}
+		return ls
+	}
+	for _, c := range []struct {
+		name   string
+		a      Account
+		active bool
+		want   time.Time
+	}{
+		{"a window resets before the plan", Account{ReadAt: t0, NextPoll: t0.Add(30 * time.Minute), Limits: limits(10 * time.Minute)}, false, t0.Add(11 * time.Minute)},
+		{"the one in use too", Account{ReadAt: t0, NextPoll: t0.Add(30 * time.Minute), Limits: limits(10 * time.Minute)}, true, t0.Add(11 * time.Minute)},
+		{"the soonest of several", Account{ReadAt: t0, NextPoll: t0.Add(30 * time.Minute), Limits: limits(20*time.Minute, 5*time.Minute)}, false, t0.Add(6 * time.Minute)},
+		{"the plan is sooner", Account{ReadAt: t0, NextPoll: t0.Add(5 * time.Minute), Limits: limits(10 * time.Minute)}, false, t0.Add(5 * time.Minute)},
+		{"a reset already past", Account{ReadAt: t0, NextPoll: t0.Add(30 * time.Minute), Limits: limits(-time.Minute)}, false, t0.Add(30 * time.Minute)},
+		{"no reset", Account{ReadAt: t0, NextPoll: t0.Add(30 * time.Minute)}, false, t0.Add(30 * time.Minute)},
+	} {
+		if got := b.due(&c.a, c.active, false); !got.Equal(c.want) {
+			t.Errorf("%s: due %v, want %v", c.name, got.Sub(t0), c.want.Sub(t0))
+		}
+	}
+}
