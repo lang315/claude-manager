@@ -18,6 +18,8 @@ type Prefs struct {
 	NoShareHistory bool   `json:"noShareHistory,omitempty"` // Open in Terminal shares no chat history unless asked
 	TrayTitle      string `json:"trayTitle,omitempty"`      // the menu bar title: "" both windows, "5h", "7d" or "off" (claude-swap's title percentage)
 	TrayEvery      int    `json:"trayEvery,omitempty"`      // seconds between the menu bar's refreshes; 0 is 300
+	NoTrayName     bool   `json:"noTrayName,omitempty"`     // leave the account name out of the menu bar title (claude-swap's show_account_name, on by default)
+	TrayScoped     bool   `json:"trayScoped,omitempty"`     // add each model's weekly limit to the menu bar title (claude-swap's title_scoped)
 }
 
 // TrayInterval is how often the menu bar refreshes.
@@ -60,7 +62,7 @@ var settingKeys = []string{
 	"autoswitch.threshold", "autoswitch.weeklyThreshold", "autoswitch.intervalSeconds", "autoswitch.cooldownSeconds",
 	"autoswitch.hysteresisPct", "autoswitch.strategy", "autoswitch.includeApiKeyAccounts", "autoswitch.unhealthyTicks",
 	"autoswitch.model", "autoswitch.enabled", "ui.theme", "run.shareHistory", "updates.check", "usage.headerProbe",
-	"menubar.title", "menubar.refreshSeconds",
+	"menubar.title", "menubar.refreshSeconds", "menubar.showAccountName", "menubar.titleScoped",
 }
 
 // Settings lists every setting with its value, default and range.
@@ -134,6 +136,10 @@ func settingOf(key string, s Auto, p Prefs) Setting {
 		return Setting{key, t, "both", "both, 5h, 7d, off"}
 	case "menubar.refreshSeconds":
 		return Setting{key, fmt.Sprint(int(p.TrayInterval().Seconds())), "300", "30, 60, 300"}
+	case "menubar.showAccountName":
+		return Setting{key, bo(!p.NoTrayName), "true", "true, false"}
+	case "menubar.titleScoped":
+		return Setting{key, bo(p.TrayScoped), "false", "true, false"}
 	case "usage.headerProbe":
 		return Setting{key, bo(s.Probe), "false", "true, false"}
 	}
@@ -266,6 +272,17 @@ func (b *Book) Set(key, value string) error {
 			if v, err = whole(30, 3600); err == nil {
 				p.TrayEvery = int(v)
 			}
+		}
+	case "menubar.showAccountName":
+		v := true
+		if !unset {
+			v, err = boolean()
+		}
+		p.NoTrayName = !v
+	case "menubar.titleScoped":
+		p.TrayScoped = false
+		if !unset {
+			p.TrayScoped, err = boolean()
 		}
 	case "updates.check":
 		v := true

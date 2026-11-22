@@ -40,8 +40,8 @@ func TestTray(t *testing.T) {
 	var title string
 	l.tt.Update(func() { title, _ = l.a.Tray() })
 	l.tt.Frame()
-	if title != "62% · 40%" { // claude-swap's: the 5h and 7d windows
-		t.Errorf("title %q, want alice's 5h and 7d windows", title)
+	if title != "alice · 62% · 40%" { // claude-swap's: the name, then the 5h and 7d windows
+		t.Errorf("title %q, want alice's name and her 5h and 7d windows", title)
 	}
 	alice := trayItem(t, l, "alice@example.com")
 	if !strings.Contains(alice.Label, "alice@example.com  5h 62% (") || !strings.Contains(alice.Label, "· 7d 40%") || !alice.Checked || !alice.Disabled {
@@ -107,7 +107,7 @@ func TestTrayRows(t *testing.T) {
 	var title string
 	l.tt.Update(func() { title, _ = l.a.Tray() })
 	l.tt.Frame()
-	if title != "30%" {
+	if title != "a · 30%" {
 		t.Errorf("title %q: a model window is not the account's", title)
 	}
 	for _, c := range []struct {
@@ -200,12 +200,36 @@ func TestAutoForThisSession(t *testing.T) {
 	}
 }
 
-// claude-swap's title percentage: both windows, one, or none.
+// claude-swap's format_title: the name (alias, else the email's local part cut
+// to 12 with a "*"), "rejected (!)", the title percentage, then each model's
+// weekly limit when title_scoped is on.
 func TestTrayTitleModes(t *testing.T) {
-	b := account.Account{Limits: []account.Limit{{Kind: "session", Percent: 62}, {Kind: "weekly_all", Percent: 40}}}
-	for mode, want := range map[string]string{"": "62% · 40%", "5h": "62%", "7d": "40%", "off": "CM"} {
-		if got := trayTitle(b, mode); got != want {
+	b := account.Account{Email: "alice@example.com", Limits: []account.Limit{{Kind: "session", Percent: 62}, {Kind: "weekly_all", Percent: 40},
+		{Kind: "weekly_scoped", Scope: "Fable", Percent: 91}}}
+	for mode, want := range map[string]string{"": "alice · 62% · 40%", "5h": "alice · 62%", "7d": "alice · 40%", "off": "alice"} {
+		if got := trayTitle(b, account.Prefs{TrayTitle: mode}); got != want {
 			t.Errorf("%q: %q, want %q", mode, got, want)
+		}
+	}
+	for _, c := range []struct {
+		name string
+		p    account.Prefs
+		b    account.Account
+		want string
+	}{
+		{"name off", account.Prefs{NoTrayName: true}, b, "62% · 40%"},
+		{"scoped", account.Prefs{TrayScoped: true}, b, "alice · 62% · 40% · Fable 91%"},
+		{"scoped, no name, no pct", account.Prefs{TrayScoped: true, NoTrayName: true, TrayTitle: "off"}, b, "Fable 91%"},
+		{"alias", account.Prefs{}, account.Account{Email: "alice@example.com", Alias: "work", Limits: b.Limits[:1]}, "work · 62%"},
+		{"long local part", account.Prefs{}, account.Account{Email: "averyveryverylongname@example.com", Limits: b.Limits[:1]}, "averyveryve* · 62%"},
+		{"12 chars kept", account.Prefs{}, account.Account{Email: "abcdefghijkl@x", Limits: b.Limits[:1]}, "abcdefghijkl · 62%"},
+		{"rejected", account.Prefs{TrayTitle: "off"}, account.Account{Email: "a@x", Limits: []account.Limit{{Kind: "session", Percent: 100, Refused: true}}}, "a · rejected (!)"},
+		{"a refused model is not a rejected account", account.Prefs{TrayTitle: "off", TrayScoped: true}, account.Account{Email: "a@x", Limits: []account.Limit{{Kind: "weekly_scoped", Scope: "Fable", Percent: 100, Refused: true}}}, "a · Fable 100%"},
+		{"none at all", account.Prefs{TrayTitle: "off", NoTrayName: true}, b, "CM"},
+		{"no email, no alias", account.Prefs{}, account.Account{Limits: b.Limits[:1]}, "62%"},
+	} {
+		if got := trayTitle(c.b, c.p); got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
 		}
 	}
 }
@@ -260,5 +284,39 @@ func TestTrayChoicesAsClaudeSwap(t *testing.T) {
 	}
 	if n != 10 {
 		t.Errorf("%d recent switches shown, want 10", n)
+	}
+}
+
+// claude-swap's settings menu: "Show account name in menu bar" (on) and
+// "Show model limits in title" (off) flip menubar.showAccountName and
+// menubar.titleScoped.
+func TestTrayTitleSettings(t *testing.T) {
+	l := limitsApp(t)
+	l.a.TrayTick()
+	waitFor(t, l.tt, func() bool { return l.a.limits.loaded })
+	find := func(label string) TrayItem {
+		for _, it := range trayItem(t, l, "Menu Bar").Sub {
+			if it.Label == label {
+				return it
+			}
+		}
+		t.Fatalf("no %q", label)
+		return TrayItem{}
+	}
+	if n, s := find("Show Account Name"), find("Show Model Limits in Title"); !n.Checked || s.Checked {
+		t.Errorf("defaults: name %v, scoped %v", n.Checked, s.Checked)
+	}
+	l.tt.Update(func() { find("Show Account Name").Do(); find("Show Model Limits in Title").Do() })
+	l.tt.Frame()
+	if n, s := find("Show Account Name"), find("Show Model Limits in Title"); n.Checked || !s.Checked {
+		t.Errorf("flipped: name %v, scoped %v", n.Checked, s.Checked)
+	}
+	if p, _ := l.a.Accounts.Prefs(); !p.NoTrayName || !p.TrayScoped {
+		t.Errorf("saved %+v", p)
+	}
+	l.tt.Update(func() { find("Show Account Name").Do() })
+	l.tt.Frame()
+	if p, _ := l.a.Accounts.Prefs(); p.NoTrayName {
+		t.Errorf("name not back on: %+v", p)
 	}
 }

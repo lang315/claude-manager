@@ -1,6 +1,7 @@
 package view
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -39,7 +40,7 @@ func (a *App) Tray() (title string, items []TrayItem) {
 	items = append(items, TrayItem{})
 	for _, b := range l.blocks {
 		if b.InUse {
-			if t := trayTitle(b, a.prefs.TrayTitle); t != "" {
+			if t := trayTitle(b, a.prefs); t != "" {
 				title = t
 			}
 		}
@@ -142,22 +143,49 @@ func health(on bool, read, now time.Time) string {
 	return s + " · usage read " + ago(read, now)
 }
 
-// trayTitle is the menu bar title for the account in use: its five-hour
-// and 7-day shares, or one of them, or none, as claude-swap's title
-// percentage (mode "", "5h", "7d" or "off").
-func trayTitle(b account.Account, mode string) string {
-	if mode == "off" {
-		return "CM"
-	}
+// trayTitle is the menu bar title for the account in use, as claude-swap's
+// format_title: its name, "rejected (!)", its five-hour and 7-day shares
+// (or one, or none: the title percentage), then each model's weekly share
+// when title_scoped is on, joined by " · ".
+func trayTitle(b account.Account, p account.Prefs) string {
+	mode := p.TrayTitle
 	var s []string
+	if !p.NoTrayName { // show_account_name
+		if name := cmp.Or(b.Alias, localPart(b.Email)); name != "" {
+			s = append(s, name)
+		}
+	}
+	for _, x := range b.Limits {
+		if x.Kind == "session" && x.Refused { // a refused probe: cswap's usage["rejected"]
+			s = append(s, "rejected (!)")
+		}
+	}
 	for _, x := range b.Limits {
 		switch {
-		case (x.Kind == "session" || x.Kind == "five_hour") && mode != "7d",
-			(x.Kind == "weekly_all" || x.Kind == "seven_day") && mode != "5h":
+		case (x.Kind == "session" || x.Kind == "five_hour") && mode != "7d" && mode != "off",
+			(x.Kind == "weekly_all" || x.Kind == "seven_day") && mode != "5h" && mode != "off":
 			s = append(s, fmt.Sprintf("%.0f%%", x.Percent))
 		}
 	}
+	for _, x := range b.Limits {
+		if x.Kind == "weekly_scoped" && x.Scope != "" && p.TrayScoped {
+			s = append(s, fmt.Sprintf("%s %.0f%%", x.Scope, x.Percent))
+		}
+	}
+	if len(s) == 0 && mode == "off" {
+		return "CM"
+	}
 	return strings.Join(s, " · ")
+}
+
+// localPart is cswap's _local_part: the email before "@", cut to 12
+// characters with a trailing "*".
+func localPart(email string) string {
+	local, _, _ := strings.Cut(email, "@")
+	if r := []rune(local); len(r) > 12 {
+		return string(r[:11]) + "*"
+	}
+	return local
 }
 
 // fullest is the highest share used of b's five-hour and 7-day windows.
@@ -323,6 +351,11 @@ func (l *limits) trayMenus(a *App, can bool) []TrayItem {
 		settings.Sub = append(settings.Sub, TrayItem{Label: t.label, Toggle: true, Checked: a.prefs.TrayTitle == t.mode, Do: set("menubar.title", v)})
 	}
 	settings.Sub = append(settings.Sub, TrayItem{})
+	// claude-swap's "Show account name in menu bar" and "Show model limits in title"
+	settings.Sub = append(settings.Sub,
+		TrayItem{Label: "Show Account Name", Toggle: true, Checked: !a.prefs.NoTrayName, Do: set("menubar.showAccountName", fmt.Sprint(a.prefs.NoTrayName))},
+		TrayItem{Label: "Show Model Limits in Title", Toggle: true, Checked: a.prefs.TrayScoped, Do: set("menubar.titleScoped", fmt.Sprint(!a.prefs.TrayScoped))},
+		TrayItem{})
 	for _, secs := range []int{30, 60, 300} {
 		label := fmt.Sprintf("Refresh Every %d s", secs)
 		if secs >= 60 {

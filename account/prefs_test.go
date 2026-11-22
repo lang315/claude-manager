@@ -7,6 +7,7 @@ func TestSettings(t *testing.T) {
 	for key, bad := range map[string]string{
 		"autoswitch.threshold": "40", "autoswitch.intervalSeconds": "5", "autoswitch.strategy": "worst",
 		"ui.theme": "pink", "updates.check": "maybe", "autoswitch.unhealthyTicks": "0", "nope": "1",
+		"menubar.showAccountName": "maybe", "menubar.titleScoped": "2",
 	} {
 		if err := b.Set(key, bad); err == nil {
 			t.Errorf("%s=%s taken", key, bad)
@@ -17,7 +18,7 @@ func TestSettings(t *testing.T) {
 		"autoswitch.cooldownSeconds": "0", "autoswitch.hysteresisPct": "5", "autoswitch.strategy": WeeklyFirst,
 		"autoswitch.includeApiKeyAccounts": "true", "autoswitch.unhealthyTicks": "5", "autoswitch.model": "Fable",
 		"autoswitch.enabled": "true", "ui.theme": "dark", "run.shareHistory": "false", "updates.check": "false",
-		"usage.headerProbe": "true",
+		"usage.headerProbe": "true", "menubar.showAccountName": "false", "menubar.titleScoped": "yes",
 	} {
 		must(t, b.Set(key, v))
 	}
@@ -30,12 +31,13 @@ func TestSettings(t *testing.T) {
 	if got["autoswitch.threshold"] != "80" || got["autoswitch.weeklyThreshold"] != "97" || got["autoswitch.intervalSeconds"] != "30" ||
 		got["autoswitch.cooldownSeconds"] != "0" || got["autoswitch.strategy"] != WeeklyFirst || got["autoswitch.unhealthyTicks"] != "5" ||
 		got["ui.theme"] != "dark" || got["run.shareHistory"] != "false" || got["updates.check"] != "false" || got["usage.headerProbe"] != "true" ||
-		got["autoswitch.enabled"] != "true" || got["autoswitch.includeApiKeyAccounts"] != "true" || got["autoswitch.model"] != "Fable" || got["autoswitch.hysteresisPct"] != "5" {
+		got["autoswitch.enabled"] != "true" || got["autoswitch.includeApiKeyAccounts"] != "true" || got["autoswitch.model"] != "Fable" || got["autoswitch.hysteresisPct"] != "5" ||
+		got["menubar.showAccountName"] != "false" || got["menubar.titleScoped"] != "true" {
 		t.Errorf("settings %v", got)
 	}
 	again := &Book{Dir: b.Dir, Vault: b.Vault, Now: b.Now}
 	p, _ := again.Prefs()
-	if p.Theme != "dark" || !p.NoShareHistory || !p.NoUpdates {
+	if p.Theme != "dark" || !p.NoShareHistory || !p.NoUpdates || !p.NoTrayName || !p.TrayScoped {
 		t.Errorf("prefs read back %+v", p)
 	}
 	for _, k := range settingKeys {
