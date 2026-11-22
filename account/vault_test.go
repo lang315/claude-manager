@@ -187,7 +187,8 @@ func TestKeychainReadAttempts(t *testing.T) {
 	} {
 		if c.slow {
 			was := keychainTimeout
-			keychainTimeout = 300 * time.Millisecond
+			// Long enough for the stand-in to count itself under load before it is cut.
+			keychainTimeout = time.Second
 			t.Cleanup(func() { keychainTimeout = was })
 		}
 		k, dir := fakeSecurity(t, c.script)
