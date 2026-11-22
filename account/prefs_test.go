@@ -53,3 +53,73 @@ func TestSettings(t *testing.T) {
 		t.Error("theme pink")
 	}
 }
+
+func isSetOf(t *testing.T, b *Book, key string) bool {
+	t.Helper()
+	all, err := b.Settings()
+	must(t, err)
+	for _, s := range all {
+		if s.Key == key {
+			return s.IsSet
+		}
+	}
+	t.Fatalf("no setting %s", key)
+	return false
+}
+
+// cswap: a setting is set when its key is in the file, whatever its value;
+// unset removes the key.
+func TestSettingIsSet(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	if isSetOf(t, b, "ui.theme") {
+		t.Error("fresh book: ui.theme set")
+	}
+	must(t, b.Set("ui.theme", "auto")) // the default, stored
+	must(t, b.Set("autoswitch.threshold", "80"))
+	must(t, b.Set("menubar.showAccountName", "true")) // the default, inverted field
+	for _, k := range []string{"ui.theme", "autoswitch.threshold", "menubar.showAccountName"} {
+		if !isSetOf(t, b, k) {
+			t.Errorf("%s not set", k)
+		}
+	}
+	again := &Book{Dir: b.Dir, Vault: b.Vault, Now: b.Now}
+	if !isSetOf(t, again, "ui.theme") || isSetOf(t, again, "updates.check") {
+		t.Error("set keys not read back")
+	}
+	must(t, b.Set("ui.theme", ""))
+	if isSetOf(t, b, "ui.theme") || !isSetOf(t, b, "autoswitch.threshold") {
+		t.Error("unset kept or dropped the wrong key")
+	}
+}
+
+// The GUI's setters store a key too, when they change its value.
+func TestSettingIsSetByGUI(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	s, _ := b.AutoInEffect()
+	s.Line = 70
+	must(t, b.SetAuto(s))
+	p, _ := b.Prefs()
+	p.TrayTitle = "7d"
+	must(t, b.SetPrefs(p))
+	if !isSetOf(t, b, "autoswitch.threshold") || !isSetOf(t, b, "menubar.title") || isSetOf(t, b, "ui.theme") {
+		t.Error("GUI setters not recorded")
+	}
+}
+
+// A file from before the record: set when the value is not the default; the
+// first set must not lose those.
+func TestSettingIsSetOldFile(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	must(t, b.SetPrefs(Prefs{Theme: "dark"}))
+	b.mu.Lock()
+	b.prefs.Stored = nil // as if written before the record
+	must(t, b.save())
+	b.mu.Unlock()
+	if !isSetOf(t, b, "ui.theme") || isSetOf(t, b, "updates.check") {
+		t.Error("old file: value != default is not the rule")
+	}
+	must(t, b.Set("updates.check", "true"))
+	if !isSetOf(t, b, "ui.theme") || !isSetOf(t, b, "updates.check") {
+		t.Error("first set lost the old file's keys")
+	}
+}

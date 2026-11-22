@@ -1030,7 +1030,7 @@ func (c *cmd) config(rest []string, asJSON bool) error {
 			doc := map[string]any{"schemaVersion": 1, "path": filepath.Join(c.b.Dir, "accounts.json")}
 			list := []map[string]any{}
 			for _, s := range all {
-				list = append(list, map[string]any{"key": s.Key, "value": s.Value, "default": s.Default, "range": s.Range, "isSet": s.Value != s.Default}) // shortcut: Prefs cannot tell a stored default from an unset key; upgrade with a stored-keys set
+				list = append(list, map[string]any{"key": s.Key, "value": s.Value, "default": s.Default, "range": s.Range, "isSet": s.IsSet})
 			}
 			doc["settings"] = list
 			doc["unrecognized"] = []any{} // cswap's unrecognized_keys; Go has no unknown keys to report
@@ -1049,7 +1049,7 @@ func (c *cmd) config(rest []string, asJSON bool) error {
 			return err
 		}
 		if asJSON { // cswap's config get --json
-			return json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "key": s.Key, "value": s.Value, "isSet": s.Value != s.Default})
+			return json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "key": s.Key, "value": s.Value, "isSet": s.IsSet})
 		}
 		fmt.Fprintln(c.out, s.Value)
 	case "set":

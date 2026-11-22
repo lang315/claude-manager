@@ -263,8 +263,8 @@ func TestConfigJSON(t *testing.T) {
 // purge leaves nothing behind, the update notice's memo included; a
 // negative --hold is refused, as cswap's.
 // cswap's config --json: list names the flag isSet and has unrecognized;
-// get --json is {schemaVersion, key, value, isSet}. Go cannot tell a stored
-// default from an unset key, so isSet stays value != default.
+// get --json is {schemaVersion, key, value, isSet}; a key set to its default
+// is set, and unset clears it.
 func TestConfigJSONIsSet(t *testing.T) {
 	a := newApp(t)
 	a.run(t, "", "config", "set", "autoswitch.threshold", "80")
@@ -293,6 +293,14 @@ func TestConfigJSONIsSet(t *testing.T) {
 	_, out, _ = a.run(t, "", "config", "get", "ui.theme", "--json")
 	if !strings.Contains(out, `"isSet":false`) {
 		t.Errorf("get unset --json: %q", out)
+	}
+	a.run(t, "", "config", "set", "ui.theme", "auto") // the default, stored
+	if _, out, _ = a.run(t, "", "config", "get", "ui.theme", "--json"); !strings.Contains(out, `"isSet":true`) {
+		t.Errorf("get default-valued set --json: %q", out)
+	}
+	a.run(t, "", "config", "unset", "ui.theme")
+	if _, out, _ = a.run(t, "", "config", "get", "ui.theme", "--json"); !strings.Contains(out, `"isSet":false`) {
+		t.Errorf("get unset again --json: %q", out)
 	}
 	if _, out, _ = a.run(t, "", "config", "get", "ui.theme"); out != "auto\n" {
 		t.Errorf("get plain: %q", out)

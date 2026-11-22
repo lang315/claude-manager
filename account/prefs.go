@@ -20,6 +20,10 @@ type Prefs struct {
 	TrayEvery      int    `json:"trayEvery,omitempty"`      // seconds between the menu bar's refreshes; 0 is 300
 	NoTrayName     bool   `json:"noTrayName,omitempty"`     // leave the account name out of the menu bar title (claude-swap's show_account_name, on by default)
 	TrayScoped     bool   `json:"trayScoped,omitempty"`     // add each model's weekly limit to the menu bar title (claude-swap's title_scoped)
+	// Stored names the settings explicitly set, whatever their value: a
+	// setting is set when its key is in cswap's settings file. nil is a file
+	// from before the record: set then means value != default.
+	Stored []string `json:"stored,omitempty"`
 }
 
 // TrayInterval is how often the menu bar refreshes.
@@ -48,13 +52,35 @@ func (b *Book) SetPrefs(p Prefs) error {
 	if err := b.load(); err != nil {
 		return err
 	}
+	p.Stored = storedAfter(b.auto, b.prefs, b.auto, p)
 	b.prefs = p
 	return b.save()
+}
+
+// storedAfter is the record of explicitly set keys after settings change from
+// (os, op) to (ns, np): every key whose value changed joins it. A file from
+// before the record starts from its non-default keys.
+func storedAfter(os Auto, op Prefs, ns Auto, np Prefs) []string {
+	stored := slices.Clone(op.Stored)
+	if op.Stored == nil {
+		for _, k := range settingKeys {
+			if st := settingOf(k, os, op); st.Value != st.Default {
+				stored = append(stored, k)
+			}
+		}
+	}
+	for _, k := range settingKeys {
+		if settingOf(k, os, op).Value != settingOf(k, ns, np).Value && !slices.Contains(stored, k) {
+			stored = append(stored, k)
+		}
+	}
+	return stored
 }
 
 // Setting is one setting by claude-swap's name, for `claude-manager config`.
 type Setting struct {
 	Key, Value, Default, Range string
+	IsSet                      bool // cswap: the key is in the settings file, even at its default
 }
 
 // settingKeys are the settings `config` knows, in claude-swap's names.
@@ -74,7 +100,12 @@ func (b *Book) Settings() ([]Setting, error) {
 	}
 	var out []Setting
 	for _, k := range settingKeys {
-		out = append(out, settingOf(k, b.auto, b.prefs))
+		st := settingOf(k, b.auto, b.prefs)
+		st.IsSet = st.Value != st.Default
+		if b.prefs.Stored != nil {
+			st.IsSet = slices.Contains(b.prefs.Stored, k)
+		}
+		out = append(out, st)
 	}
 	return out, nil
 }
@@ -103,45 +134,45 @@ func settingOf(key string, s Auto, p Prefs) Setting {
 	}
 	switch key {
 	case "autoswitch.threshold":
-		return Setting{key, f(s.Line), f(d.Line), "50–99.9"}
+		return Setting{key, f(s.Line), f(d.Line), "50–99.9", false}
 	case "autoswitch.weeklyThreshold":
-		return Setting{key, weekly(s), "", "50–99.9, or unset for the threshold"}
+		return Setting{key, weekly(s), "", "50–99.9, or unset for the threshold", false}
 	case "autoswitch.intervalSeconds":
-		return Setting{key, f(s.Every().Seconds()), "60", "15–3600"}
+		return Setting{key, f(s.Every().Seconds()), "60", "15–3600", false}
 	case "autoswitch.cooldownSeconds":
-		return Setting{key, strconv.Itoa(s.Cooldown), strconv.Itoa(d.Cooldown), "0–86400"}
+		return Setting{key, strconv.Itoa(s.Cooldown), strconv.Itoa(d.Cooldown), "0–86400", false}
 	case "autoswitch.hysteresisPct":
-		return Setting{key, f(s.Margin), f(d.Margin), "0–50"}
+		return Setting{key, f(s.Margin), f(d.Margin), "0–50", false}
 	case "autoswitch.strategy":
-		return Setting{key, s.Strategy, d.Strategy, strings.Join([]string{Best, WeeklyFirst, ConsumeFirst, ByPriority}, ", ")}
+		return Setting{key, s.Strategy, d.Strategy, strings.Join([]string{Best, WeeklyFirst, ConsumeFirst, ByPriority}, ", "), false}
 	case "autoswitch.includeApiKeyAccounts":
-		return Setting{key, bo(s.Keys), "false", "true, false"}
+		return Setting{key, bo(s.Keys), "false", "true, false", false}
 	case "autoswitch.unhealthyTicks":
-		return Setting{key, strconv.Itoa(ticks(s)), "3", "1–100"}
+		return Setting{key, strconv.Itoa(ticks(s)), "3", "1–100", false}
 	case "autoswitch.model":
-		return Setting{key, s.Model, "", "model names, comma separated, or all"}
+		return Setting{key, s.Model, "", "model names, comma separated, or all", false}
 	case "autoswitch.enabled":
-		return Setting{key, bo(s.On), "false", "true, false"}
+		return Setting{key, bo(s.On), "false", "true, false", false}
 	case "ui.theme":
-		return Setting{key, theme(p), theme(dp), "auto, light, dark"}
+		return Setting{key, theme(p), theme(dp), "auto, light, dark", false}
 	case "run.shareHistory":
-		return Setting{key, bo(!p.NoShareHistory), "true", "true, false"}
+		return Setting{key, bo(!p.NoShareHistory), "true", "true, false", false}
 	case "updates.check":
-		return Setting{key, bo(!p.NoUpdates), "true", "true, false"}
+		return Setting{key, bo(!p.NoUpdates), "true", "true, false", false}
 	case "menubar.title":
 		t := p.TrayTitle
 		if t == "" {
 			t = "both"
 		}
-		return Setting{key, t, "both", "both, 5h, 7d, off"}
+		return Setting{key, t, "both", "both, 5h, 7d, off", false}
 	case "menubar.refreshSeconds":
-		return Setting{key, fmt.Sprint(int(p.TrayInterval().Seconds())), "300", "30, 60, 300"}
+		return Setting{key, fmt.Sprint(int(p.TrayInterval().Seconds())), "300", "30, 60, 300", false}
 	case "menubar.showAccountName":
-		return Setting{key, bo(!p.NoTrayName), "true", "true, false"}
+		return Setting{key, bo(!p.NoTrayName), "true", "true, false", false}
 	case "menubar.titleScoped":
-		return Setting{key, bo(p.TrayScoped), "false", "true, false"}
+		return Setting{key, bo(p.TrayScoped), "false", "true, false", false}
 	case "usage.headerProbe":
-		return Setting{key, bo(s.Probe), "false", "true, false"}
+		return Setting{key, bo(s.Probe), "false", "true, false", false}
 	}
 	return Setting{}
 }
@@ -298,6 +329,12 @@ func (b *Book) Set(key, value string) error {
 	}
 	if err != nil {
 		return err
+	}
+	p.Stored = storedAfter(b.auto, b.prefs, s.clamped(), p)
+	if unset { // cswap's unset removes the key; set stores it even at the default
+		p.Stored = slices.DeleteFunc(p.Stored, func(k string) bool { return k == key })
+	} else if !slices.Contains(p.Stored, key) {
+		p.Stored = append(p.Stored, key)
 	}
 	b.auto, b.prefs = s.clamped(), p
 	return b.save()

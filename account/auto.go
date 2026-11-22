@@ -567,6 +567,7 @@ func (b *Book) SetAuto(s Auto) error {
 	if err := b.load(); err != nil {
 		return err
 	}
+	b.prefs.Stored = storedAfter(b.auto, b.prefs, s.clamped(), b.prefs)
 	b.auto = s.clamped()
 	return b.save()
 }
