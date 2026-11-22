@@ -282,7 +282,7 @@ const usage = `claude-manager <command> [flags]
   auto --once [--dry-run] [--json] one auto-switch check (exit 0 switched, 1 error, 2 nothing to do, 3 blocked)
   add-token <token|-> [--email E]  add a setup-token or a Console API key
   remove <email>                   remove an added account
-  purge --yes                      remove every added account
+  purge [--yes]                    remove every added account, all app data and the menu bar service; asks first
   export <file> [--full]           write the added accounts to a file
   import <file> [--hold SECONDS]   add an export's accounts, or take a readings file (cswap list --json)
   run [<email>] [folder] [--no-share] [--no-share-history] [--require-session]
@@ -767,14 +767,27 @@ func (c *cmd) remove(name string, yes bool) error {
 }
 
 func (c *cmd) purge(yes bool) error {
-	if !yes {
-		return errors.New("purge removes every added account and its saved logins, the unclaimed logins, the terminal profiles and accounts.json: give --yes")
+	if !yes { // cswap lists what goes and asks; --yes is for scripts
+		fmt.Fprintf(c.out, "This will remove:\n  - Data folder: %s\n  - Every added account's saved logins, the unclaimed logins and the terminal profiles with their keychain items\n", c.b.Dir)
+		if goos == "darwin" {
+			fmt.Fprintln(c.out, "  - The menu bar start-at-login service and its log")
+		}
+		fmt.Fprintln(c.out, "Claude Code's own login stays.")
+		if !c.ask("Are you sure you want to purge all data?", false) {
+			fmt.Fprintln(c.out, "Cancelled")
+			return nil
+		}
 	}
 	n, err := c.b.Purge()
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(c.out, "Removed %d accounts, their saved logins, the unclaimed logins and the terminal profiles. Claude Code's own login stays.\n", n)
+	if goos == "darwin" { // cswap's purge also takes the menu bar LaunchAgent, after purge() so a refusal leaves it
+		if err := uninstallService(); err != nil {
+			fmt.Fprintf(c.errs, "Menu bar service not removed: %v\n", err)
+		}
+	}
 	return nil
 }
 

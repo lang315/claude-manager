@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -77,6 +81,44 @@ func (a *app) run(t *testing.T, stdin string, args ...string) (int, string, stri
 	var out, errs bytes.Buffer
 	code := Run(context.Background(), args, a.b, strings.NewReader(stdin), &out, &errs)
 	return code, out.String(), errs.String()
+}
+
+// fakeService points the menu bar service paths at temp dirs and records
+// launchctl calls, so a purge never reaches the real LaunchAgents.
+func fakeService(t *testing.T) *[]string {
+	t.Helper()
+	dir := t.TempDir()
+	var calls []string
+	agentsDir = func() string { return filepath.Join(dir, "LaunchAgents") }
+	system = func(name string, args ...string) error {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		return nil
+	}
+	goos = "darwin"
+	t.Cleanup(func() {
+		agentsDir = func() string { h, _ := os.UserHomeDir(); return filepath.Join(h, "Library", "LaunchAgents") }
+		system = func(name string, args ...string) error { return exec.Command(name, args...).Run() }
+		goos = runtime.GOOS
+	})
+	return &calls
+}
+
+// --yes skips the question; the LaunchAgent plist and the menu bar log go too.
+func TestPurgeYesRemovesAgentAndLogs(t *testing.T) {
+	a := newApp(t)
+	calls := fakeService(t)
+	must(t, os.MkdirAll(agentsDir(), 0o755))
+	must(t, os.WriteFile(plistPath(), []byte("x"), 0o644))
+	must(t, os.WriteFile(filepath.Join(a.b.Dir, "menubar.log"), []byte("x"), 0o644))
+	if code, out, errs := a.run(t, "", "purge", "--yes"); code != ok || strings.Contains(errs, "Are you sure") || !strings.Contains(out, "Removed 1 accounts") {
+		t.Fatalf("purge --yes: %d %s %s", code, out, errs)
+	}
+	if _, err := os.Stat(plistPath()); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("plist left: %v", err)
+	}
+	if _, err := os.Stat(a.b.Dir); !errors.Is(err, fs.ErrNotExist) || len(*calls) != 1 {
+		t.Errorf("dir %v calls %v", err, *calls)
+	}
 }
 
 func must(t *testing.T, err error) {
@@ -202,11 +244,25 @@ func TestAddRemovePurge(t *testing.T) {
 	if code, out, _ := a.run(t, "y\n", "remove", "ci@example.com"); code != ok || !strings.Contains(out, "Removed ci@example.com") {
 		t.Errorf("remove: %d %s", code, out)
 	}
-	if code, _, errs := a.run(t, "", "purge"); code != failed || !strings.Contains(errs, "--yes") {
-		t.Errorf("purge without --yes: %d %s", code, errs)
+	calls := fakeService(t)
+	// cswap asks "Are you sure you want to purge all data? [y/N]": no answer is no.
+	for _, in := range []string{"", "n\n", "\n"} {
+		if code, out, errs := a.run(t, in, "purge"); code != ok || !strings.Contains(errs, "Are you sure you want to purge all data? [y/N]") || strings.Contains(out, "Removed") {
+			t.Errorf("purge answered %q: %d %s %s", in, code, out, errs)
+		}
 	}
-	if code, out, _ := a.run(t, "", "purge", "--yes"); code != ok || !strings.Contains(out, "Removed 2 accounts") {
+	if _, err := os.Stat(filepath.Join(a.b.Dir, "accounts.json")); err != nil || len(*calls) != 0 {
+		t.Errorf("a declined purge removed data or touched the service: %v %v", err, *calls)
+	}
+	if code, out, _ := a.run(t, "y\n", "purge"); code != ok || !strings.Contains(out, "Removed 2 accounts") {
 		t.Errorf("purge: %d %s", code, out)
+	}
+	// The whole data dir goes, and on darwin the menu bar LaunchAgent (cswap's purge).
+	if _, err := os.Stat(a.b.Dir); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("data dir left: %v", err)
+	}
+	if len(*calls) != 1 || !strings.HasPrefix((*calls)[0], "launchctl bootout") {
+		t.Errorf("service calls: %v", *calls)
 	}
 	if a.v.Len() != 1 {
 		t.Errorf("%d keychain items left, want Claude Code's own", a.v.Len())

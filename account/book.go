@@ -449,7 +449,7 @@ func (b *Book) savedDead() map[string]string {
 
 // Purge removes what the app keeps, as claude-swap's purge: every saved
 // and previous login, the unclaimed logins, the terminal profiles and
-// their keychain items, and accounts.json. Claude Code's own login stays.
+// their keychain items, and the whole data folder. Claude Code's own login stays.
 // It is refused while a claude runs in a profile. It returns how many
 // added accounts went.
 func (b *Book) Purge() (int, error) {
@@ -481,13 +481,7 @@ func (b *Book) Purge() (int, error) {
 		return 0, err // accounts.json stays, naming what is left
 	}
 	n := len(b.added)
-	err := os.RemoveAll(profiles)
-	if rerr := os.Remove(b.unsavedPath()); !errors.Is(rerr, fs.ErrNotExist) {
-		err = errors.Join(err, rerr)
-	}
-	if rerr := os.Remove(b.path()); !errors.Is(rerr, fs.ErrNotExist) {
-		err = errors.Join(err, rerr)
-	}
+	err := os.RemoveAll(b.Dir) // cswap removes the whole backup dir: logs, memos, profiles, accounts.json
 	b.added, b.inUse, b.maps, b.unclaimed, b.history, b.dead, b.prefs, b.unsaved = nil, nil, nil, nil, nil, nil, Prefs{}, nil
 	b.auto = DefaultAuto()
 	b.setAutoState(nil)

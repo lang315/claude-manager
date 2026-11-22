@@ -239,6 +239,7 @@ func TestPurgeNoNoticeAndHoldNonNegative(t *testing.T) {
 	a := newApp(t)
 	Newest = func(context.Context) (string, error) { return "9.9.9", nil }
 	t.Cleanup(func() { Newest = nil })
+	fakeService(t)
 	if code, _, errs := a.run(t, "", "purge", "--yes"); code != ok || strings.Contains(errs, "is out") {
 		t.Errorf("purge: %d %q", code, errs)
 	}

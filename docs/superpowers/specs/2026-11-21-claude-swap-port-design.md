@@ -544,7 +544,7 @@ checks (21 of 21 caught).
   app and exits (package `cli`); any other start opens the app. Commands:
   `list [--json]`, `status [--json]`, `switch <email> [--json]`,
   `auto --once [--dry-run] [--json]`, `add-token <token|-> [--email E]`,
-  `remove <email>`, `purge --yes`, `export <file> [--full]`,
+  `remove <email>`, `purge [--yes]` (asks "Are you sure you want to purge all data? [y/N]" unless --yes; removes the whole data folder and, on macOS, the menu bar LaunchAgent), `export <file> [--full]`,
   `import <file> [--hold SECONDS]` (also `import-usage`), `run <email>
   [folder] [--no-share] [--no-share-history]`, `help`.
 - `list --json` is cswap's schema 1 (`number`, `email`, `organizationUuid`,
