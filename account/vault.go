@@ -43,7 +43,7 @@ type Keychain struct {
 
 func (k Keychain) Get(service, acct string) ([]byte, error) {
 	out, err := k.run("the read", "", k.in(args("find-generic-password", service, acct, "-w"))...)
-	for try := 0; try < 2 && err != nil && !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrKeychainSlow); try++ {
+	if err != nil && !errors.Is(err, ErrNotFound) { // claude-swap's _ACTIVE_READ_ATTEMPTS = 2, a timeout too
 		time.Sleep(300 * time.Millisecond) // claude-swap's retry of a read that failed once
 		out, err = k.run("the read", "", k.in(args("find-generic-password", service, acct, "-w"))...)
 	}

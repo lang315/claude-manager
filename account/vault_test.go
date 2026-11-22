@@ -150,7 +150,7 @@ func TestKeychainPutTooLongUsesArgs(t *testing.T) {
 }
 
 // claude-swap's keychain calls: bounded, so a prompt nobody answers can't
-// hold the book, and a read that fails once is tried twice more.
+// hold the book, and a read that fails once is tried once more.
 func TestKeychainTimeoutAndRetry(t *testing.T) {
 	was := keychainTimeout
 	keychainTimeout = 200 * time.Millisecond
@@ -167,5 +167,34 @@ echo busy >&2; exit 1`)
 	if got, err := k.Get("s", "a"); err != nil || string(got) != "ok" {
 		n, _ := os.ReadFile(filepath.Join(dir, "n"))
 		t.Errorf("retried read: %q %v (tries %s)", got, err, n)
+	}
+}
+
+// claude-swap's _ACTIVE_READ_ATTEMPTS = 2: a read is tried twice in all,
+// a timeout too, and an item that is not there is not tried again.
+func TestKeychainReadAttempts(t *testing.T) {
+	count := `d=$(dirname "$0"); n=$(cat "$d/n" 2>/dev/null || echo 0); echo $((n+1)) > "$d/n"` + "\n"
+	for _, c := range []struct {
+		name, script string
+		slow         bool
+		tries        string
+		ok           bool
+	}{
+		{"fails twice", count + "echo busy >&2; exit 1", false, "2", false},
+		{"hangs once", count + `[ "$n" -ge 1 ] && { echo ok; exit 0; }; exec sleep 5`, true, "2", true},
+		{"hangs twice", count + "exec sleep 5", true, "2", false},
+		{"not found", count + "echo could not be found >&2; exit 44", false, "1", false},
+	} {
+		if c.slow {
+			was := keychainTimeout
+			keychainTimeout = 300 * time.Millisecond
+			t.Cleanup(func() { keychainTimeout = was })
+		}
+		k, dir := fakeSecurity(t, c.script)
+		got, err := k.Get("s", "a")
+		n, _ := os.ReadFile(filepath.Join(dir, "n"))
+		if (err == nil) != c.ok || strings.TrimSpace(string(n)) != c.tries {
+			t.Errorf("%s: %q %v after %s tries, want %s", c.name, got, err, strings.TrimSpace(string(n)), c.tries)
+		}
 	}
 }
