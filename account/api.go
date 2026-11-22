@@ -166,6 +166,12 @@ func (a *API) Renew(ctx context.Context, l Login, now time.Time) (Login, error) 
 		ExpiresIn        int64  `json:"expires_in"`
 		RefreshExpiresIn int64  `json:"refresh_token_expires_in"`
 		Scope            string `json:"scope"`
+		Account          struct {
+			UUID string `json:"uuid"`
+		} `json:"account"`
+		Organization struct {
+			UUID string `json:"uuid"`
+		} `json:"organization"`
 	}
 	if json.Unmarshal(body, &r) != nil || r.AccessToken == "" || r.ExpiresIn <= 0 {
 		return l, errors.New("Anthropic's token answer was malformed.")
@@ -180,6 +186,9 @@ func (a *API) Renew(ctx context.Context, l Login, now time.Time) (Login, error) 
 	}
 	if r.Scope != "" {
 		l.Scopes = strings.Fields(r.Scope)
+	}
+	if u := strings.TrimSpace(r.Account.UUID); u != "" { // claude-swap's extract_token_account: no account uuid, no identity
+		l.TokenAccount, l.TokenOrg = u, r.Organization.UUID
 	}
 	return l, nil
 }

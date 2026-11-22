@@ -2,6 +2,8 @@ package account
 
 import (
 	"context"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -526,8 +528,25 @@ func (b *Book) freshen(ctx context.Context, key string, now time.Time) error {
 	if err != nil || !l.expiresBy(now.Add(freshenAhead)) {
 		return err
 	}
-	_, err = b.renew(ctx, &b.added[i], blob, l, "", now)
-	return err
+	fresh, err := b.renew(ctx, &b.added[i], blob, l, "", now)
+	if err != nil {
+		return err
+	}
+	// claude-swap's _note_token_identity: a token of another account or
+	// organization is no target; quarantined until the login is replaced.
+	a := &b.added[i]
+	if fresh.TokenAccount != "" && (fresh.TokenOrg != "" && a.OrgUUID != "" && fresh.TokenOrg != a.OrgUUID || a.AccountUUID != "" && fresh.TokenAccount != a.AccountUUID) {
+		b.side.Lock()
+		if b.dead == nil {
+			b.dead = map[string][32]byte{}
+		}
+		b.dead[key] = sha256.Sum256([]byte(fresh.RefreshToken))
+		b.side.Unlock()
+		b.logf("%s quarantined: its token belongs to another account", a.Email)
+		b.event("quarantined:"+key, "Account quarantined", a.Email+"'s sign-in belongs to another account: sign in again to it.")
+		return errors.New("its sign-in belongs to another account")
+	}
+	return nil
 }
 
 // AutoInEffect is the auto-switch settings this process goes by: an

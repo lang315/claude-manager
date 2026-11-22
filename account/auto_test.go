@@ -620,3 +620,38 @@ func TestNotifications(t *testing.T) {
 		t.Errorf("told %q", told)
 	}
 }
+
+// claude-swap's _note_token_identity: the renewal's answer names whose
+// token it is; one of another account or organization quarantines the
+// target ("identity-conflict") and the loop moves on. An answer without
+// an account uuid, or a blank organization, is no conflict.
+func TestAutoSwitchFreshenIdentity(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		as       *Profile
+		conflict bool
+	}{
+		{"same", &Profile{AccountUUID: "bob", OrgUUID: "org-b"}, false},
+		{"other account", &Profile{AccountUUID: "mallory", OrgUUID: "org-b"}, true},
+		{"other organization", &Profile{AccountUUID: "bob", OrgUUID: "org-x"}, true},
+		{"blank organization", &Profile{AccountUUID: "bob"}, false},
+		{"no identity", nil, false},
+	} {
+		b, _, _, f := switchBook(t)
+		f.who["carol-at"] = carol
+		_, err := b.keep(login("bob-at", "bob-rt", t0.Add(8*time.Minute)).Marshal(), bob, json.RawMessage(bobAccount))
+		must(t, err)
+		f.renewed["bob-rt"] = "bob-at2"
+		if c.as != nil {
+			f.tokenAs = map[string]Profile{"bob-rt": *c.as}
+		}
+		saved, _ := b.Vault.Get(ParkService, bob.Key())
+		err = b.freshen(ctx, bob.Key(), t0)
+		if (err != nil) != c.conflict {
+			t.Errorf("%s: err = %v", c.name, err)
+		}
+		if b.isDead(bob.Key(), withTokens(saved, login("bob-at2", "bob-rt+", t0))) != c.conflict {
+			t.Errorf("%s: quarantined = %v", c.name, !c.conflict)
+		}
+	}
+}

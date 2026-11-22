@@ -37,6 +37,7 @@ type anthropic struct {
 	usage     map[string]int
 	status    map[string]int
 	renewed   map[string]string
+	tokenAs   map[string]Profile     // a refresh token's renewal names its account and organization
 	resets    map[string]string      // a token's session reset, where not t0+3h
 	probe     map[string]probeAnswer // "<token> <model>": the header probe's answer; none is 401
 	plans     map[string]string      // a token's rate_limit_tier in its profile
@@ -112,7 +113,11 @@ func (f *anthropic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, `{"error":"invalid_grant"}`)
 			return
 		}
-		fmt.Fprintf(w, `{"access_token":%q,"refresh_token":%q,"expires_in":28800,"refresh_token_expires_in":2592000}`, at, rt+"+")
+		who := ""
+		if p, ok := f.tokenAs[rt]; ok {
+			who = fmt.Sprintf(`,"account":{"uuid":%q},"organization":{"uuid":%q}`, p.AccountUUID, p.OrgUUID)
+		}
+		fmt.Fprintf(w, `{"access_token":%q,"refresh_token":%q,"expires_in":28800,"refresh_token_expires_in":2592000%s}`, at, rt+"+", who)
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
