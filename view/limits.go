@@ -194,7 +194,13 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 			if name == "" {
 				name = "Claude Code"
 			}
+			if b.Slot > 0 { // claude-swap's number and alias on every card
+				ui.Text(c, fmt.Sprint(b.Slot)).TextColor(pal.muted).SingleLine()
+			}
 			ui.Text(c, name).Bold().SingleLine()
+			if b.Alias != "" {
+				ui.Text(c, b.Alias).TextColor(pal.muted).SingleLine()
+			}
 			switch s := planText(b) + tokenPlan(b); {
 			case account.PlanLapsed(b): // claude-swap's highlighted Free: the subscription lapsed
 				ui.Text(c, "Free (lapsed)").Bold().TextColor(pal.orange).SingleLine().Tooltip("Its subscription was canceled and is back on the free tier.")
@@ -326,10 +332,14 @@ func planText(b account.Account) string {
 	return plan
 }
 
-// resets says when a limit resets.
+// resets says when a limit resets, as claude-swap's: "resets 2h 13m ·
+// 20:39".
 func resets(at, now time.Time) string {
 	if at.IsZero() {
 		return ""
+	}
+	if at.After(now) {
+		return "resets " + countdown(at.Sub(now)) + " · " + clock(at, now)
 	}
 	return "resets " + clock(at, now)
 }

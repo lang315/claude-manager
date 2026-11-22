@@ -108,8 +108,8 @@ func (l *lim) open(t *testing.T) {
 func TestLimitsShowsTheAccountInUse(t *testing.T) {
 	l := limitsApp(t)
 	l.open(t)
-	for _, s := range []string{"alice@example.com", "Max", "In use", "Session (5h)", "62%", "resets 15:00",
-		"Weekly", "100%", "resets Nov 3, 02:00", "Limit reached", "Updated just now", "Add Account…", "Refresh"} {
+	for _, s := range []string{"alice@example.com", "Max", "In use", "Session (5h)", "62%", "resets 3h 0m · 15:00",
+		"Weekly", "100%", "resets 7d 14h · Nov 3, 02:00", "Limit reached", "Updated just now", "Add Account…", "Refresh"} {
 		if !l.tt.HasText(s) {
 			t.Errorf("no %q in %q", s, l.tt.Texts())
 		}
@@ -192,7 +192,7 @@ func TestLimitsTimes(t *testing.T) {
 		{clock(now.Add(3*time.Hour), now), "15:00"},
 		{clock(now.Add(30*time.Hour), now), "Oct 27, 18:00"},
 		{resets(time.Time{}, now), ""},
-		{resets(now.Add(3*time.Hour), now), "resets 15:00"},
+		{resets(now.Add(3*time.Hour), now), "resets 3h 0m · 15:00"},
 		{ago(now.Add(-30*time.Second), now), "just now"},
 		{ago(now.Add(-4*time.Minute), now), "4 min ago"},
 		{ago(now.Add(-2*time.Hour), now), "at 10:00"},
