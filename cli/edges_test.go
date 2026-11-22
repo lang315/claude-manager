@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -228,5 +230,26 @@ func TestConfigJSON(t *testing.T) {
 	a := newApp(t)
 	if _, out, _ := a.run(t, "", "config", "--json"); !strings.Contains(out, `"key":"autoswitch.threshold"`) || !strings.Contains(out, `"path":`) {
 		t.Errorf("config --json: %s", out)
+	}
+}
+
+// purge leaves nothing behind, the update notice's memo included; a
+// negative --hold is refused, as cswap's.
+func TestPurgeNoNoticeAndHoldNonNegative(t *testing.T) {
+	a := newApp(t)
+	Newest = func(context.Context) (string, error) { return "9.9.9", nil }
+	t.Cleanup(func() { Newest = nil })
+	if code, _, errs := a.run(t, "", "purge", "--yes"); code != ok || strings.Contains(errs, "is out") {
+		t.Errorf("purge: %d %q", code, errs)
+	}
+	if _, err := os.Stat(filepath.Join(a.b.Dir, "update-check.json")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("purge wrote the update memo back: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "r.json")
+	must(t, os.WriteFile(path, []byte(`{"accounts":[]}`), 0o600))
+	for _, h := range []string{"-1", "-5"} {
+		if code, _, errs := a.run(t, "", "import-usage", path, "--hold", h); code != failed || !strings.Contains(errs, "--hold") {
+			t.Errorf("--hold %s: %d %q", h, code, errs)
+		}
 	}
 }

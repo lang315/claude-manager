@@ -96,6 +96,12 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 	if err := fs.Parse(reorder(args[1:])); err != nil {
 		return failed
 	}
+	holdSet := false
+	fs.Visit(func(f *flag.Flag) { holdSet = holdSet || f.Name == "hold" })
+	if holdSet && *hold < 0 { // -1 is "not given": cswap refuses any negative
+		fmt.Fprintln(errs, "--hold must be a non-negative number of seconds")
+		return failed
+	}
 	rest := fs.Args()
 	if slices.Contains(mutating, args[0]) && c.inSessionShell() && !(args[0] == "auto" && *dry) {
 		fmt.Fprintln(errs, "This shell is a terminal opened as an account (its CLAUDE_CONFIG_DIR is a Claude Manager profile): run this from a normal shell.")
@@ -260,7 +266,7 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 		}
 		return failed
 	}
-	if !*jsonOut && !slices.Contains([]string{"upgrade", "version", "--version", "help", "-h", "--help", "menubar"}, args[0]) {
+	if !*jsonOut && !slices.Contains([]string{"upgrade", "version", "--version", "help", "-h", "--help", "menubar", "purge"}, args[0]) {
 		if h := c.updateHint(ctx); h != "" { // cswap's notice after a command
 			fmt.Fprintln(errs, h)
 		}
