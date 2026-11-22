@@ -319,6 +319,11 @@ func TestSwitchBestStays(t *testing.T) {
 	if _, out, _ := a.run(t, "", "switch", "--strategy", "best", "--json"); !strings.Contains(out, `"reason":"already-best"`) || !strings.Contains(out, `"switched":false`) {
 		t.Errorf("best --json: %s", out)
 	}
+	// cswap's _switch_noop: from and to are both the account in use
+	ref := `{"email":"alice@example.com","number":2}`
+	if _, out, _ := a.run(t, "", "switch", "--strategy", "best", "--json"); !strings.Contains(out, `"from":`+ref) || !strings.Contains(out, `"to":`+ref) {
+		t.Errorf("no-op from/to: %s", out)
+	}
 	a = newApp(t)
 	a.usage["alice"], a.usage["bob"] = 90, 60
 	if code, out, _ := a.run(t, "", "switch", "--strategy", "best"); code != ok || !strings.Contains(out, "bob@example.com") {

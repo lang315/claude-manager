@@ -191,8 +191,17 @@ func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out,
 			var stay *account.Stay
 			if errors.As(err, &stay) { // nothing to gain: said, not failed
 				err = nil
-				if *jsonOut {
-					err = json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "switched": false, "strategy": strat, "reason": stay.Reason, "message": stay.Message, "warnings": []string{}})
+				if *jsonOut { // cswap's _switch_noop: from and to are the account in use, null when none
+					var ref any
+					accts, _ := c.b.Blocks()
+					if i := slices.IndexFunc(accts, func(x account.Account) bool { return x.InUse }); i >= 0 {
+						var n any
+						if accts[i].Slot > 0 {
+							n = accts[i].Slot
+						}
+						ref = map[string]any{"number": n, "email": accts[i].Email}
+					}
+					err = json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "switched": false, "from": ref, "to": ref, "strategy": strat, "reason": stay.Reason, "message": stay.Message, "warnings": []string{}})
 				} else {
 					fmt.Fprintln(c.out, stay.Message)
 				}
