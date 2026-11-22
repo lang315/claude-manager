@@ -386,6 +386,13 @@ func TestSwitchJSONFields(t *testing.T) {
 	if now, _ := a.v.Get("Claude Code-credentials", "me"); !bytes.Equal(now, live) {
 		t.Error("a no-op switch rewrote the live login")
 	}
+	// a forced self-switch rewrote the live login: cswap says "activated"
+	_, out, _ = a.run(t, "", "switch", "alice@example.com", "--force", "--json")
+	doc = nil
+	must(t, json.Unmarshal([]byte(out), &doc))
+	if doc["switched"] != false || doc["reason"] != "activated" || doc["message"] != "Activated Account-2 (alice@example.com) from stored backup" {
+		t.Errorf("forced self-switch: %s", out)
+	}
 	_, out, _ = a.run(t, "", "switch", "bob@example.com", "--json")
 	doc = nil
 	must(t, json.Unmarshal([]byte(out), &doc))

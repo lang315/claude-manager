@@ -690,12 +690,19 @@ func (c *cmd) switchTo(ctx context.Context, name, strategy string, asJSON, force
 		return err
 	}
 	if asJSON {
-		reason, verb := "switched", "Switched to"
+		reason, msg := "switched", "Switched to"
 		if from == a.Email {
-			reason, verb = "already-active", "Already on" // cswap's _switch_result_from_op: from == to
+			reason, msg = "already-active", "Already on" // cswap's _switch_result_from_op: from == to
+			if force {                                   // the stored login was really put in use
+				reason, msg = "activated", "Activated"
+			}
+		}
+		msg = fmt.Sprintf("%s Account-%v (%s)", msg, toN, a.Email)
+		if reason == "activated" {
+			msg += " from stored backup"
 		}
 		return json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "switched": from != a.Email, "strategy": strategy, "reason": reason,
-			"message": fmt.Sprintf("%s Account-%v (%s)", verb, toN, a.Email), "warnings": []string{},
+			"message": msg, "warnings": []string{},
 			"from": map[string]any{"number": fromN, "email": from}, "to": map[string]any{"number": toN, "email": a.Email}})
 	}
 	if now, _ := c.b.UnclaimedLogins(); len(now) > len(kept) {
