@@ -147,6 +147,10 @@ type Decision struct {
 	next       []Account // the candidates after To, in rank, for when To's sign-in can't be renewed
 }
 
+// Trigger is why auto-switch moves: at-limit, proactive, consume, priority
+// or failover; "" when it stays.
+func (d Decision) Trigger() string { return d.trigger }
+
 // memo is what auto-switch remembers between ticks, in memory as
 // claude-swap keeps it in its state file: the last switch, for the
 // cooldown; failover, when the account in use stayed unreadable; and the

@@ -165,10 +165,17 @@ func TestAutoOnce(t *testing.T) {
 	if code, out, _ := a.run(t, "", "auto", "--once"); code != nothing || !strings.Contains(out, "under its lines") {
 		t.Errorf("under: %d %s", code, out)
 	}
+	if _, out, _ := a.run(t, "", "auto", "--once", "--json"); !strings.Contains(out, `"event":"no-switch"`) || !strings.Contains(out, `"reason":"below-threshold"`) {
+		t.Errorf("under --json: %s", out)
+	}
 	a.usage["alice"] = 95
 	a.b.Now = func() time.Time { return t0.Add(4 * time.Minute) }
 	code, out, _ := a.run(t, "", "auto", "--once", "--dry-run", "--json")
-	if code != nothing || !strings.Contains(out, `"event":"switch"`) || !strings.Contains(out, `"dryRun":true`) {
+	// cswap's auto --json: a poll line, then the switch with its trigger and refs.
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if code != nothing || len(lines) != 2 || !strings.Contains(lines[0], `"event":"poll"`) || !strings.Contains(lines[0], `"headroomPct":{`) ||
+		!strings.Contains(lines[1], `"event":"switch"`) || !strings.Contains(lines[1], `"dryRun":true`) || !strings.Contains(lines[1], `"trigger":"proactive"`) ||
+		!strings.Contains(lines[1], `"to":{"email":"bob@example.com","number":1}`) {
 		t.Errorf("dry run: %d %s", code, out)
 	}
 	if live, _ := a.v.Get("Claude Code-credentials", "me"); !strings.Contains(string(live), "alice-at") {

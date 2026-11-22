@@ -693,11 +693,7 @@ func (c *cmd) auto(ctx context.Context, dry, asJSON bool) (int, error) {
 		code = blocked
 	}
 	if asJSON {
-		event := map[string]any{"schemaVersion": 1, "ts": c.b.Now().UTC().Format(time.RFC3339), "event": "no-switch", "reason": d.Why}
-		if d.To != "" {
-			event["event"], event["from"], event["to"], event["dryRun"] = "switch", from, d.Email, dry
-		}
-		return code, json.NewEncoder(c.out).Encode(event)
+		return code, c.autoEvents(d, from, dry)
 	}
 	switch {
 	case d.To != "" && dry:
@@ -1254,4 +1250,86 @@ func errType(err error) string {
 		return "keychain"
 	}
 	return "error"
+}
+
+// autoEvents writes auto --once's JSON lines, as cswap auto --json: a poll
+// event with every account's readings, then switch, no-switch or
+// all-exhausted.
+func (c *cmd) autoEvents(d account.Decision, from string, dry bool) error {
+	accts, _ := c.b.Blocks()
+	s, _ := c.b.AutoInEffect()
+	now := c.b.Now()
+	ts := now.UTC().Format(time.RFC3339)
+	ref := func(email string) map[string]any {
+		r := map[string]any{"number": nil, "email": email}
+		if i := slices.IndexFunc(accts, func(a account.Account) bool { return a.Email == email }); i >= 0 && accts[i].Slot > 0 {
+			r["number"] = accts[i].Slot
+		}
+		return r
+	}
+	poll := map[string]any{"schemaVersion": 1, "event": "poll", "ts": ts, "active": nil, "threshold": s.Line}
+	if s.WeeklyLine != 0 {
+		poll["weeklyThreshold"] = s.WeeklyLine
+	}
+	headroom, windows, errs := map[string]any{}, map[string]map[string]float64{}, map[string]string{}
+	for _, a := range accts {
+		if !a.Added && !a.InUse || a.Email == "" {
+			continue
+		}
+		n := fmt.Sprint(a.Slot)
+		if a.InUse {
+			poll["active"] = ref(a.Email)
+		}
+		if p, ok := account.Fullest(a); ok && a.Usable(now) {
+			headroom[n] = 100 - p
+			w := map[string]float64{}
+			for _, l := range a.Limits {
+				w[l.Label()] = l.Percent
+			}
+			windows[n] = w
+		} else {
+			headroom[n] = nil
+			if a.Err != "" {
+				errs[n] = usageStatus(a)
+			}
+		}
+	}
+	poll["headroomPct"], poll["windowsPct"] = headroom, windows
+	if len(errs) > 0 {
+		poll["fetchErrors"] = errs
+	}
+	enc := json.NewEncoder(c.out)
+	if err := enc.Encode(poll); err != nil {
+		return err
+	}
+	switch {
+	case d.To != "":
+		return enc.Encode(map[string]any{"schemaVersion": 1, "event": "switch", "ts": ts, "trigger": d.Trigger(),
+			"from": ref(from), "to": ref(d.Email), "warnings": []string{}, "dryRun": dry, "detail": d.Why})
+	case d.Blocked:
+		return enc.Encode(map[string]any{"schemaVersion": 1, "event": "all-exhausted", "ts": ts, "detail": d.Why})
+	}
+	return enc.Encode(map[string]any{"schemaVersion": 1, "event": "no-switch", "ts": ts, "reason": noSwitchReason(d.Why), "detail": d.Why})
+}
+
+// noSwitchReason is cswap's no-switch reason code for a stay.
+func noSwitchReason(why string) string {
+	for prefix, code := range map[string]string{
+		"The account in use is under its lines": "below-threshold",
+		"Waiting out the cooldown":              "cooldown",
+		"Waiting after a failed switch":         "cooldown",
+		"Waiting for a fresh reading":           "active-usage-unknown",
+		"The account in use can't be read":      "active-usage-unknown",
+		"The account in use reports no limits":  "active-usage-unknown",
+		"An API key is in use":                  "active-api-key",
+		"Not signed in":                         "no-active-account",
+		"Claude Code's sign-in has lapsed":      "idle-hold",
+		"No account is ahead":                   "no-qualifying-candidate",
+		"No account with a fresh reading":       "no-comparison",
+	} {
+		if strings.HasPrefix(why, prefix) {
+			return code
+		}
+	}
+	return "no-action"
 }
