@@ -187,6 +187,16 @@ func TestAutoForThisSession(t *testing.T) {
 	if s, _ := l.book.AutoInEffect(); !s.DryRun {
 		t.Error("not in effect")
 	}
+	// A threshold from the menu bar stays this session's too.
+	th := trayItem(t, l, "Auto-Switch Threshold")
+	l.tt.Update(th.Sub[0].Do) // 70%
+	l.tt.Frame()
+	if saved, _ := l.book.AutoSettings(); saved.DryRun || saved.Line == 70 {
+		t.Errorf("a change in the session saved it: %+v", saved)
+	}
+	if s, _ := l.book.AutoInEffect(); s.Line != 70 || !s.DryRun {
+		t.Errorf("in effect %+v", s)
+	}
 }
 
 // claude-swap's title percentage: both windows, one, or none.

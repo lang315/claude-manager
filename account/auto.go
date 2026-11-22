@@ -516,7 +516,7 @@ func (b *Book) freshen(ctx context.Context, key string, now time.Time) error {
 	if i < 0 || b.added[i].APIKey || b.added[i].Token {
 		return nil
 	}
-	blob, err := b.Vault.Get(ParkService, key)
+	blob, err := b.savedLogin(key) // the keychain's refresh token may be spent
 	if err != nil {
 		return err
 	}
@@ -591,9 +591,9 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 	if !b.settings().On && !once || b.Home == nil {
 		return Decision{}, nil
 	}
-	was := b.autoState()
-	defer func() { // what this tick changed, every process goes by
-		if b.autoState() != was {
+	was, wasDead := b.autoState(), fmt.Sprint(b.savedDead())
+	defer func() { // what this tick changed (its memory, a quarantine), every process goes by
+		if b.autoState() != was || fmt.Sprint(b.savedDead()) != wasDead {
 			b.save()
 		}
 	}()

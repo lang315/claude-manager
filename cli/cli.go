@@ -1280,13 +1280,16 @@ func (c *cmd) autoEvents(d account.Decision, from string, dry bool) error {
 	if s.WeeklyLine != 0 {
 		poll["weeklyThreshold"] = s.WeeklyLine
 	}
+	if from != "" { // the account in use when the tick polled, before any switch
+		poll["active"] = ref(from)
+	}
 	headroom, windows, errs := map[string]any{}, map[string]map[string]float64{}, map[string]string{}
 	for _, a := range accts {
 		if !a.Added && !a.InUse || a.Email == "" {
 			continue
 		}
 		n := fmt.Sprint(a.Slot)
-		if a.InUse {
+		if a.InUse && from == "" {
 			poll["active"] = ref(a.Email)
 		}
 		if p, ok := account.Fullest(a); ok && a.Usable(now) {

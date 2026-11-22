@@ -384,6 +384,7 @@ func (b *Book) keepLocked(blob []byte, p Profile, oauthAccount json.RawMessage) 
 }
 
 func (b *Book) park(key string, blob []byte) error {
+	b.dropUnsaved(key) // what is written now is the newer login
 	o := oauthOf(blob)
 	if o == nil {
 		return errNoToken
@@ -418,6 +419,7 @@ func (b *Book) Remove(key string) error {
 	if err := b.Vault.Delete(ParkPrev, key); err != nil {
 		return err
 	}
+	b.dropUnsaved(key) // else the next refresh writes it back
 	b.added = slices.DeleteFunc(b.added, func(a Account) bool { return a.Key() == key })
 	maps.DeleteFunc(b.maps, func(_, k string) bool { return k == key })
 	return b.save()
@@ -479,7 +481,7 @@ func (b *Book) Purge() (int, error) {
 	if rerr := os.Remove(b.path()); !errors.Is(rerr, fs.ErrNotExist) {
 		err = errors.Join(err, rerr)
 	}
-	b.added, b.inUse, b.maps, b.unclaimed, b.history, b.dead, b.prefs = nil, nil, nil, nil, nil, nil, Prefs{}
+	b.added, b.inUse, b.maps, b.unclaimed, b.history, b.dead, b.prefs, b.unsaved = nil, nil, nil, nil, nil, nil, Prefs{}, nil
 	b.auto = DefaultAuto()
 	b.setAutoState(nil)
 	b.loaded = false

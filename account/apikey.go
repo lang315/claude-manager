@@ -72,6 +72,7 @@ func (b *Book) addKeyLocked(key, email string) (Account, error) {
 	}
 	a := Account{AccountUUID: keyUUID + email, Email: email, APIKey: true,
 		OAuthAccount: json.RawMessage(fmt.Sprintf(`{"emailAddress":%q,"accountUuid":"","organizationUuid":null,"organizationName":null}`, email))}
+	b.dropUnsaved(a.Key())
 	if err := b.Vault.Put(ParkService, a.Key(), []byte(key)); err != nil {
 		return Account{}, err
 	}

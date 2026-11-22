@@ -450,3 +450,48 @@ func TestNextPoll(t *testing.T) {
 		t.Errorf("jitter +10%%: %v", j)
 	}
 }
+
+// A login kept unsaved gives way to anything written for the account
+// since: a removal doesn't bring it back, an import replaces it.
+func TestUnsavedGivesWay(t *testing.T) {
+	f := newAnthropic()
+	b, v, _, _ := newBook(t, f)
+	_, err := b.keep(login("bob-at", "bob-rt", t0.Add(time.Minute)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	f.renewed["bob-rt"], f.usage["bob-at2"] = "bob-at2", 10
+	v.Fail = errors.New("keychain locked")
+	b.Refresh(ctx, true)
+	v.Fail = nil
+	must(t, b.Remove(bob.Key()))
+	b.Refresh(ctx, true)
+	if _, err := v.Get(ParkService, bob.Key()); !errors.Is(err, ErrNotFound) {
+		t.Error("a removed account's unsaved login came back")
+	}
+	// Kept unsaved, then signed in again: the new login holds.
+	_, err = b.keep(login("bob-at", "bob-rt", t0.Add(time.Minute)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	v.Fail = errors.New("keychain locked")
+	b.Refresh(ctx, true)
+	v.Fail = nil
+	_, err = b.keep(login("bob-new", "bob-rt-new", t0.Add(time.Hour)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	b.Refresh(ctx, true)
+	if l, _ := parseLogin(get(t, v, ParkService, bob.Key())); l.RefreshToken != "bob-rt-new" {
+		t.Errorf("the new login was overwritten by %q", l.RefreshToken)
+	}
+}
+
+// freshen goes by the unsaved login too: the keychain's refresh token is spent.
+func TestFreshenUsesUnsaved(t *testing.T) {
+	b, _, _, f := switchBook(t)
+	_, err := b.keep(login("bob-at", "bob-rt", t0.Add(time.Minute)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	b.unsaved = map[string][]byte{bob.Key(): login("bob-at2", "bob-rt2", t0.Add(time.Hour)).Marshal()}
+	f.took()
+	must(t, b.freshen(ctx, bob.Key(), t0))
+	for _, c := range f.took() {
+		if c == "renew bob-rt" {
+			t.Error("posted the spent refresh token")
+		}
+	}
+}

@@ -173,3 +173,10 @@ type probeAnswer struct {
 
 // Polls go by their plan to the second in tests: no jitter.
 func init() { jitter = func() float64 { return 0.5 } }
+
+func (b *Book) isDeadLoaded(key string, saved []byte) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_ = b.load()
+	return b.isDead(key, saved)
+}

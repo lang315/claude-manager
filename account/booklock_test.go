@@ -128,3 +128,21 @@ func TestQuarantineIsShared(t *testing.T) {
 		}
 	}
 }
+
+// A quarantine auto-switch's freshen makes is saved, not lost to the next
+// process's write.
+func TestFreshenQuarantineSaved(t *testing.T) {
+	b, v, h, f := switchBook(t)
+	_, err := b.keep(login("bob-at", "bob-rt", t0.Add(8*time.Minute)).Marshal(), bob, json.RawMessage(bobAccount))
+	must(t, err)
+	f.usage["alice-at"], f.usage["bob-at"] = 95, 5
+	b.Refresh(ctx, true)
+	s := DefaultAuto()
+	s.On = true
+	must(t, b.SetAuto(s))
+	b.AutoSwitch(ctx) // bob's renewal is refused: quarantined, no switch
+	next := &Book{Dir: b.Dir, Vault: v, API: b.API, Now: b.Now, Home: h, Live: b.Live}
+	if blob, _ := v.Get(ParkService, bob.Key()); !next.isDeadLoaded(bob.Key(), blob) {
+		t.Error("the quarantine wasn't saved")
+	}
+}

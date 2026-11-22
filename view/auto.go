@@ -120,10 +120,17 @@ func (l *limits) saveAuto(a *App, s account.Auto) {
 		l.auto.pending, l.auto.confirmLive = s, true
 		return
 	}
-	l.auto.goLive, l.auto.session = false, false
+	l.auto.goLive = false
 	l.auto.s = s
+	if l.auto.session { // a change while this session's settings hold stays this session's
+		a.Go(func() {
+			err := a.Accounts.Override(s)
+			a.Update(func() { l.toast(a, err) })
+		})
+		return
+	}
 	a.Go(func() {
-		_ = a.Accounts.ClearOverride() // a save ends this session's settings
+		_ = a.Accounts.ClearOverride()
 		err := a.Accounts.SetAuto(s)
 		saved, _ := a.Accounts.AutoInEffect()
 		a.Update(func() {
@@ -254,7 +261,7 @@ func (l *limits) autoDialogs(c *ui.Context, a *App) {
 				}
 				if ui.PrimaryButton(c, "Save").Clicked() {
 					s := draft()
-					u.editing = false
+					u.editing, u.session = false, false // Save ends this session's settings
 					l.saveAuto(a, s)
 				}
 			})

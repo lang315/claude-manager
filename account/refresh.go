@@ -254,7 +254,7 @@ func (b *Book) read(ctx context.Context, a *Account, token, held string, now tim
 		}
 		a.Failures++
 		a.Retry = now.Add(backoff(a.Failures))
-		if !errors.Is(err, ErrUnauthorized) && !errors.Is(err, ErrInvalidGrant) && !errors.Is(err, ErrForbidden) {
+		if !errors.Is(err, ErrUnauthorized) && !errors.Is(err, ErrInvalidGrant) && !errors.Is(err, ErrForbidden) && !errors.As(err, &rl) {
 			b.readPlan(ctx, a, used, now) // its own schedule, as claude-swap's: a plan shows with usage failing
 		}
 		return
@@ -346,12 +346,7 @@ func (b *Book) due(a *Account, active, near bool) time.Time {
 // readOwn reads an added account's limits with its own login: renewed
 // first when it is about to lapse, and once more when Anthropic refuses it.
 func (b *Book) readOwn(ctx context.Context, a *Account, held string, now time.Time) ([]Limit, string, error) {
-	blob, err := b.Vault.Get(ParkService, a.Key())
-	b.side.Lock()
-	if u, ok := b.unsaved[a.Key()]; ok {
-		blob, err = u, nil
-	}
-	b.side.Unlock()
+	blob, err := b.savedLogin(a.Key())
 	if errors.Is(err, ErrNotFound) {
 		return nil, "", ErrInvalidGrant
 	}
@@ -432,6 +427,26 @@ func (b *Book) isDead(key string, saved []byte) bool {
 	defer b.side.Unlock()
 	h, ok := b.dead[key]
 	return err == nil && ok && h == sha256.Sum256([]byte(l.RefreshToken))
+}
+
+// savedLogin is key's saved login: the renewed one the keychain refused,
+// else the keychain's.
+func (b *Book) savedLogin(key string) ([]byte, error) {
+	b.side.Lock()
+	u, ok := b.unsaved[key]
+	b.side.Unlock()
+	if ok {
+		return u, nil
+	}
+	return b.Vault.Get(ParkService, key)
+}
+
+// dropUnsaved forgets key's unsaved login: a newer one was written, or the
+// account went.
+func (b *Book) dropUnsaved(key string) {
+	b.side.Lock()
+	delete(b.unsaved, key)
+	b.side.Unlock()
 }
 
 // saveUnsaved writes the renewed logins the keychain refused before.

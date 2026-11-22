@@ -3,6 +3,7 @@ package view
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -266,7 +267,12 @@ func (l *limits) trayMenus(a *App, can bool) []TrayItem {
 		remove.Sub = append(remove.Sub, TrayItem{Label: b.Email + "…", Disabled: b.InUse && can || b.Terminal.Dir != "",
 			Do: open(func() { l.removing, l.asking = b, true })})
 		toggle.Sub = append(toggle.Sub, TrayItem{Label: b.Email, Toggle: true, Checked: !b.AutoOff,
-			Do: func() { l.setAccountAuto(a, b.Key(), !b.AutoOff, b.Line, b.Priority) }})
+			Do: func() { // the account as it is now: the menu can be older than a change made in the window
+				if i := slices.IndexFunc(l.blocks, func(x account.Account) bool { return x.Key() == b.Key() }); i >= 0 {
+					c := l.blocks[i]
+					l.setAccountAuto(a, c.Key(), !c.AutoOff, c.Line, c.Priority)
+				}
+			}})
 	}
 	if len(remove.Sub) == 0 {
 		remove.Sub = []TrayItem{{Label: "No added accounts", Disabled: true}}
