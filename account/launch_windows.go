@@ -18,7 +18,7 @@ func LaunchInTerminal(folder, configDir string, args ...string) error {
 	if err != nil {
 		return err
 	}
-	if strings.ContainsAny(claude, "\"%\r\n") {
+	if cmdUnsafePath(claude) {
 		return errors.New("The path of claude holds a character cmd would act on: run it from a console instead.")
 	}
 	// The outer quotes are cmd /k's: it strips the first and last when the line starts with one.
