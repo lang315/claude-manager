@@ -858,6 +858,7 @@ func (c *cmd) importFile(path string, hold int, force, usageOnly bool) error {
 	if err != nil {
 		return err
 	}
+	fmt.Fprint(c.errs, got.Warnings) // cswap's _eprint of a dropped alias
 	fmt.Fprintf(c.out, "Added %d, updated %d, left %d.\n", got.Added, got.Updated, got.Skipped)
 	return nil
 }

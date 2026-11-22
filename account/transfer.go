@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -182,7 +183,13 @@ func newer(x, y []byte) bool {
 // Imported counts what Import did: accounts added, accounts whose saved
 // login a newer one replaced, and entries left alone (the account in use,
 // a login no newer than the saved one, an API key).
-type Imported struct{ Added, Updated, Skipped int }
+// importEmailRE is cswap's switcher._validate_email.
+var importEmailRE = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+
+type Imported struct {
+	Added, Updated, Skipped int
+	Warnings                string // one line each: an alias dropped for a local one
+}
 
 // Import adds the accounts in the export file at path. The whole file is
 // checked before anything is written; nothing asks Anthropic, so a login
@@ -221,20 +228,35 @@ func (b *Book) ImportWith(path string, force bool) (Imported, error) {
 	var keys []entry   // API key accounts: the key in blob
 	var tokens []entry // setup-token accounts: the token in blob
 	var got Imported
+	seenAlias := map[string]bool{}
 	for i, e := range f.Accounts {
 		bad := func(why string) error {
 			return fmt.Errorf("Account %d in this file %s, so nothing was imported.", i+1, why)
+		}
+		// cswap's _validate_imported_account, for every kind of entry
+		if e.Email == "" {
+			return Imported{}, bad("has no email")
+		}
+		if !importEmailRE.MatchString(e.Email) {
+			return Imported{}, bad("has an email that isn't one")
+		}
+		if e.Number < 1 {
+			return Imported{}, bad("has no slot number from 1")
+		}
+		if e.Alias != "" {
+			alias, err := normalizeAlias(e.Alias)
+			if err != nil {
+				return Imported{}, bad("has an invalid alias")
+			}
+			if seenAlias[alias] {
+				return Imported{}, fmt.Errorf("duplicate alias in export: %s, so nothing was imported.", alias)
+			}
+			seenAlias[alias] = true
 		}
 		if e.Kind == "api_key" || bytes.HasPrefix(bytes.TrimSpace(e.Credentials), []byte(`"`)) {
 			var key string
 			if json.Unmarshal(e.Credentials, &key) != nil || !IsAPIKey(strings.TrimSpace(key)) {
 				return Imported{}, bad("has an API key that isn't one")
-			}
-			if e.Email == "" {
-				return Imported{}, bad("has no email")
-			}
-			if !isEmail(e.Email) {
-				return Imported{}, bad("has an email that isn't one")
 			}
 			if slices.ContainsFunc(keys, func(x entry) bool { return x.p.Email == e.Email }) {
 				return Imported{}, bad("repeats an account")
@@ -242,13 +264,7 @@ func (b *Book) ImportWith(path string, force bool) (Imported, error) {
 			keys = append(keys, entry{p: Profile{Email: e.Email}, blob: []byte(strings.TrimSpace(key)), alias: e.Alias, slot: e.Number})
 			continue
 		}
-		if e.Email == "" {
-			return Imported{}, bad("has no email")
-		}
 		if l, err := parseLogin(e.Credentials); err == nil && l.RefreshToken == "" && isSetupToken(l.AccessToken) {
-			if !isEmail(e.Email) {
-				return Imported{}, bad("has an email that isn't one")
-			}
 			if slices.ContainsFunc(tokens, func(x entry) bool { return x.p.Email == e.Email }) {
 				return Imported{}, bad("repeats an account")
 			}
@@ -379,7 +395,7 @@ func (b *Book) ImportWith(path string, force bool) (Imported, error) {
 		}
 	}
 	for _, e := range tokens {
-		b.takeAlias(tokenUUID+e.p.Email+"/", e.alias)
+		got.Warnings += b.takeAlias(tokenUUID+e.p.Email+"/", e.p.Email, e.alias)
 		b.takeSlot(tokenUUID+e.p.Email+"/", e.slot)
 	}
 	for _, e := range append(keys, in...) {
@@ -387,23 +403,27 @@ func (b *Book) ImportWith(path string, force bool) (Imported, error) {
 		if e.p.AccountUUID == "" {
 			k = keyUUID + e.p.Email + "/"
 		}
-		b.takeAlias(k, e.alias)
+		got.Warnings += b.takeAlias(k, e.p.Email, e.alias)
 		b.takeSlot(k, e.slot)
 	}
 	return got, b.save()
 }
 
 // takeAlias gives the added account key an imported alias when it has
-// none and no other account has it; a bad or taken one is dropped, as
-// claude-swap's import does.
-func (b *Book) takeAlias(key, name string) {
+// none and no other account has it; a bad one is dropped silently and a
+// taken one with cswap's warning line, as its import does.
+func (b *Book) takeAlias(key, email, name string) string {
 	alias, err := normalizeAlias(name)
-	if name == "" || err != nil || slices.ContainsFunc(b.added, func(a Account) bool { return a.Alias == alias }) {
-		return
+	if name == "" || err != nil {
+		return ""
+	}
+	if slices.ContainsFunc(b.added, func(a Account) bool { return a.Alias == alias && a.Key() != key }) {
+		return fmt.Sprintf("Warning: alias '%s' for %s already used by an existing account, dropping the imported alias\n", alias, email)
 	}
 	if i := slices.IndexFunc(b.added, func(a Account) bool { return a.Key() == key }); i >= 0 && b.added[i].Alias == "" {
 		b.added[i].Alias = alias
 	}
+	return ""
 }
 
 // takeSlot gives a newly imported account its exported slot when that is

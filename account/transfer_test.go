@@ -311,6 +311,29 @@ func TestImportRejectsBadFileWritingNothing(t *testing.T) {
 		"a key's email isn't one": func(t *testing.T) any {
 			return claudeSwap(t, goodKey, map[string]any{"number": 3, "email": "ops", "kind": "api_key", "credentials": "sk-ant-api03-y"})
 		},
+		// cswap's _validate_imported_account: every kind, not only keys.
+		"a login's email has no domain": func(t *testing.T) any { e := good(t); e["email"] = "carol@example"; return claudeSwap(t, e) },
+		"a login's email has a space":   func(t *testing.T) any { e := good(t); e["email"] = "ca rol@example.com"; return claudeSwap(t, e) },
+		"a token's email isn't one": func(t *testing.T) any {
+			return claudeSwap(t, map[string]any{"number": 3, "email": "ops@x", "credentials": map[string]any{"claudeAiOauth": map[string]any{"accessToken": "sk-ant-oat01-tok"}}})
+		},
+		"slot 0":           func(t *testing.T) any { e := good(t); e["number"] = 0; return claudeSwap(t, e) },
+		"slot negative":    func(t *testing.T) any { e := good(t); e["number"] = -2; return claudeSwap(t, e) },
+		"slot missing":     func(t *testing.T) any { e := good(t); delete(e, "number"); return claudeSwap(t, e) },
+		"slot a bool":      func(t *testing.T) any { e := good(t); e["number"] = true; return claudeSwap(t, e) },
+		"slot a fraction":  func(t *testing.T) any { e := good(t); e["number"] = 1.5; return claudeSwap(t, e) },
+		"alias all digits": func(t *testing.T) any { e := good(t); e["alias"] = "123"; return claudeSwap(t, e) },
+		"alias on a key": func(t *testing.T) any {
+			k := map[string]any{"number": 3, "email": "k@example.com", "kind": "api_key", "credentials": "sk-ant-api03-y", "alias": "a b"}
+			return claudeSwap(t, k)
+		},
+		"duplicate alias": func(t *testing.T) any {
+			e := good(t)
+			e["alias"] = "Dev"
+			goodKey["alias"] = "dev"
+			t.Cleanup(func() { delete(goodKey, "alias") })
+			return claudeSwap(t, e, goodKey)
+		},
 		"a key under a signed-in account's email": func(t *testing.T) any {
 			return claudeSwap(t, goodKey, map[string]any{"number": 3, "email": "bob@example.com", "kind": "api_key", "credentials": "sk-ant-api03-y"})
 		},
@@ -336,6 +359,24 @@ func TestImportRejectsBadFileWritingNothing(t *testing.T) {
 				t.Error("accounts.json changed")
 			}
 		})
+	}
+}
+
+// cswap drops an imported alias a different local account already has, and
+// says so (import_accounts: "dropping the imported alias").
+func TestImportDropsCollidingAlias(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	must(t, b.SetAlias(bob.Key(), "dev"))
+	e := swapEntry(t, 5, carol, login("carol-at", "carol-rt", t0.Add(time.Hour)), carolAccount)
+	e["alias"] = "DEV"
+	got, err := b.Import(writeExport(t, claudeSwap(t, e)))
+	must(t, err)
+	if got.Added != 1 || !strings.Contains(got.Warnings, "alias 'dev' for carol@example.com already used by an existing account, dropping the imported alias") {
+		t.Errorf("imported %+v", got)
+	}
+	blocks, _ := b.Blocks()
+	if a := blockOf(t, blocks, "carol@example.com"); a.Alias != "" {
+		t.Errorf("carol took alias %q", a.Alias)
 	}
 }
 

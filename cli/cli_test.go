@@ -404,6 +404,18 @@ func TestSwitchJSONFields(t *testing.T) {
 	}
 }
 
+// cswap prints the dropped-alias warning to stderr and imports the rest.
+func TestImportWarnsOfDroppedAlias(t *testing.T) {
+	a := newApp(t)
+	must(t, a.b.SetAlias("bob/org", "dev"))
+	path := filepath.Join(t.TempDir(), "e.json")
+	must(t, os.WriteFile(path, []byte(`{"version":1,"encrypted":false,"accounts":[{"number":7,"email":"k@example.com","kind":"api_key","credentials":"sk-ant-api03-zzzz","alias":"Dev"}]}`), 0o600))
+	code, out, errs := a.run(t, "", "import", path)
+	if code != ok || !strings.Contains(out, "Added 1") || !strings.Contains(errs, "Warning: alias 'dev' for k@example.com already used by an existing account, dropping the imported alias") {
+		t.Errorf("import: %d %q %q", code, out, errs)
+	}
+}
+
 func TestFindAmbiguous(t *testing.T) {
 	accts := []account.Account{{AccountUUID: "x", OrgUUID: "o1", Email: "e@x"}, {AccountUUID: "x", OrgUUID: "o2", Email: "e@x"}}
 	if _, err := find(accts, "e@x"); err == nil || !strings.Contains(err.Error(), "x/o1, x/o2") {
