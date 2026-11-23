@@ -18,6 +18,7 @@ var (
 	errNotSetupToken = errors.New("That isn't a setup-token: claude setup-token prints one starting sk-ant-oat.")
 	errTokenEmail    = errors.New("That isn't an email.")
 	errNoProbe       = errors.New("Anthropic's usage endpoint doesn't answer a setup-token. Turn on Read Setup-Token Usage to read it with 1-token requests.")
+	errTokenUnread   = errors.New("A setup-token is in use and its usage isn't read: turn on Read Setup-Token Usage for auto-switch to watch it.")
 )
 
 const tokenUUID = "token:" // an account key's prefix for a setup-token account

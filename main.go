@@ -77,15 +77,18 @@ func main() {
 	if gui && len(os.Args) > 1 && os.Args[1] == "watch" {
 		a.Show("limits") // cswap watch: the dashboard on its live page
 	}
-	a.OpenURL, a.CopyText = mygo.Shell.OpenExternal, mygo.Clipboard.WriteText
+	a.OpenURL, a.CopyText, a.OpenPath = mygo.Shell.OpenExternal, mygo.Clipboard.WriteText, mygo.Shell.OpenPath
 	a.Reveal = func(path string) error { // cswap's `open -R`; elsewhere the folder opens
 		if runtime.GOOS == "darwin" {
-			return exec.Command("open", "-R", path).Run()
+			if out, err := exec.Command("open", "-R", path).CombinedOutput(); err != nil {
+				return fmt.Errorf("Couldn't show %s: %s", path, strings.TrimSpace(string(out)+" "+err.Error()))
+			}
+			return nil
 		}
 		if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
 			path = filepath.Dir(path)
 		}
-		return a.OpenURL("file://" + path)
+		return mygo.Shell.OpenPath(path)
 	}
 	a.LogPath = filepath.Join(appDir(home), "claude-manager.log")
 	jsonFiles := []mygo.FileFilter{{Name: "JSON", Extensions: []string{"json"}}}
@@ -119,6 +122,7 @@ func main() {
 		// keep running; Quit still quits.
 		quitting := false
 		mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { quitting = true })
+		mygo.App.OnQuitCanceled(func() { quitting = false }) // a later close hides again
 		win.OnClose(func(e *mygo.CloseEvent) {
 			if !quitting {
 				e.PreventDefault()

@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 func humanSize(n int64) string {
@@ -56,16 +58,22 @@ func containsFold(s, sub string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(sub))
 }
 
+// revealLabel names Reveal's button: Finder is macOS's file manager.
+var revealLabel = map[bool]string{true: "Show in Finder", false: "Show in Folder"}[runtime.GOOS == "darwin"]
+
 // maxShown is how much of a tool call or result the transcript shows.
 const maxShown = 20000
 
-// clip cuts text the transcript shows to maxShown bytes.
-// shortcut: cuts on a byte, so a multi-byte rune at the cut may show as �; fine for logs, cut on a rune if users notice.
+// clip cuts text the transcript shows to at most maxShown bytes, on a rune.
 func clip(s string) string {
 	if len(s) <= maxShown {
 		return s
 	}
-	return s[:maxShown] + fmt.Sprintf("\n… %s more", humanSize(int64(len(s)-maxShown)))
+	n := maxShown
+	for i := 0; i < utf8.UTFMax && n > 0 && !utf8.RuneStart(s[n]); i++ { // not past one rune: binary has long runs
+		n--
+	}
+	return s[:n] + fmt.Sprintf("\n… %s more", humanSize(int64(len(s)-n)))
 }
 
 // commas writes n with thousands separators: 15,086.

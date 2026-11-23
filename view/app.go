@@ -32,6 +32,8 @@ type App struct {
 	ChooseFolder func(message string) (string, error)
 	// Reveal shows a file or folder in the file manager: cswap's `open -R`.
 	Reveal func(path string) error
+	// OpenPath opens a file with its default app, where the user edits it.
+	OpenPath func(path string) error
 	// LogPath is the app's log, which the menu bar opens; "" for none.
 	LogPath string
 	// Raise brings the window to the front, for the menu bar's Add and
@@ -297,3 +299,10 @@ func (a *App) trash(paths func() []string) {
 
 // Show opens page: "limits" and the others of the sidebar.
 func (a *App) Show(page string) { a.page = page }
+
+// tell shows err, if any, as the app's toast.
+func (a *App) tell(err error) {
+	if err != nil {
+		a.notice = err.Error()
+	}
+}

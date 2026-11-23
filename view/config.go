@@ -97,17 +97,17 @@ func (p *configPage) view(c *ui.Context, a *App, pal *palette) {
 		p.plugins(c, pal)
 	case 4:
 		sheet(c, pal, "Skills", plural(len(p.cfg.Skills), "skill")+" in "+a.root+"/skills", func() {
-			p.skills.view(c, pal, &p.md, func(d *store.Doc) string { return d.Name },
+			p.skills.view(c, a, pal, &p.md, func(d *store.Doc) string { return d.Name },
 				"No skills yet. A skill is a folder in "+a.root+"/skills with a SKILL.md in it.")
 		})
 	case 5:
 		sheet(c, pal, "Commands", plural(len(p.cfg.Commands), "command")+" in "+a.root+"/commands", func() {
-			p.commands.view(c, pal, &p.md, func(d *store.Doc) string { return "/" + d.Name },
+			p.commands.view(c, a, pal, &p.md, func(d *store.Doc) string { return "/" + d.Name },
 				"No commands yet. Each .md file in "+a.root+"/commands is a slash command.")
 		})
 	case 6:
 		sheet(c, pal, "Memory", plural(len(p.cfg.Memory), "file"), func() {
-			p.memory.view(c, pal, &p.md, func(d *store.Doc) string { return d.Name },
+			p.memory.view(c, a, pal, &p.md, func(d *store.Doc) string { return d.Name },
 				"No CLAUDE.md and no project memory yet.")
 		})
 	case 7:
@@ -519,7 +519,7 @@ func groupName(g string) string {
 	return shortPath(g)
 }
 
-func (d *docList) view(c *ui.Context, pal *palette, md *markdown.Options, title func(*store.Doc) string, none string) {
+func (d *docList) view(c *ui.Context, a *App, pal *palette, md *markdown.Options, title func(*store.Doc) string, none string) {
 	if len(d.rows) == 0 {
 		blank(c, pal, none)
 		return
@@ -548,7 +548,7 @@ func (d *docList) view(c *ui.Context, pal *palette, md *markdown.Options, title 
 		ui.List(c, &d.list, len(d.rows), func(i int) { d.row(c, pal, i, title) }).Width(300).Padding(6, 8)
 		d.path = d.rows[d.at].doc.Path
 		ui.Box(c).Width(1).Background(pal.rule)
-		d.read(c, pal, md, title(d.rows[d.at].doc), d.rows[d.at].doc)
+		d.read(c, a, pal, md, title(d.rows[d.at].doc), d.rows[d.at].doc)
 	})
 }
 
@@ -582,7 +582,7 @@ func (d *docList) row(c *ui.Context, pal *palette, i int, title func(*store.Doc)
 
 // read shows a file: its name and where it is, its front matter as fields,
 // and its body.
-func (d *docList) read(c *ui.Context, pal *palette, md *markdown.Options, title string, doc *store.Doc) {
+func (d *docList) read(c *ui.Context, a *App, pal *palette, md *markdown.Options, title string, doc *store.Doc) {
 	ui.Scroll(c.Key(doc.Path)).Grow(1).Basis(0).MinWidth(0).Children(func() {
 		ui.Column(c).Padding(16, 24).Gap(14).Children(func() {
 			ui.Column(c).Gap(2).Children(func() {
@@ -590,6 +590,14 @@ func (d *docList) read(c *ui.Context, pal *palette, md *markdown.Options, title 
 				ui.Row(c).Children(func() {
 					ui.Text(c, tilde(doc.Path)).FontSize(12).TextColor(pal.muted).Shrink(1).MinWidth(0).SingleLine().Tooltip(doc.Path)
 					ui.Text(c, " · "+humanSize(doc.Size)+" · "+fmtTime(doc.Modified)).FontSize(12).TextColor(pal.muted).FontFeatures("tnum").Shrink(0).SingleLine()
+				})
+				ui.Row(c).Gap(8).PaddingY(4).Children(func() {
+					if ui.Button(c, "Open").Tooltip("Opens it in its default app, to edit it there").Clicked() {
+						a.tell(a.OpenPath(doc.Path))
+					}
+					if ui.Button(c, revealLabel).Clicked() {
+						a.tell(a.Reveal(doc.Path))
+					}
 				})
 			})
 			if len(doc.Fields) > 0 {
@@ -624,6 +632,9 @@ func (p *configPage) backupTable(c *ui.Context, a *App, pal *palette) {
 		ui.Text(c, "Selected").TextColor(pal.muted)
 		ui.Textf(c, "%s · %s", plural(len(targets), "file"), humanSize(size)).Bold().FontFeatures("tnum")
 		ui.Spacer(c)
+		if ui.Button(c, revealLabel).Disabled(len(targets) != 1).Tooltip("To restore one, copy it over settings.json there").Clicked() {
+			a.tell(a.Reveal(targets[0].Path))
+		}
 		if orangeKey(c, pal, "Move to Trash…", len(targets) == 0 || a.busy > 0).Clicked() {
 			p.pending = nil
 			for _, x := range targets {

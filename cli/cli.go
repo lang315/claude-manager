@@ -293,7 +293,7 @@ const usage = `claude-manager <command> [flags]
   list [--json]                    every account and its limits
   status [--json]                  the account in use
   switch <email> [--json]          put Claude Code on an added account
-  auto --once [--dry-run] [--json] one auto-switch check (exit 0 switched, 1 error, 2 nothing to do, 3 blocked)
+  auto --once [--dry-run] [--json] one auto-switch check (exit 0 switched or would, 1 error, 2 nothing to do, 3 blocked)
   add-token <token|-> [--email E]  add a setup-token or a Console API key
   remove <email>                   remove an added account
   purge [--yes]                    remove every added account, all app data and the menu bar service; asks first
@@ -743,7 +743,7 @@ func (c *cmd) auto(ctx context.Context, dry, asJSON bool) (int, error) {
 	c.held = d.Hold
 	code := nothing
 	switch {
-	case d.To != "" && !dry:
+	case d.To != "": // a dry run that would switch too, as cswap's
 		code = ok
 	case d.Blocked:
 		code = blocked
@@ -1450,6 +1450,7 @@ func noSwitchReason(why string) string {
 		"The account in use can't be read":      "active-usage-unknown",
 		"The account in use reports no limits":  "active-usage-unknown",
 		"An API key is in use":                  "active-api-key",
+		"A setup-token is in use":               "active-usage-unknown",
 		"Not signed in":                         "no-active-account",
 		"Claude Code's sign-in has lapsed":      "idle-hold",
 		"No account is ahead":                   "no-qualifying-candidate",
