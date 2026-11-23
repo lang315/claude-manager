@@ -47,23 +47,24 @@ type Account struct {
 	WaitUntil  time.Time `json:"waitUntil,omitzero"`   // Anthropic asked to wait until then
 	HeldUntil  time.Time `json:"heldUntil,omitzero"`   // read by another Mac: not read here until then
 	// OAuthAccount is Claude Code's oauthAccount object from ~/.claude.json.
-	OAuthAccount json.RawMessage `json:"oauthAccount,omitempty"`
-	AutoOff      bool            `json:"autoOff,omitempty"`      // held out of auto-switch
-	Line         float64         `json:"line,omitempty"`         // its own five-hour line; 0 for the global one
-	Priority     int             `json:"priority,omitempty"`     // its tier for priority-consume-first
-	Terminal     Terminal        `json:"terminal,omitzero"`      // open in a terminal from its own profile
-	Token        bool            `json:"token,omitempty"`        // a setup-token account: no refresh token, read by the header probe
-	APIKey       bool            `json:"apiKey,omitempty"`       // a Console API key account: no limits, nothing read
-	Alias        string          `json:"alias,omitempty"`        // a short name for it on the command line
-	Slot         int             `json:"slot,omitempty"`         // its number from 1, as claude-swap's slots
-	InUse        bool            `json:"-"`                      // Claude Code is signed in to it
-	Added        bool            `json:"-"`                      // the app holds a login of its own for it
-	Source       string          `json:"-"`                      // "Pitboard" when Limits are Pitboard's reading
-	Failures     int             `json:"failures,omitempty"`     // reads failed in a row; saved, so every process backs off
-	Retry        time.Time       `json:"retryAt,omitzero"`       // when a failed read is tried again
-	NextPoll     time.Time       `json:"nextPollAt,omitzero"`    // claude-swap's poll plan: when a good read is read again
-	PollEvery    time.Duration   `json:"pollInterval,omitempty"` // and the interval it went by
-	Last429      time.Time       `json:"last429At,omitzero"`     // when Anthropic last asked it to wait
+	OAuthAccount  json.RawMessage `json:"oauthAccount,omitempty"`
+	AutoOff       bool            `json:"autoOff,omitempty"`      // held out of auto-switch
+	Line          float64         `json:"line,omitempty"`         // its own five-hour line; 0 for the global one
+	Priority      int             `json:"priority,omitempty"`     // its tier for priority-consume-first
+	Terminal      Terminal        `json:"terminal,omitzero"`      // open in a terminal from its own profile
+	Token         bool            `json:"token,omitempty"`        // a setup-token account: no refresh token, read by the header probe
+	APIKey        bool            `json:"apiKey,omitempty"`       // a Console API key account: no limits, nothing read
+	Alias         string          `json:"alias,omitempty"`        // a short name for it on the command line
+	Slot          int             `json:"slot,omitempty"`         // its number from 1, as claude-swap's slots
+	InUse         bool            `json:"-"`                      // Claude Code is signed in to it
+	Added         bool            `json:"-"`                      // the app holds a login of its own for it
+	Source        string          `json:"-"`                      // "Pitboard" when Limits are Pitboard's reading
+	PitboardLogin bool            `json:"-"`                      // Pitboard parks a login for it: TakeOver can move it here
+	Failures      int             `json:"failures,omitempty"`     // reads failed in a row; saved, so every process backs off
+	Retry         time.Time       `json:"retryAt,omitzero"`       // when a failed read is tried again
+	NextPoll      time.Time       `json:"nextPollAt,omitzero"`    // claude-swap's poll plan: when a good read is read again
+	PollEvery     time.Duration   `json:"pollInterval,omitempty"` // and the interval it went by
+	Last429       time.Time       `json:"last429At,omitzero"`     // when Anthropic last asked it to wait
 }
 
 // Key names the account by Anthropic's account and organisation.
@@ -84,7 +85,11 @@ type Book struct {
 	SignInTimeout time.Duration
 	// Pitboard reads the accounts Pitboard follows; nil reads none.
 	Pitboard func() ([]Account, error)
-	Home     *Home
+	// PitboardDir is Pitboard's folder and PitboardForget runs its
+	// `pitboard forget`: what TakeOver needs. Unset, nothing is taken over.
+	PitboardDir    string
+	PitboardForget func(ctx context.Context, label string) error
+	Home           *Home
 	// Launch opens a terminal at folder running claude on configDir:
 	// LaunchInTerminal in the app. Running says whether a claude runs on a
 	// profile: ClaudeRunning in the app.
@@ -417,6 +422,11 @@ func (b *Book) Remove(key string) error {
 	if slices.ContainsFunc(b.added, func(a Account) bool { return a.Key() == key && a.Terminal.Dir != "" }) {
 		return errInTerminal
 	}
+	return b.drop(key)
+}
+
+// drop removes the added account key and its saved logins.
+func (b *Book) drop(key string) error {
 	if err := b.Vault.Delete(ParkService, key); err != nil {
 		return err
 	}

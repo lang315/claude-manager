@@ -1,6 +1,9 @@
 package view
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -592,7 +595,40 @@ func TestLimitsPitboardAccountOffersAdd(t *testing.T) {
 	if n := count(l.tt, "Add Account…"); n != 1 {
 		t.Errorf("%d Add Account buttons while the app can't switch, want the toolbar's only", n)
 	}
+	if l.tt.HasText("Take Over from Pitboard") {
+		t.Error("a take-over offered for an account whose login Pitboard doesn't hold")
+	}
 	l.book.Home = &account.Home{}
 	must(t, l.tt.Click("Refresh"))
 	waitFor(t, l.tt, func() bool { return count(l.tt, "Add Account…") == 2 })
+}
+
+// A Pitboard-only account whose login Pitboard parks is taken over in one
+// click, with no sign-in, and can then be switched to.
+func TestLimitsTakeOverFromPitboard(t *testing.T) {
+	l := limitsApp(t)
+	h := canSwitch(t, l)
+	dir := t.TempDir()
+	sum := sha256.Sum256([]byte("carol-rt"))
+	must(t, os.WriteFile(filepath.Join(dir, "state.json"), []byte(`{"schema":8,"accounts":[
+		{"id":"p1","provider":"claude","label":"side","email":"carol@example.com","account_uuid":"carol","organization_uuid":"org",
+		 "parked":{"service":"pitboard-park-p1","refresh_fingerprint":"`+hex.EncodeToString(sum[:8])+`"},
+		 "oauth_account":{"accountUuid":"carol","emailAddress":"carol@example.com","organizationUuid":"org"}}]}`), 0o600))
+	carol := account.Login{AccessToken: "carol", RefreshToken: "carol-rt", ExpiresAt: fixture.Now.Add(time.Hour).UnixMilli()}
+	must(t, l.vault.Put("pitboard-park-p1", h.User, carol.Marshal()))
+	var forgot []string
+	l.book.PitboardDir = dir
+	l.book.PitboardForget = func(_ context.Context, label string) error { forgot = append(forgot, label); return nil }
+	l.book.Pitboard = func() ([]account.Account, error) { return account.ReadPitboard(dir) }
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("carol@example.com") })
+	if n := count(l.tt, "Switch"); n != 1 {
+		t.Fatalf("%d Switch buttons before the take-over, want bob's alone", n)
+	}
+	must(t, l.tt.Click("Take Over from Pitboard"))
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Took over carol@example.com from Pitboard.") })
+	if !slices.Equal(forgot, []string{"side"}) {
+		t.Errorf("Pitboard asked to forget %q", forgot)
+	}
+	waitFor(t, l.tt, func() bool { return count(l.tt, "Switch") == 2 && count(l.tt, "Take Over from Pitboard") == 0 })
 }

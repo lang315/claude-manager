@@ -11,22 +11,33 @@ import (
 
 var errPitboard = errors.New("Pitboard's files could not be read.")
 
+// pitboardFile is what the app reads of Pitboard's state.json: no secret,
+// only which login it parks where, and its refresh token's fingerprint.
+type pitboardFile struct {
+	Accounts []struct {
+		ID          string `json:"id"`
+		Provider    string `json:"provider"`
+		Label       string `json:"label"`
+		Email       string `json:"email"`
+		Plan        string `json:"plan"`
+		AccountUUID string `json:"account_uuid"`
+		OrgUUID     string `json:"organization_uuid"`
+		Parked      *struct {
+			Service     string `json:"service"`
+			Fingerprint string `json:"refresh_fingerprint"`
+		} `json:"parked"`
+		OAuthAccount json.RawMessage `json:"oauth_account"`
+	} `json:"accounts"`
+}
+
 // ReadPitboard reads the Claude Code accounts Pitboard follows
 // (github.com/datlechin/pitboard), and its last reading of each, from its
 // folder's state.json and usage.json, which hold no secret. It reads
-// nothing else there: Pitboard's logins are its own to renew. No folder is
-// no error; a row it can't read is left out.
+// nothing else there: Pitboard's logins are its own to renew, until
+// TakeOver moves one here. No folder is no error; a row it can't read is
+// left out.
 func ReadPitboard(dir string) ([]Account, error) {
-	var st struct {
-		Accounts []struct {
-			ID          string `json:"id"`
-			Provider    string `json:"provider"`
-			Email       string `json:"email"`
-			Plan        string `json:"plan"`
-			AccountUUID string `json:"account_uuid"`
-			OrgUUID     string `json:"organization_uuid"`
-		} `json:"accounts"`
-	}
+	var st pitboardFile
 	data, err := os.ReadFile(filepath.Join(dir, "state.json"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -55,7 +66,8 @@ func ReadPitboard(dir string) ([]Account, error) {
 		if p.Provider != "claude" || p.AccountUUID == "" || p.OrgUUID == "" {
 			continue
 		}
-		a := Account{AccountUUID: p.AccountUUID, OrgUUID: p.OrgUUID, Email: p.Email, Plan: p.Plan, Source: "Pitboard"}
+		a := Account{AccountUUID: p.AccountUUID, OrgUUID: p.OrgUUID, Email: p.Email, Plan: p.Plan, Source: "Pitboard",
+			PitboardLogin: p.Parked != nil && p.Parked.Service != ""}
 		u := usage[p.ID]
 		for _, raw := range u.Windows {
 			var w struct {

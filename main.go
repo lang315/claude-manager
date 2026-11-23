@@ -292,18 +292,20 @@ func accounts(home, configDir, root string) *account.Book {
 		h = &account.Home{Root: root, ClaudeJSON: account.GlobalConfig(root, filepath.Join(home, ".claude.json")), User: user, FileOnly: fileOnly}
 	}
 	return &account.Book{
-		Dir:           appDir(home),
-		Vault:         vault,
-		API:           account.NewAPI(version),
-		Live:          func() (account.Login, error) { return account.ReadLive(vault, configDir, root) },
-		Now:           time.Now,
-		Claude:        account.FindClaude,
-		SignInTimeout: 10 * time.Minute,
-		Pitboard:      func() ([]account.Account, error) { return account.ReadPitboard(filepath.Join(home, ".pitboard")) },
-		Home:          h,
-		Launch:        account.LaunchInTerminal,
-		Log:           &logfile.File{Path: filepath.Join(appDir(home), "claude-manager.log"), Max: 1 << 20, Keep: 3},
-		Running:       account.ClaudeRunning,
+		Dir:            appDir(home),
+		Vault:          vault,
+		API:            account.NewAPI(version),
+		Live:           func() (account.Login, error) { return account.ReadLive(vault, configDir, root) },
+		Now:            time.Now,
+		Claude:         account.FindClaude,
+		SignInTimeout:  10 * time.Minute,
+		Pitboard:       func() ([]account.Account, error) { return account.ReadPitboard(filepath.Join(home, ".pitboard")) },
+		PitboardDir:    filepath.Join(home, ".pitboard"),
+		PitboardForget: account.ForgetInPitboard,
+		Home:           h,
+		Launch:         account.LaunchInTerminal,
+		Log:            &logfile.File{Path: filepath.Join(appDir(home), "claude-manager.log"), Max: 1 << 20, Keep: 3},
+		Running:        account.ClaudeRunning,
 	}
 }
 
