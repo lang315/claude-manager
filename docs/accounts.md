@@ -44,7 +44,7 @@ is `~/.claude/.credentials.json`, its API key `~/.claude.json`'s
 claude-manager list [--json]                    every account and its limits (cswap's list --json schema)
 claude-manager status [--json]                  the account in use
 claude-manager switch <account> [--json]        put Claude Code on an added account
-claude-manager auto --once [--dry-run] [--json] one auto-switch check: exit 0 switched, 1 error, 2 nothing, 3 blocked
+claude-manager auto --once [--dry-run] [--json] one auto-switch check: exit 0 switched (or would, with --dry-run), 1 error, 2 nothing, 3 blocked
 claude-manager add-token <token|-> [--email E]  a setup-token or a Console API key
 claude-manager remove <account> | purge [--yes]   purge asks first; --yes for scripts
 claude-manager export <file> [--full] | import <file> [--hold SECONDS]

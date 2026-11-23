@@ -650,6 +650,11 @@ func (b *Book) autoSwitch(ctx context.Context, once, dry bool) (Decision, error)
 		// claude-swap's.
 		b.unreadable = time.Time{}
 		return Decision{Why: errKeyInUse.Error()}, nil
+	case accts[i].Token && accts[i].Err == errNoProbe.Error():
+		// Unread by choice, so no sign of trouble to fail over on (claude-swap
+		// fails over); auto-switch never picks an unread token, so the user did.
+		b.unreadable = time.Time{}
+		return Decision{Why: errTokenUnread.Error()}, nil
 	case accts[i].Err == ErrNotSignedIn.Error():
 		b.unreadable = time.Time{}
 		return Decision{Why: "Not signed in to Claude Code."}, nil

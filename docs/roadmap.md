@@ -167,9 +167,9 @@ subcommand of `cli.py` (`add`, `add-token`, `disable`, `enable`, `export`,
 - [ ] Edit `settings.json` safely (backup first, validate JSON, show a diff before saving).
 - [ ] Add, edit and remove hooks.
 - [ ] Add, edit and remove MCP servers.
-- [ ] Enable and disable plugins and skills.
-- [ ] Edit `CLAUDE.md` and memory files.
-- [ ] Restore a `settings.json.bak*` over `settings.json`.
+- [ ] Enable and disable plugins and skills. Left to Claude Code: `/plugin` (`enabledPlugins`) and `/skills` (`skillOverrides`); Config stays read-only.
+- [x] Edit `CLAUDE.md` and memory files: Open (its default app) and Show in Finder beside each skill, command and memory file, not an editor in the app.
+- [x] Restore a `settings.json.bak*`: Show in Finder on Backups, where the user copies it over `settings.json`.
 
 ## Known limitations (v1)
 

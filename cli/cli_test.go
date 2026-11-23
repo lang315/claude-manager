@@ -225,7 +225,8 @@ func TestAutoOnce(t *testing.T) {
 	code, out, _ := a.run(t, "", "auto", "--once", "--dry-run", "--json")
 	// cswap's auto --json: a poll line, then the switch with its trigger and refs.
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if code != nothing || len(lines) != 2 || !strings.Contains(lines[0], `"event":"poll"`) || !strings.Contains(lines[0], `"headroomPct":{`) ||
+	// cswap exits 0 (SWITCHED) on a dry run that would switch.
+	if code != ok || len(lines) != 2 || !strings.Contains(lines[0], `"event":"poll"`) || !strings.Contains(lines[0], `"headroomPct":{`) ||
 		!strings.Contains(lines[1], `"event":"switch"`) || !strings.Contains(lines[1], `"dryRun":true`) || !strings.Contains(lines[1], `"trigger":"proactive"`) ||
 		!strings.Contains(lines[1], `"to":{"email":"bob@example.com","number":1}`) || !strings.Contains(lines[0], `"active":{"email":"alice@example.com"`) {
 		t.Errorf("dry run: %d %s", code, out)

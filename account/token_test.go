@@ -233,3 +233,27 @@ func TestReadTokenLockedKeychain(t *testing.T) {
 		t.Fatalf("locked: %v", err)
 	}
 }
+
+// A setup-token in use whose usage isn't read, by choice, is no sign of
+// trouble: auto-switch holds on it, as on an API key, where claude-swap
+// fails over after its unhealthy ticks.
+func TestAutoHoldsOnAnUnprobedToken(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	_, err := b.AddToken(tokB, "b@token.local")
+	must(t, err)
+	must(t, b.Switch(ctx, tokenUUID+"b@token.local/"))
+	s := DefaultAuto()
+	s.On = true
+	must(t, b.SetAuto(s))
+	var d Decision
+	for m := 1; m <= 10; m++ {
+		b.Now = func() time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+		b.Refresh(ctx, true)
+		if d, _ = b.AutoSwitch(ctx); d.To != "" {
+			t.Fatalf("moved off the token at minute %d: %+v", m, d)
+		}
+	}
+	if d.Why != errTokenUnread.Error() {
+		t.Errorf("why %q", d.Why)
+	}
+}

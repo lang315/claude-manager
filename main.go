@@ -119,6 +119,7 @@ func main() {
 		// keep running; Quit still quits.
 		quitting := false
 		mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { quitting = true })
+		mygo.App.OnQuitCanceled(func() { quitting = false }) // a later close hides again
 		win.OnClose(func(e *mygo.CloseEvent) {
 			if !quitting {
 				e.PreventDefault()
