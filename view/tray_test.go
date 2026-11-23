@@ -1,6 +1,7 @@
 package view
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -42,8 +43,8 @@ func TestTray(t *testing.T) {
 	var title string
 	l.tt.Update(func() { title, _ = l.a.Tray() })
 	l.tt.Frame()
-	if title != "alice · 62% · 40%" { // claude-swap's: the name, then the 5h and 7d windows
-		t.Errorf("title %q, want alice's name and her 5h and 7d windows", title)
+	if title != "62%" { // compact: the fuller of her 5h and 7d windows, beside the icon
+		t.Errorf("title %q, want the fuller of alice's 5h and 7d windows", title)
 	}
 	alice := trayItem(t, l, "alice@example.com")
 	if !strings.Contains(alice.Label, "alice@example.com  5h 62% (") || !strings.Contains(alice.Label, "· 7d 40%") || !alice.Checked || !alice.Disabled {
@@ -109,7 +110,7 @@ func TestTrayRows(t *testing.T) {
 	var title string
 	l.tt.Update(func() { title, _ = l.a.Tray() })
 	l.tt.Frame()
-	if title != "a · 30%" {
+	if title != "30%" {
 		t.Errorf("title %q: a model window is not the account's", title)
 	}
 	for _, c := range []struct {
@@ -208,7 +209,7 @@ func TestAutoForThisSession(t *testing.T) {
 func TestTrayTitleModes(t *testing.T) {
 	b := account.Account{Email: "alice@example.com", Limits: []account.Limit{{Kind: "session", Percent: 62}, {Kind: "weekly_all", Percent: 40},
 		{Kind: "weekly_scoped", Scope: "Fable", Percent: 91}}}
-	for mode, want := range map[string]string{"": "alice · 62% · 40%", "5h": "alice · 62%", "7d": "alice · 40%", "off": "alice"} {
+	for mode, want := range map[string]string{"": "62%", "both": "alice · 62% · 40%", "5h": "alice · 62%", "7d": "alice · 40%", "off": "alice"} {
 		if got := trayTitle(b, account.Prefs{TrayTitle: mode}); got != want {
 			t.Errorf("%q: %q, want %q", mode, got, want)
 		}
@@ -219,16 +220,19 @@ func TestTrayTitleModes(t *testing.T) {
 		b    account.Account
 		want string
 	}{
-		{"name off", account.Prefs{NoTrayName: true}, b, "62% · 40%"},
-		{"scoped", account.Prefs{TrayScoped: true}, b, "alice · 62% · 40% · Fable 91%"},
+		{"name off", account.Prefs{NoTrayName: true, TrayTitle: "both"}, b, "62% · 40%"},
+		{"scoped", account.Prefs{TrayScoped: true, TrayTitle: "both"}, b, "alice · 62% · 40% · Fable 91%"},
 		{"scoped, no name, no pct", account.Prefs{TrayScoped: true, NoTrayName: true, TrayTitle: "off"}, b, "Fable 91%"},
-		{"alias", account.Prefs{}, account.Account{Email: "alice@example.com", Alias: "work", Limits: b.Limits[:1]}, "work · 62%"},
-		{"long local part", account.Prefs{}, account.Account{Email: "averyveryverylongname@example.com", Limits: b.Limits[:1]}, "averyveryve* · 62%"},
-		{"12 chars kept", account.Prefs{}, account.Account{Email: "abcdefghijkl@x", Limits: b.Limits[:1]}, "abcdefghijkl · 62%"},
+		{"alias", account.Prefs{TrayTitle: "both"}, account.Account{Email: "alice@example.com", Alias: "work", Limits: b.Limits[:1]}, "work · 62%"},
+		{"long local part", account.Prefs{TrayTitle: "both"}, account.Account{Email: "averyveryverylongname@example.com", Limits: b.Limits[:1]}, "averyveryve* · 62%"},
+		{"12 chars kept", account.Prefs{TrayTitle: "both"}, account.Account{Email: "abcdefghijkl@x", Limits: b.Limits[:1]}, "abcdefghijkl · 62%"},
 		{"rejected", account.Prefs{TrayTitle: "off"}, account.Account{Email: "a@x", Limits: []account.Limit{{Kind: "session", Percent: 100, Refused: true}}}, "a · rejected (!)"},
 		{"a refused model is not a rejected account", account.Prefs{TrayTitle: "off", TrayScoped: true}, account.Account{Email: "a@x", Limits: []account.Limit{{Kind: "weekly_scoped", Scope: "Fable", Percent: 100, Refused: true}}}, "a · Fable 100%"},
-		{"none at all", account.Prefs{TrayTitle: "off", NoTrayName: true}, b, "CM"},
-		{"no email, no alias", account.Prefs{}, account.Account{Limits: b.Limits[:1]}, "62%"},
+		{"none at all: the icon alone", account.Prefs{TrayTitle: "off", NoTrayName: true}, b, ""},
+		{"compact: the fuller window", account.Prefs{TrayScoped: true}, account.Account{Email: "a@x", Limits: []account.Limit{{Kind: "session", Percent: 49}, {Kind: "weekly_all", Percent: 71.4}}}, "71%"},
+		{"compact, refused", account.Prefs{}, account.Account{Email: "a@x", Limits: []account.Limit{{Kind: "session", Percent: 100, Refused: true}}}, "!"},
+		{"compact, nothing read", account.Prefs{}, account.Account{Email: "a@x"}, ""},
+		{"no email, no alias", account.Prefs{TrayTitle: "both"}, account.Account{Limits: b.Limits[:1]}, "62%"},
 	} {
 		if got := trayTitle(c.b, c.p); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
@@ -305,8 +309,16 @@ func TestTrayTitleSettings(t *testing.T) {
 		t.Fatalf("no %q", label)
 		return TrayItem{}
 	}
-	if n, s := find("Show Account Name"), find("Show Model Limits in Title"); !n.Checked || s.Checked {
-		t.Errorf("defaults: name %v, scoped %v", n.Checked, s.Checked)
+	if c := find("Title: Compact"); !c.Checked {
+		t.Error("compact is not the default title")
+	}
+	if n, s := find("Show Account Name"), find("Show Model Limits in Title"); !n.Disabled || !s.Disabled {
+		t.Errorf("in compact mode the name and model toggles are live: %v, %v", n.Disabled, s.Disabled)
+	}
+	l.tt.Update(func() { find("Title: 5h · 7d").Do() })
+	l.tt.Frame()
+	if n, s := find("Show Account Name"), find("Show Model Limits in Title"); !n.Checked || s.Checked || n.Disabled {
+		t.Errorf("defaults: name %v, scoped %v, disabled %v", n.Checked, s.Checked, n.Disabled)
 	}
 	l.tt.Update(func() { find("Show Account Name").Do(); find("Show Model Limits in Title").Do() })
 	l.tt.Frame()
@@ -389,5 +401,27 @@ func TestTrayHealthUsesTheAccountInUse(t *testing.T) {
 		l.tt.Update(func() { l.a.limits.blocks, l.a.limits.updated = []account.Account{other, in}, now })
 		l.tt.Frame()
 		trayItem(t, l, "Auto-switch off · "+c.want)
+	}
+}
+
+// The icon draws the account in use's two windows; the tooltip spells them out.
+func TestTrayIconAndTip(t *testing.T) {
+	l := limitsApp(t)
+	var icon []byte
+	var tip string
+	l.tt.Update(func() { icon, tip = l.a.TrayIcon(), l.a.TrayTip() })
+	l.tt.Frame()
+	if !bytes.Equal(icon, TrayIcon(0, 0)) || tip != "Claude Manager" {
+		t.Errorf("before a read: tip %q, icon of shares %v", tip, !bytes.Equal(icon, TrayIcon(0, 0)))
+	}
+	l.a.TrayTick()
+	waitFor(t, l.tt, func() bool { return l.a.limits.loaded })
+	l.tt.Update(func() { icon, tip = l.a.TrayIcon(), l.a.TrayTip() })
+	l.tt.Frame()
+	if !bytes.Equal(icon, TrayIcon(62, 100)) {
+		t.Error("the icon does not draw 5h 62% and 7d 100%")
+	}
+	if tip != "alice · 5h 62% · 7d 100%" {
+		t.Errorf("tip %q", tip)
 	}
 }

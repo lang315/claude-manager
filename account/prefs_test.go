@@ -123,3 +123,36 @@ func TestSettingIsSetOldFile(t *testing.T) {
 		t.Error("first set lost the old file's keys")
 	}
 }
+
+// The menu bar title's default is compact, stored as ""; every other mode is
+// stored by name, so a file from before compact keeps an explicit "both".
+func TestMenubarTitleModes(t *testing.T) {
+	b, _, _, _ := switchBook(t)
+	get := func() Setting {
+		t.Helper()
+		all, err := b.Settings()
+		must(t, err)
+		for _, s := range all {
+			if s.Key == "menubar.title" {
+				return s
+			}
+		}
+		t.Fatal("no menubar.title")
+		return Setting{}
+	}
+	if s := get(); s.Value != "compact" || s.Default != "compact" || s.Range != "compact, both, 5h, 7d, off" {
+		t.Errorf("default %+v", s)
+	}
+	for v, stored := range map[string]string{"both": "both", "7d": "7d", "compact": "", "off": "off"} {
+		must(t, b.Set("menubar.title", v))
+		if p, _ := b.Prefs(); p.TrayTitle != stored {
+			t.Errorf("%s stored %q, want %q", v, p.TrayTitle, stored)
+		}
+		if s := get(); s.Value != v {
+			t.Errorf("%s reads back %q", v, s.Value)
+		}
+	}
+	if err := b.Set("menubar.title", "bad"); err == nil || err.Error() != "menubar.title is compact, both, 5h, 7d or off." {
+		t.Errorf("bad: %v", err)
+	}
+}

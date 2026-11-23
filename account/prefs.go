@@ -1,6 +1,7 @@
 package account
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"math"
@@ -16,7 +17,7 @@ type Prefs struct {
 	Theme          string `json:"theme,omitempty"`          // "auto" (as macOS), "light" or "dark"; "" is auto
 	NoUpdates      bool   `json:"noUpdates,omitempty"`      // don't look for a newer version
 	NoShareHistory bool   `json:"noShareHistory,omitempty"` // Open in Terminal shares no chat history unless asked
-	TrayTitle      string `json:"trayTitle,omitempty"`      // the menu bar title: "" both windows, "5h", "7d" or "off" (claude-swap's title percentage)
+	TrayTitle      string `json:"trayTitle,omitempty"`      // the menu bar title beside its icon: "" the fuller window's share, "both", "5h", "7d" or "off" (claude-swap's title percentage)
 	TrayEvery      int    `json:"trayEvery,omitempty"`      // seconds between the menu bar's refreshes; 0 is 300
 	NoTrayName     bool   `json:"noTrayName,omitempty"`     // leave the account name out of the menu bar title (claude-swap's show_account_name, on by default)
 	TrayScoped     bool   `json:"trayScoped,omitempty"`     // add each model's weekly limit to the menu bar title (claude-swap's title_scoped)
@@ -160,11 +161,7 @@ func settingOf(key string, s Auto, p Prefs) Setting {
 	case "updates.check":
 		return Setting{key, bo(!p.NoUpdates), "true", "true, false", false}
 	case "menubar.title":
-		t := p.TrayTitle
-		if t == "" {
-			t = "both"
-		}
-		return Setting{key, t, "both", "both, 5h, 7d, off", false}
+		return Setting{key, cmp.Or(p.TrayTitle, "compact"), "compact", "compact, both, 5h, 7d, off", false}
 	case "menubar.refreshSeconds":
 		return Setting{key, fmt.Sprint(int(p.TrayInterval().Seconds())), "300", "30, 60, 300", false}
 	case "menubar.showAccountName":
@@ -290,9 +287,9 @@ func (b *Book) Set(key, value string) error {
 		p.NoShareHistory = !v
 	case "menubar.title":
 		p.TrayTitle = ""
-		if !unset && value != "both" {
-			if !slices.Contains([]string{"5h", "7d", "off"}, value) {
-				err = fmt.Errorf("%s is both, 5h, 7d or off.", key)
+		if !unset && value != "compact" {
+			if !slices.Contains([]string{"both", "5h", "7d", "off"}, value) {
+				err = fmt.Errorf("%s is compact, both, 5h, 7d or off.", key)
 			}
 			p.TrayTitle = value
 		}

@@ -218,13 +218,20 @@ func upgrade(ctx context.Context) (string, error) {
 
 // trayWas is what setTray last put on the item: a menu set again while it
 // is open would close it.
-var trayWas string
+var trayWas, iconWas string
 
 // setTray puts the view's menu bar item on tray, with the app's own rows
 // after it: open the window, start at login, quit. It changes nothing when
 // they are as last set.
 func setTray(tray *mygo.Tray, a *view.App, show func()) {
 	title, items := a.Tray()
+	if icon := a.TrayIcon(); string(icon) != iconWas { // drawn again only when a bar moves
+		if err := tray.SetIcon(icon, true); err != nil {
+			log.Print(err)
+		}
+		iconWas = string(icon)
+	}
+	tray.SetToolTip(a.TrayTip())
 	login := mygo.App.OpenAtLogin()
 	was := fmt.Sprint(title, login, newer.Load() != nil)
 	was += trayKey(items)

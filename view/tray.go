@@ -162,6 +162,17 @@ func health(on bool, read, now time.Time, every time.Duration) string {
 // when title_scoped is on, joined by " · ".
 func trayTitle(b account.Account, p account.Prefs) string {
 	mode := p.TrayTitle
+	if mode == "" { // compact: beside the icon, the share of the fuller window alone
+		for _, x := range b.Limits {
+			if x.Kind == "session" && x.Refused {
+				return "!"
+			}
+		}
+		if f, ok := fullest(b); ok {
+			return fmt.Sprintf("%.0f%%", f)
+		}
+		return ""
+	}
 	var s []string
 	if !p.NoTrayName { // show_account_name
 		if name := cmp.Or(b.Alias, localPart(b.Email)); name != "" {
@@ -185,10 +196,7 @@ func trayTitle(b account.Account, p account.Prefs) string {
 			s = append(s, fmt.Sprintf("%s %.0f%%", x.Scope, x.Percent))
 		}
 	}
-	if len(s) == 0 && mode == "off" {
-		return "CM"
-	}
-	return strings.Join(s, " · ")
+	return strings.Join(s, " · ") // none at all: the icon alone
 }
 
 // localPart is cswap's _local_part: the email before "@", cut to 12
@@ -356,18 +364,16 @@ func (l *limits) trayMenus(a *App, can bool) []TrayItem {
 		}
 	}
 	settings := TrayItem{Label: "Menu Bar"}
-	for _, t := range []struct{ label, mode string }{{"Title: 5h · 7d", ""}, {"Title: Session (5h)", "5h"}, {"Title: Weekly (7d)", "7d"}, {"Title: None", "off"}} {
-		v := t.mode
-		if v == "" {
-			v = "both"
-		}
+	compact := a.prefs.TrayTitle == "" // no name, no model limits beside the icon
+	for _, t := range []struct{ label, mode string }{{"Title: Compact", ""}, {"Title: 5h · 7d", "both"}, {"Title: Session (5h)", "5h"}, {"Title: Weekly (7d)", "7d"}, {"Title: None", "off"}} {
+		v := cmp.Or(t.mode, "compact")
 		settings.Sub = append(settings.Sub, TrayItem{Label: t.label, Toggle: true, Checked: a.prefs.TrayTitle == t.mode, Do: set("menubar.title", v)})
 	}
 	settings.Sub = append(settings.Sub, TrayItem{})
 	// claude-swap's "Show account name in menu bar" and "Show model limits in title"
 	settings.Sub = append(settings.Sub,
-		TrayItem{Label: "Show Account Name", Toggle: true, Checked: !a.prefs.NoTrayName, Do: set("menubar.showAccountName", fmt.Sprint(a.prefs.NoTrayName))},
-		TrayItem{Label: "Show Model Limits in Title", Toggle: true, Checked: a.prefs.TrayScoped, Do: set("menubar.titleScoped", fmt.Sprint(!a.prefs.TrayScoped))},
+		TrayItem{Label: "Show Account Name", Toggle: true, Checked: !a.prefs.NoTrayName, Disabled: compact, Do: set("menubar.showAccountName", fmt.Sprint(a.prefs.NoTrayName))},
+		TrayItem{Label: "Show Model Limits in Title", Toggle: true, Checked: a.prefs.TrayScoped, Disabled: compact, Do: set("menubar.titleScoped", fmt.Sprint(!a.prefs.TrayScoped))},
 		TrayItem{})
 	for _, secs := range []int{30, 60, 300} {
 		label := fmt.Sprintf("Refresh Every %d s", secs)
