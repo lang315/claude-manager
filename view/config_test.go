@@ -87,7 +87,7 @@ func TestConfigDocsAndBackups(t *testing.T) {
 		t.Errorf("memory file not rendered under its project; texts %q", tt.Texts())
 	}
 	must(t, tt.Click("Open"))
-	must(t, tt.Click("Show in Finder"))
+	must(t, tt.Click(revealLabel))
 	if len(opened) != 1 || filepath.Base(opened[0]) != "MEMORY.md" || len(revealed) != 1 || revealed[0] != opened[0] {
 		t.Errorf("opened %q, revealed %q: want the memory file shown", opened, revealed)
 	}
@@ -97,7 +97,7 @@ func TestConfigDocsAndBackups(t *testing.T) {
 	}
 	must(t, tt.Click("Backups"))
 	must(t, tt.Click("settings.json.bak-1"))
-	must(t, tt.Click("Show in Finder"))
+	must(t, tt.Click(revealLabel))
 	if want := filepath.Join(d.Root, "settings.json.bak-1"); len(revealed) != 2 || revealed[1] != want {
 		t.Errorf("revealed %q, want %s", revealed, want)
 	}
