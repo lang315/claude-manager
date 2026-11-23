@@ -14,20 +14,29 @@ var errPitboard = errors.New("Pitboard's files could not be read.")
 // pitboardFile is what the app reads of Pitboard's state.json: no secret,
 // only which login it parks where, and its refresh token's fingerprint.
 type pitboardFile struct {
-	Accounts []struct {
-		ID          string `json:"id"`
-		Provider    string `json:"provider"`
-		Label       string `json:"label"`
-		Email       string `json:"email"`
-		Plan        string `json:"plan"`
-		AccountUUID string `json:"account_uuid"`
-		OrgUUID     string `json:"organization_uuid"`
-		Parked      *struct {
-			Service     string `json:"service"`
-			Fingerprint string `json:"refresh_fingerprint"`
-		} `json:"parked"`
-		OAuthAccount json.RawMessage `json:"oauth_account"`
-	} `json:"accounts"`
+	Accounts []pitboardRow `json:"accounts"`
+}
+
+type pitboardRow struct {
+	ID          string `json:"id"`
+	Provider    string `json:"provider"`
+	Label       string `json:"label"`
+	Email       string `json:"email"`
+	Plan        string `json:"plan"`
+	AccountUUID string `json:"account_uuid"`
+	OrgUUID     string `json:"organization_uuid"`
+	Parked      *struct {
+		Service     string `json:"service"`
+		Fingerprint string `json:"refresh_fingerprint"`
+	} `json:"parked"`
+	OAuthAccount json.RawMessage `json:"oauth_account"`
+}
+
+// parks says whether Pitboard parks this account's own login: TakeOver
+// takes only such a one.
+func (p pitboardRow) parks() bool {
+	return p.Provider == "claude" && p.Parked != nil && p.Parked.Service != "" &&
+		keyOf(p.OAuthAccount) == p.AccountUUID+"/"+p.OrgUUID
 }
 
 // ReadPitboard reads the Claude Code accounts Pitboard follows
@@ -67,7 +76,7 @@ func ReadPitboard(dir string) ([]Account, error) {
 			continue
 		}
 		a := Account{AccountUUID: p.AccountUUID, OrgUUID: p.OrgUUID, Email: p.Email, Plan: p.Plan, Source: "Pitboard",
-			PitboardLogin: p.Parked != nil && p.Parked.Service != ""}
+			PitboardLogin: p.parks()}
 		u := usage[p.ID]
 		for _, raw := range u.Windows {
 			var w struct {

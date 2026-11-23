@@ -243,3 +243,89 @@ func TestTakeOverKeepsTheCopyPitboardLetGo(t *testing.T) {
 		t.Errorf("the only copy left was dropped: %v", err)
 	}
 }
+
+// A forget killed after Pitboard deleted its keychain item, but before it
+// rewrote state.json, also leaves the copy taken the only one.
+func TestTakeOverKeepsTheCopyWhenPitboardDroppedItsItem(t *testing.T) {
+	b, v, _, _ := newBook(t, newAnthropic())
+	pitboardHolding(t, b, v)
+	b.PitboardForget = func(context.Context, string) error {
+		must(t, v.Delete("pitboard-park-p1-1", "me"))
+		return errors.New("signal: killed")
+	}
+	if a, err := b.TakeOver(context.Background(), "carol/org-c"); err != nil || !a.Added {
+		t.Fatalf("%+v, %v", a, err)
+	}
+	if _, err := v.Get(ParkService, "carol/org-c"); err != nil {
+		t.Errorf("the only copy left was dropped: %v", err)
+	}
+}
+
+// A state.json that can't be read after a failed forget says nothing of
+// who holds the login: the copy taken is kept.
+func TestTakeOverKeepsTheCopyWhenPitboardIsUnreadable(t *testing.T) {
+	b, v, _, _ := newBook(t, newAnthropic())
+	dir, _ := pitboardHolding(t, b, v)
+	b.PitboardForget = func(context.Context, string) error {
+		must(t, os.WriteFile(filepath.Join(dir, "state.json"), []byte("{"), 0o600))
+		return errors.New("signal: killed")
+	}
+	if _, err := b.TakeOver(context.Background(), "carol/org-c"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.Get(ParkService, "carol/org-c"); err != nil {
+		t.Errorf("the copy was dropped: %v", err)
+	}
+}
+
+// Pitboard's forget runs with the book unlocked: another call goes on.
+func TestTakeOverLetsTheBookGoDuringTheForget(t *testing.T) {
+	b, v, _, _ := newBook(t, newAnthropic())
+	_, forgot := pitboardHolding(t, b, v)
+	forget := b.PitboardForget
+	b.PitboardForget = func(ctx context.Context, label string) error {
+		done := make(chan error, 1)
+		go func() { _, err := b.Blocks(); done <- err }()
+		select {
+		case err := <-done:
+			must(t, err)
+		case <-time.After(5 * time.Second):
+			t.Error("the book stayed locked through the forget")
+		}
+		return forget(ctx, label)
+	}
+	if _, err := b.TakeOver(context.Background(), "carol/org-c"); err != nil {
+		t.Fatal(err)
+	}
+	if len(*forgot) != 1 {
+		t.Errorf("forgot %q", *forgot)
+	}
+}
+
+// The organization's name comes along from Pitboard's oauth_account.
+func TestTakeOverKeepsTheOrgName(t *testing.T) {
+	b, v, _, _ := newBook(t, newAnthropic())
+	dir, _ := pitboardHolding(t, b, v)
+	st := strings.Replace(takeoverState(pitboardFingerprint("c-rt")), `"organizationUuid":"org-c"}`, `"organizationUuid":"org-c","organizationName":"Carol Co"}`, 1)
+	must(t, os.WriteFile(filepath.Join(dir, "state.json"), []byte(st), 0o600))
+	a, err := b.TakeOver(context.Background(), "carol/org-c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.OrgName != "Carol Co" {
+		t.Errorf("org name %q", a.OrgName)
+	}
+}
+
+// A park whose oauth_account names no account, or another, can't be taken
+// over, so it is not offered.
+func TestReadPitboardNeedsTheParkToNameItsAccount(t *testing.T) {
+	st := strings.Replace(takeoverState("f"), `"organizationUuid":"org-c"`, `"organizationUuid":"org-x"`, 1)
+	got, err := ReadPitboard(writePitboard(t, st, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := blockOf(t, got, "carol@example.com"); c.PitboardLogin {
+		t.Error("offered a park TakeOver refuses")
+	}
+}

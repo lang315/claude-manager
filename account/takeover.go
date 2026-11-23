@@ -51,16 +51,19 @@ func readPitboardPark(dir, key string) (pitboardPark, error) {
 		return pitboardPark{}, errPitboard
 	}
 	for _, p := range st.Accounts {
-		if p.Provider != "claude" || p.AccountUUID+"/"+p.OrgUUID != key || p.Parked == nil || p.Parked.Service == "" ||
-			keyOf(p.OAuthAccount) != key {
+		if p.AccountUUID+"/"+p.OrgUUID != key || !p.parks() {
 			continue
 		}
 		label := p.Label
 		if label == "" {
 			label = p.Email
 		}
+		var org struct {
+			Name string `json:"organizationName"`
+		}
+		_ = json.Unmarshal(p.OAuthAccount, &org)
 		return pitboardPark{label: label, service: p.Parked.Service, fingerprint: p.Parked.Fingerprint,
-			who: Profile{AccountUUID: p.AccountUUID, OrgUUID: p.OrgUUID, Email: p.Email}, oauthAccount: p.OAuthAccount}, nil
+			who: Profile{AccountUUID: p.AccountUUID, OrgUUID: p.OrgUUID, Email: p.Email, OrgName: org.Name}, oauthAccount: p.OAuthAccount}, nil
 	}
 	return pitboardPark{}, errNoPark
 }
@@ -68,7 +71,8 @@ func readPitboardPark(dir, key string) (pitboardPark, error) {
 // TakeOver moves the login Pitboard parks for key here as it is, then has
 // Pitboard forget the account: a refresh token is spent once, so one app
 // alone may renew it. Nothing is renewed on the way. Were Pitboard to renew
-// it meanwhile, or refuse to forget it, the copy taken is dropped.
+// it meanwhile, or refuse to forget it while
+// it still holds the login, the copy taken is dropped.
 func (b *Book) TakeOver(ctx context.Context, key string) (Account, error) {
 	switch {
 	case b.Home == nil:
@@ -78,39 +82,59 @@ func (b *Book) TakeOver(ctx context.Context, key string) (Account, error) {
 	case b.PitboardDir == "" || b.PitboardForget == nil:
 		return Account{}, errNoPark
 	}
+	a, p, err := b.takeCopy(key)
+	if err != nil {
+		return Account{}, err
+	}
+	// Pitboard's forget may take its minute: the book is not held meanwhile.
+	ferr := b.PitboardForget(ctx, p.label)
+	if ferr == nil || !b.pitboardHolds(p, key) {
+		return a, nil // it failed after Pitboard let go: this is the only copy now
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	err = b.load()
+	if err == nil {
+		err = b.drop(key)
+	}
+	return Account{}, errors.Join(fmt.Errorf("Pitboard didn't forget %s, so its login stays with Pitboard: %w", p.who.Email, ferr), err)
+}
+
+// takeCopy saves the login Pitboard parks for key here, as it is.
+func (b *Book) takeCopy(key string) (Account, pitboardPark, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if err := b.load(); err != nil {
-		return Account{}, err
+		return Account{}, pitboardPark{}, err
 	}
 	if slices.ContainsFunc(b.added, func(a Account) bool { return a.Key() == key }) {
-		return Account{}, errTakenAlready
+		return Account{}, pitboardPark{}, errTakenAlready
 	}
 	p, err := readPitboardPark(b.PitboardDir, key)
 	if err != nil {
-		return Account{}, err
+		return Account{}, p, err
 	}
 	// Pitboard keeps it under Claude Code's keychain account, through
 	// /usr/bin/security as the app does: no keychain prompt.
 	blob, err := b.Vault.Get(p.service, b.Home.User)
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return Account{}, errNoPark
+		return Account{}, p, errNoPark
 	case err != nil:
-		return Account{}, err
+		return Account{}, p, err
 	}
 	l, err := parseLogin(blob)
 	if err != nil {
-		return Account{}, err
+		return Account{}, p, err
 	}
 	if pitboardFingerprint(l.RefreshToken) != p.fingerprint {
-		return Account{}, errParkMoved
+		return Account{}, p, errParkMoved
 	}
 	a, err := b.keepLocked(blob, p.who, p.oauthAccount)
 	if err != nil {
-		return Account{}, err
+		return Account{}, p, err
 	}
-	undo := func(cause error) (Account, error) { return Account{}, errors.Join(cause, b.drop(key)) }
+	undo := func(cause error) (Account, pitboardPark, error) { return Account{}, p, errors.Join(cause, b.drop(key)) }
 	if err := b.save(); err != nil {
 		return undo(err)
 	}
@@ -118,13 +142,19 @@ func (b *Book) TakeOver(ctx context.Context, key string) (Account, error) {
 	if q, err := readPitboardPark(b.PitboardDir, key); err != nil || q.fingerprint != p.fingerprint {
 		return undo(errParkMoved)
 	}
-	if err := b.PitboardForget(ctx, p.label); err != nil {
-		if _, rerr := readPitboardPark(b.PitboardDir, key); errors.Is(rerr, errNoPark) {
-			return a, nil // it failed after Pitboard let go: this is the only copy now
-		}
-		return undo(fmt.Errorf("Pitboard didn't forget %s, so its login stays with Pitboard: %w", p.who.Email, err))
+	return a, p, nil
+}
+
+// pitboardHolds says whether Pitboard plainly still holds p: state.json
+// lists it and its keychain item is there. Anything less keeps the copy
+// taken, which may be the only one.
+func (b *Book) pitboardHolds(p pitboardPark, key string) bool {
+	q, err := readPitboardPark(b.PitboardDir, key)
+	if err != nil {
+		return false
 	}
-	return a, nil
+	_, err = b.Vault.Get(q.service, b.Home.User)
+	return err == nil
 }
 
 // ForgetInPitboard has Pitboard forget the account labelled label: its
