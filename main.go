@@ -12,6 +12,7 @@ import (
 	osuser "os/user"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -30,6 +31,9 @@ import (
 const version = "0.1.0"
 
 func main() {
+	// Soft: about twice the live heap (~42 MB) before GC works harder; above
+	// it only GC time grows, the app never fails for it.
+	debug.SetMemoryLimit(100 << 20)
 	home, err := os.UserHomeDir()
 	if err != nil {
 		log.Fatal(err)

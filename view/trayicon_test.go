@@ -54,3 +54,13 @@ func TestTrayIconBars(t *testing.T) {
 		t.Error("shares out of 0–100 are not clamped")
 	}
 }
+
+// The menu bar is set again after every redraw: an unchanged icon is not
+// drawn and encoded again.
+func TestTrayIconCached(t *testing.T) {
+	a, _, _, _ := newApp(t)
+	first := a.TrayIcon()
+	if again := a.TrayIcon(); &again[0] != &first[0] {
+		t.Error("the same icon was encoded again")
+	}
+}

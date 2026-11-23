@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"hash/maphash"
 	"io"
 	"io/fs"
 	"maps"
@@ -14,21 +15,44 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	"unique"
 )
 
 // call is one API call a transcript records.
 type call struct {
-	key   string // message.id/requestId, "" when the line lacks either
+	key   uint64 // keyOf(message.id/requestId), 0 when the line lacks either
 	time  time.Time
-	model string
+	model string // interned: every call of a model shares one string
 	callTokens
 }
+
+// keySeed hashes keys: they are compared within this process only.
+var keySeed = maphash.MakeSeed()
+
+// keyOf is k as a call's key: 8 bytes in place of a ~60-byte string, kept
+// for every call of every transcript. A collision (odds ~1e-9 at a million
+// calls) would merge two calls.
+func keyOf(k string) uint64 {
+	return max(maphash.String(keySeed, k), 1) // 0 is no key
+}
+
+// keyOf0 is keyOf, with "" as 0: a line without a key.
+func keyOf0(k string) uint64 {
+	if k == "" {
+		return 0
+	}
+	return keyOf(k)
+}
+
+// readers lends read its 1 MB buffer: one per file would churn gigabytes.
+var readers = sync.Pool{New: func() any { return bufio.NewReaderSize(nil, 1<<20) }}
 
 // usageFile is what a scan read of one transcript.
 type usageFile struct {
 	calls []call
-	index map[string]int // a key's index in calls
+	index map[uint64]int // a key's index in calls, during a read only: buckets merges what spans two reads
 	cwd   string         // the first cwd its calls carry
 	bad   int            // usage lines that are not JSON
 }
@@ -93,15 +117,26 @@ var usageMark, assistantMark = []byte(`"usage"`), []byte(`"assistant"`)
 // the bytes of the whole lines it read. A last line without "\n" is left for
 // the next scan: Claude Code may still be writing it.
 func (f *usageFile) read(r io.Reader) (int64, error) {
-	br := bufio.NewReaderSize(r, 1<<20) // not a Scanner: a line can be megabytes
+	br := readers.Get().(*bufio.Reader) // not a Scanner: a line can be megabytes
+	br.Reset(r)
+	defer func() { br.Reset(nil); readers.Put(br); f.index = nil }()
 	var n int64
+	var long []byte // a line longer than the buffer, gathered
 	for {
-		line, err := br.ReadBytes('\n')
+		line, err := br.ReadSlice('\n') // the buffer's own bytes: no copy per line
+		if err == bufio.ErrBufferFull {
+			long = append(long, line...)
+			continue
+		}
 		if err == io.EOF {
 			return n, nil
 		}
 		if err != nil {
 			return n, err
+		}
+		if len(long) > 0 {
+			line = append(long, line...)
+			long = line[:0]
 		}
 		n += int64(len(line))
 		// About one line in seven holds usage: the others are not decoded.
@@ -130,7 +165,7 @@ func (f *usageFile) line(b []byte) {
 	if m.ID != "" && x.RequestID != "" {
 		key = m.ID + "/" + x.RequestID
 	}
-	f.add(call{key, t, m.Model, m.Usage.tokens()})
+	f.add(call{keyOf0(key), t, unique.Make(m.Model).Value(), m.Usage.tokens()})
 	// An advisor's tokens are not in the top-level counts: each is a call of
 	// its own, under the advisor's model.
 	for i, it := range m.Usage.Iterations {
@@ -144,18 +179,18 @@ func (f *usageFile) line(b []byte) {
 		tk := it.tokens()
 		tk.Fast = tk.Fast || it.Speed == "" && m.Usage.Speed == "fast"
 		tk.US = tk.US || it.Geo == "" && m.Usage.Geo == "us"
-		f.add(call{k, t, cmp.Or(it.Model, m.Model), tk})
+		f.add(call{keyOf0(k), t, unique.Make(cmp.Or(it.Model, m.Model)).Value(), tk})
 	}
 }
 
 // add puts c among the file's calls, merged with an earlier copy of its key.
 func (f *usageFile) add(c call) {
-	if c.key == "" {
+	if c.key == 0 {
 		f.calls = append(f.calls, c)
 		return
 	}
 	if f.index == nil {
-		f.index = map[string]int{}
+		f.index = map[uint64]int{}
 	}
 	if i, ok := f.index[c.key]; ok {
 		f.calls[i] = merge(f.calls[i], c)
@@ -360,7 +395,7 @@ func (sc *UsageScan) refresh(root, path string, open func(string) (*os.File, err
 func (sc *UsageScan) buckets(loc *time.Location) []Usage {
 	type session struct {
 		cwd, subCwd string
-		keyed       map[string]call
+		keyed       map[uint64]call
 		loose       []call
 	}
 	sessions := map[string]*session{}
@@ -368,7 +403,7 @@ func (sc *UsageScan) buckets(loc *time.Location) []Usage {
 		f := sc.files[p]
 		x := sessions[f.session]
 		if x == nil {
-			x = &session{keyed: map[string]call{}}
+			x = &session{keyed: map[uint64]call{}}
 			sessions[f.session] = x
 		}
 		if f.main {
@@ -377,7 +412,7 @@ func (sc *UsageScan) buckets(loc *time.Location) []Usage {
 			x.subCwd = cmp.Or(x.subCwd, f.cwd)
 		}
 		for _, c := range f.calls {
-			if c.key == "" {
+			if c.key == 0 {
 				x.loose = append(x.loose, c)
 				continue
 			}
