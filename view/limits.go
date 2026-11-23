@@ -520,9 +520,6 @@ func (l *limits) dialogs(c *ui.Context, a *App, pal *palette) {
 	}
 	title := "Remove " + l.removing.Email + "?"
 	msg := "Its saved sign-in is deleted from this Mac. It is not revoked: it stays valid at Anthropic until it expires."
-	if !l.removing.Added {
-		msg = "It no longer shows here. Pitboard still follows it: nothing of Pitboard's is changed."
-	}
 	if ui.AlertDialog(c, &l.asking, title, msg, "Cancel", "Remove") == 1 {
 		key := l.removing.Key()
 		a.Go(func() {
@@ -538,13 +535,6 @@ func (l *limits) dialogs(c *ui.Context, a *App, pal *palette) {
 
 func (l *limits) menu(c *ui.Context, a *App, b account.Account) {
 	if !b.Added {
-		if !b.InUse { // only Pitboard follows it
-			ui.MenuButton(c, "⋯", func(m *ui.Menu) {
-				if m.Item("Remove…").Destructive(true).Chosen() {
-					l.removing, l.asking = b, true
-				}
-			}).Tooltip("Actions for " + b.Email)
-		}
 		return
 	}
 	inTerminal := b.Terminal.Dir != ""
