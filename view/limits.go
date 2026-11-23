@@ -168,9 +168,6 @@ func (l *limits) view(c *ui.Context, a *App, pal *palette) {
 				for _, b := range l.blocks {
 					l.block(c, a, pal, b, now)
 				}
-				if n := a.Accounts.Note(); n != "" {
-					ui.Text(c, n).FontSize(12).TextColor(pal.muted)
-				}
 				if n := account.StoreNote(os.Getenv); n != "" {
 					ui.Text(c, n).FontSize(12).TextColor(pal.muted).Wrap()
 				}
@@ -235,9 +232,6 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 		if len(b.Limits) > 0 && b.Err != "" {
 			ui.Text(c, b.Err+" Showing numbers from "+clock(b.ReadAt, now)+".").TextColor(pal.muted).Wrap()
 		}
-		if b.Source != "" && !b.ReadAt.IsZero() {
-			ui.Text(c, "Read "+ago(b.ReadAt, now)+" by "+b.Source).FontSize(12).TextColor(pal.muted)
-		}
 		if b.Added && !b.GoodUntil.IsZero() {
 			ui.Text(c, goodUntil(b.GoodUntil, now)).FontSize(12).TextColor(pal.muted)
 		}
@@ -257,24 +251,8 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 				})
 			})
 		}
-		if pitboardOnly := !b.Added && !b.InUse; pitboardOnly && a.Accounts.CanSwitch() {
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "Add this account here to switch to it.").FontSize(12).TextColor(pal.muted)
-				if b.PitboardLogin && ui.Button(c, "Take Over from Pitboard").Disabled(l.switching != "").
-					Tooltip("Moves its login here and has Pitboard forget the account, so this app alone renews it.").Clicked() {
-					l.startTakeOver(a, b)
-				}
-				if ui.Button(c, "Add Account…").Disabled(l.switching != "").Clicked() {
-					l.startAdd(a)
-				}
-			})
-		}
 		if l.switching == b.Key() {
-			busy := "Switching…"
-			if !b.Added {
-				busy = "Taking over…"
-			}
-			ui.Text(c, busy).FontSize(12).TextColor(pal.muted)
+			ui.Text(c, "Switching…").FontSize(12).TextColor(pal.muted)
 		}
 	})
 }
@@ -580,23 +558,6 @@ func (l *limits) failDialog(c *ui.Context, a *App) {
 					l.failed2 = false
 				}
 			})
-		})
-	})
-}
-
-// startTakeOver moves the login Pitboard parks for b here.
-func (l *limits) startTakeOver(a *App, b account.Account) {
-	l.switching = b.Key() // the book is busy: no switch meanwhile
-	a.Go(func() {
-		_, err := a.Accounts.TakeOver(context.Background(), b.Key())
-		a.Update(func() {
-			l.switching = ""
-			if err != nil {
-				l.fail(a, err)
-				return
-			}
-			a.notice = "Took over " + b.Email + " from Pitboard."
-			l.load(a, true)
 		})
 	})
 }
