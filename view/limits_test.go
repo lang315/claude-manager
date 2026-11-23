@@ -356,15 +356,21 @@ func TestLimitsShowsPitboardAccounts(t *testing.T) {
 			t.Errorf("no %q in %q", s, l.tt.Texts())
 		}
 	}
-	if l.tt.HasText("⋯") {
-		t.Error("a Pitboard account offers the app's own actions")
-	}
 	if l.tt.HasText("Add this account here to switch to it.") {
 		t.Error("a switch hint while the app can't switch")
 	}
 	l.book.Home = &account.Home{}
 	must(t, l.tt.Click("Refresh"))
 	waitFor(t, l.tt, func() bool { return l.tt.HasText("Add this account here to switch to it.") })
+	// Remove leaves it out here; Pitboard still follows it.
+	must(t, l.tt.Click("⋯"))
+	must(t, l.tt.ChooseMenuItem("Remove…"))
+	l.tt.Frame()
+	if !l.tt.HasText("Pitboard still follows it") {
+		t.Errorf("the confirmation doesn't say Pitboard keeps it: %q", l.tt.Texts())
+	}
+	must(t, l.tt.Click("Remove"))
+	waitFor(t, l.tt, func() bool { return !l.tt.HasText("carol@example.com") })
 }
 
 func TestLimitsNotesUnreadablePitboard(t *testing.T) {

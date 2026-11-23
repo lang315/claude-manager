@@ -139,3 +139,16 @@ func TestPitboardErrorIsANote(t *testing.T) {
 		t.Fatalf("note %q after Pitboard read again", b.Note())
 	}
 }
+
+func TestRemoveHidesPitboardOnly(t *testing.T) {
+	b, _, _, _ := aliceInUse(t)
+	b.Pitboard = bobOnPitboard(t0, 1)
+	if err := b.Remove("carol/org-c"); err != nil {
+		t.Fatal(err)
+	}
+	b.loaded = false // read accounts.json again: the removal is kept there
+	got, _ := b.Blocks()
+	if len(got) != 1 || got[0].Email != "alice@example.com" {
+		t.Fatalf("carol, removed, is back from Pitboard: %+v", got)
+	}
+}

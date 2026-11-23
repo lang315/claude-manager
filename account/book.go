@@ -128,6 +128,7 @@ type Book struct {
 	unreadableTick time.Time           // when it was last counted
 	dead           map[string][32]byte // an account's refresh token Anthropic refused: its SHA-256
 	unsaved        map[string][]byte   // renewed logins the keychain refused, written at the next refresh
+	hidden         []string            // account keys removed here: Pitboard's copy of one stays out
 	unsavedFailed  bool                // unsaved.json is behind b.unsaved: its last write failed
 	note           atomic.Value        // string: why Pitboard's files could not be read; read without the lock
 }
@@ -142,6 +143,7 @@ type saved struct {
 	History   []Switched        `json:"history,omitempty"`     // the recent switches
 	AutoState *autoState        `json:"autoState,omitempty"`   // auto-switch's memory, for every process
 	Dead      map[string]string `json:"quarantined,omitempty"` // account key → SHA-256 of its refused refresh token
+	Hidden    []string          `json:"hidden,omitempty"`      // account keys removed here, left out while only Pitboard follows them
 }
 
 func (b *Book) path() string { return filepath.Join(b.Dir, "accounts.json") }
@@ -227,7 +229,7 @@ func (b *Book) load() error {
 	}
 	b.added, b.inUse = s.Accounts, s.InUse
 	b.ensureSlots()
-	b.maps, b.unclaimed, b.history = s.Maps, s.Unclaimed, s.History
+	b.maps, b.unclaimed, b.history, b.hidden = s.Maps, s.Unclaimed, s.History, s.Hidden
 	b.setAutoState(s.AutoState)
 	b.dead = nil
 	for k, h := range s.Dead {
@@ -259,7 +261,7 @@ func (b *Book) save() error {
 	if err := os.Chmod(b.Dir, 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(saved{Accounts: b.added, InUse: b.inUse, Auto: &b.auto, Maps: b.maps, Prefs: &b.prefs, Unclaimed: b.unclaimed, History: b.history, AutoState: b.savedAutoState(), Dead: b.savedDead()}, "", "  ")
+	data, err := json.MarshalIndent(saved{Accounts: b.added, InUse: b.inUse, Auto: &b.auto, Maps: b.maps, Prefs: &b.prefs, Unclaimed: b.unclaimed, History: b.history, AutoState: b.savedAutoState(), Dead: b.savedDead(), Hidden: b.hidden}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -323,7 +325,9 @@ func (b *Book) blocks() []Account {
 	for _, p := range b.others {
 		i := slices.IndexFunc(out, func(a Account) bool { return a.Key() == p.Key() })
 		if i < 0 {
-			out = append(out, p)
+			if !slices.Contains(b.hidden, p.Key()) {
+				out = append(out, p)
+			}
 			continue
 		}
 		if len(p.Limits) > 0 && p.ReadAt.After(out[i].ReadAt) {
@@ -412,7 +416,8 @@ func (b *Book) park(key string, blob []byte) error {
 
 // Remove deletes an added account's login from the keychain and drops the
 // account. The login is not revoked: it stays valid at Anthropic until it
-// expires.
+// expires. The account stays out of the list even while Pitboard follows it,
+// and one only Pitboard follows is only left out.
 func (b *Book) Remove(key string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -421,6 +426,12 @@ func (b *Book) Remove(key string) error {
 	}
 	if slices.ContainsFunc(b.added, func(a Account) bool { return a.Key() == key && a.Terminal.Dir != "" }) {
 		return errInTerminal
+	}
+	if !slices.Contains(b.hidden, key) {
+		b.hidden = append(b.hidden, key)
+	}
+	if !slices.ContainsFunc(b.added, func(a Account) bool { return a.Key() == key }) { // only Pitboard follows it
+		return b.save()
 	}
 	return b.drop(key)
 }
@@ -492,7 +503,7 @@ func (b *Book) Purge() (int, error) {
 	}
 	n := len(b.added)
 	err := os.RemoveAll(b.Dir) // cswap removes the whole backup dir: logs, memos, profiles, accounts.json
-	b.added, b.inUse, b.maps, b.unclaimed, b.history, b.dead, b.prefs, b.unsaved = nil, nil, nil, nil, nil, nil, Prefs{}, nil
+	b.added, b.inUse, b.maps, b.unclaimed, b.history, b.dead, b.prefs, b.unsaved, b.hidden = nil, nil, nil, nil, nil, nil, Prefs{}, nil, nil
 	b.auto = DefaultAuto()
 	b.setAutoState(nil)
 	b.loaded = false
