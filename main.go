@@ -77,7 +77,7 @@ func main() {
 	if gui && len(os.Args) > 1 && os.Args[1] == "watch" {
 		a.Show("limits") // cswap watch: the dashboard on its live page
 	}
-	a.OpenURL, a.CopyText = mygo.Shell.OpenExternal, mygo.Clipboard.WriteText
+	a.OpenURL, a.CopyText, a.OpenPath = mygo.Shell.OpenExternal, mygo.Clipboard.WriteText, mygo.Shell.OpenPath
 	a.Reveal = func(path string) error { // cswap's `open -R`; elsewhere the folder opens
 		if runtime.GOOS == "darwin" {
 			return exec.Command("open", "-R", path).Run()

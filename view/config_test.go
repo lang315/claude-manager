@@ -73,7 +73,10 @@ func TestConfigMasksSecrets(t *testing.T) {
 }
 
 func TestConfigDocsAndBackups(t *testing.T) {
-	_, tt, d, trashed := newApp(t)
+	a, tt, d, trashed := newApp(t)
+	var opened, revealed []string
+	a.OpenPath = func(p string) error { opened = append(opened, p); return nil }
+	a.Reveal = func(p string) error { revealed = append(revealed, p); return nil }
 	must(t, tt.Click("Config"))
 	must(t, tt.Click("Memory"))
 	if !tt.HasText("All projects") || !tt.HasText("Global rules") {
@@ -83,12 +86,21 @@ func TestConfigDocsAndBackups(t *testing.T) {
 	if !tt.HasText("me-proj") || !tt.HasText("likes Go") {
 		t.Errorf("memory file not rendered under its project; texts %q", tt.Texts())
 	}
+	must(t, tt.Click("Open"))
+	must(t, tt.Click("Show in Finder"))
+	if len(opened) != 1 || filepath.Base(opened[0]) != "MEMORY.md" || len(revealed) != 1 || revealed[0] != opened[0] {
+		t.Errorf("opened %q, revealed %q: want the memory file shown", opened, revealed)
+	}
 	must(t, tt.Click("Skills"))
 	if !tt.HasText("A demo skill") || !tt.HasText("description") {
 		t.Errorf("skill's front matter not shown; texts %q", tt.Texts())
 	}
 	must(t, tt.Click("Backups"))
 	must(t, tt.Click("settings.json.bak-1"))
+	must(t, tt.Click("Show in Finder"))
+	if want := filepath.Join(d.Root, "settings.json.bak-1"); len(revealed) != 2 || revealed[1] != want {
+		t.Errorf("revealed %q, want %s", revealed, want)
+	}
 	must(t, tt.Click("Move to Trash…"))
 	must(t, tt.Click("Move to Trash"))
 	tt.Frame()
