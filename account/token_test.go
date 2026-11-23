@@ -243,6 +243,12 @@ func TestAutoHoldsOnAnUnprobedToken(t *testing.T) {
 	_, err := b.AddToken(tokB, "b@token.local")
 	must(t, err)
 	must(t, b.Switch(ctx, tokenUUID+"b@token.local/"))
+	var told []string
+	b.Events = func(title, body string) {
+		if title == "Auto-switch holds" {
+			told = append(told, body)
+		}
+	}
 	s := DefaultAuto()
 	s.On = true
 	must(t, b.SetAuto(s))
@@ -256,5 +262,8 @@ func TestAutoHoldsOnAnUnprobedToken(t *testing.T) {
 	}
 	if d.Why != errTokenUnread.Error() {
 		t.Errorf("why %q", d.Why)
+	}
+	if len(told) != 1 || !strings.Contains(told[0], "b@token.local") {
+		t.Errorf("told %q, want the hold once", told)
 	}
 }

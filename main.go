@@ -80,12 +80,15 @@ func main() {
 	a.OpenURL, a.CopyText, a.OpenPath = mygo.Shell.OpenExternal, mygo.Clipboard.WriteText, mygo.Shell.OpenPath
 	a.Reveal = func(path string) error { // cswap's `open -R`; elsewhere the folder opens
 		if runtime.GOOS == "darwin" {
-			return exec.Command("open", "-R", path).Run()
+			if out, err := exec.Command("open", "-R", path).CombinedOutput(); err != nil {
+				return fmt.Errorf("Couldn't show %s: %s", path, strings.TrimSpace(string(out)+" "+err.Error()))
+			}
+			return nil
 		}
 		if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
 			path = filepath.Dir(path)
 		}
-		return a.OpenURL("file://" + path)
+		return mygo.Shell.OpenPath(path)
 	}
 	a.LogPath = filepath.Join(appDir(home), "claude-manager.log")
 	jsonFiles := []mygo.FileFilter{{Name: "JSON", Extensions: []string{"json"}}}

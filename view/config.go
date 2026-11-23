@@ -595,7 +595,7 @@ func (d *docList) read(c *ui.Context, a *App, pal *palette, md *markdown.Options
 					if ui.Button(c, "Open").Tooltip("Opens it in its default app, to edit it there").Clicked() {
 						a.tell(a.OpenPath(doc.Path))
 					}
-					if ui.Button(c, "Show in Finder").Clicked() {
+					if ui.Button(c, revealLabel).Clicked() {
 						a.tell(a.Reveal(doc.Path))
 					}
 				})
@@ -632,7 +632,7 @@ func (p *configPage) backupTable(c *ui.Context, a *App, pal *palette) {
 		ui.Text(c, "Selected").TextColor(pal.muted)
 		ui.Textf(c, "%s · %s", plural(len(targets), "file"), humanSize(size)).Bold().FontFeatures("tnum")
 		ui.Spacer(c)
-		if ui.Button(c, "Show in Finder").Disabled(len(targets) != 1).Tooltip("To restore one, copy it over settings.json there").Clicked() {
+		if ui.Button(c, revealLabel).Disabled(len(targets) != 1).Tooltip("To restore one, copy it over settings.json there").Clicked() {
 			a.tell(a.Reveal(targets[0].Path))
 		}
 		if orangeKey(c, pal, "Move to Trash…", len(targets) == 0 || a.busy > 0).Clicked() {

@@ -21,6 +21,9 @@ func TestClipOnARune(t *testing.T) {
 	if !utf8.ValidString(got) || !strings.HasPrefix(got, strings.Repeat("a", maxShown-1)+"\n… ") {
 		t.Errorf("clip cut inside a rune: %q", got[maxShown-4:])
 	}
+	if bin := strings.Repeat("\x80", maxShown+10); len(clip(bin)) < maxShown-utf8.UTFMax {
+		t.Error("clip walked back through binary to nothing")
+	}
 }
 
 func TestPlural(t *testing.T) {

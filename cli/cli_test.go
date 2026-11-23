@@ -654,3 +654,10 @@ func TestAliasesAndCooldown(t *testing.T) {
 		t.Errorf("--cooldown 0: cooldown %d", s.Cooldown)
 	}
 }
+
+// An unread setup-token in use is cswap's unknown usage on the active account.
+func TestNoSwitchReasonUnreadToken(t *testing.T) {
+	if got := noSwitchReason("A setup-token is in use and its usage isn't read: turn on Read Setup-Token Usage for auto-switch to watch it."); got != "active-usage-unknown" {
+		t.Errorf("reason %q", got)
+	}
+}

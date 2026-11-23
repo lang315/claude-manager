@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -57,6 +58,9 @@ func containsFold(s, sub string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(sub))
 }
 
+// revealLabel names Reveal's button: Finder is macOS's file manager.
+var revealLabel = map[bool]string{true: "Show in Finder", false: "Show in Folder"}[runtime.GOOS == "darwin"]
+
 // maxShown is how much of a tool call or result the transcript shows.
 const maxShown = 20000
 
@@ -66,7 +70,7 @@ func clip(s string) string {
 		return s
 	}
 	n := maxShown
-	for n > 0 && !utf8.RuneStart(s[n]) {
+	for i := 0; i < utf8.UTFMax && n > 0 && !utf8.RuneStart(s[n]); i++ { // not past one rune: binary has long runs
 		n--
 	}
 	return s[:n] + fmt.Sprintf("\n… %s more", humanSize(int64(len(s)-n)))

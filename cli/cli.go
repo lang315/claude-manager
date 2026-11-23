@@ -1450,6 +1450,7 @@ func noSwitchReason(why string) string {
 		"The account in use can't be read":      "active-usage-unknown",
 		"The account in use reports no limits":  "active-usage-unknown",
 		"An API key is in use":                  "active-api-key",
+		"A setup-token is in use":               "active-usage-unknown",
 		"Not signed in":                         "no-active-account",
 		"Claude Code's sign-in has lapsed":      "idle-hold",
 		"No account is ahead":                   "no-qualifying-candidate",
