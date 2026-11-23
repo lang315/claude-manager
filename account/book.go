@@ -15,7 +15,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -47,24 +46,22 @@ type Account struct {
 	WaitUntil  time.Time `json:"waitUntil,omitzero"`   // Anthropic asked to wait until then
 	HeldUntil  time.Time `json:"heldUntil,omitzero"`   // read by another Mac: not read here until then
 	// OAuthAccount is Claude Code's oauthAccount object from ~/.claude.json.
-	OAuthAccount  json.RawMessage `json:"oauthAccount,omitempty"`
-	AutoOff       bool            `json:"autoOff,omitempty"`      // held out of auto-switch
-	Line          float64         `json:"line,omitempty"`         // its own five-hour line; 0 for the global one
-	Priority      int             `json:"priority,omitempty"`     // its tier for priority-consume-first
-	Terminal      Terminal        `json:"terminal,omitzero"`      // open in a terminal from its own profile
-	Token         bool            `json:"token,omitempty"`        // a setup-token account: no refresh token, read by the header probe
-	APIKey        bool            `json:"apiKey,omitempty"`       // a Console API key account: no limits, nothing read
-	Alias         string          `json:"alias,omitempty"`        // a short name for it on the command line
-	Slot          int             `json:"slot,omitempty"`         // its number from 1, as claude-swap's slots
-	InUse         bool            `json:"-"`                      // Claude Code is signed in to it
-	Added         bool            `json:"-"`                      // the app holds a login of its own for it
-	Source        string          `json:"-"`                      // "Pitboard" when Limits are Pitboard's reading
-	PitboardLogin bool            `json:"-"`                      // Pitboard parks a login for it: TakeOver can move it here
-	Failures      int             `json:"failures,omitempty"`     // reads failed in a row; saved, so every process backs off
-	Retry         time.Time       `json:"retryAt,omitzero"`       // when a failed read is tried again
-	NextPoll      time.Time       `json:"nextPollAt,omitzero"`    // claude-swap's poll plan: when a good read is read again
-	PollEvery     time.Duration   `json:"pollInterval,omitempty"` // and the interval it went by
-	Last429       time.Time       `json:"last429At,omitzero"`     // when Anthropic last asked it to wait
+	OAuthAccount json.RawMessage `json:"oauthAccount,omitempty"`
+	AutoOff      bool            `json:"autoOff,omitempty"`      // held out of auto-switch
+	Line         float64         `json:"line,omitempty"`         // its own five-hour line; 0 for the global one
+	Priority     int             `json:"priority,omitempty"`     // its tier for priority-consume-first
+	Terminal     Terminal        `json:"terminal,omitzero"`      // open in a terminal from its own profile
+	Token        bool            `json:"token,omitempty"`        // a setup-token account: no refresh token, read by the header probe
+	APIKey       bool            `json:"apiKey,omitempty"`       // a Console API key account: no limits, nothing read
+	Alias        string          `json:"alias,omitempty"`        // a short name for it on the command line
+	Slot         int             `json:"slot,omitempty"`         // its number from 1, as claude-swap's slots
+	InUse        bool            `json:"-"`                      // Claude Code is signed in to it
+	Added        bool            `json:"-"`                      // the app holds a login of its own for it
+	Failures     int             `json:"failures,omitempty"`     // reads failed in a row; saved, so every process backs off
+	Retry        time.Time       `json:"retryAt,omitzero"`       // when a failed read is tried again
+	NextPoll     time.Time       `json:"nextPollAt,omitzero"`    // claude-swap's poll plan: when a good read is read again
+	PollEvery    time.Duration   `json:"pollInterval,omitempty"` // and the interval it went by
+	Last429      time.Time       `json:"last429At,omitzero"`     // when Anthropic last asked it to wait
 }
 
 // Key names the account by Anthropic's account and organisation.
@@ -83,13 +80,7 @@ type Book struct {
 	// minutes when zero.
 	Claude        func() (string, error)
 	SignInTimeout time.Duration
-	// Pitboard reads the accounts Pitboard follows; nil reads none.
-	Pitboard func() ([]Account, error)
-	// PitboardDir is Pitboard's folder and PitboardForget runs its
-	// `pitboard forget`: what TakeOver needs. Unset, nothing is taken over.
-	PitboardDir    string
-	PitboardForget func(ctx context.Context, label string) error
-	Home           *Home
+	Home          *Home
 	// Launch opens a terminal at folder running claude on configDir:
 	// LaunchInTerminal in the app. Running says whether a claude runs on a
 	// profile: ClaudeRunning in the app.
@@ -111,7 +102,6 @@ type Book struct {
 	inUse          *Account             // the account in use, when it is not an added one
 	nobody         *Account             // stands in for it when the login in use can't be read
 	who            map[[32]byte]Profile // an access token's SHA-256: whose it is
-	others         []Account            // Pitboard's accounts, as last read
 	auto           Auto
 	lastSwitch     time.Time
 	lastFailed     time.Time
@@ -129,7 +119,6 @@ type Book struct {
 	dead           map[string][32]byte // an account's refresh token Anthropic refused: its SHA-256
 	unsaved        map[string][]byte   // renewed logins the keychain refused, written at the next refresh
 	unsavedFailed  bool                // unsaved.json is behind b.unsaved: its last write failed
-	note           atomic.Value        // string: why Pitboard's files could not be read; read without the lock
 }
 
 type saved struct {
@@ -279,32 +268,9 @@ func (b *Book) Blocks() ([]Account, error) {
 	return b.blocks(), err
 }
 
-// readPitboard reads Pitboard's accounts again, a cheap read of two files.
-func (b *Book) readPitboard() {
-	if b.Pitboard == nil {
-		return
-	}
-	others, err := b.Pitboard()
-	note := ""
-	if err != nil {
-		note = err.Error()
-	}
-	b.others = others
-	b.note.Store(note)
-}
-
-// Note says why Pitboard's files could not be read at the last load, or
-// "".
-func (b *Book) Note() string {
-	n, _ := b.note.Load().(string)
-	return n
-}
-
-// blocks reads Pitboard's accounts again, then merges them into the
-// accounts as last read.
+// blocks is the accounts as last read.
 func (b *Book) blocks() []Account {
 	b.ensureSlots()
-	b.readPitboard()
 	var out []Account
 	switch {
 	case b.inUse != nil:
@@ -317,18 +283,6 @@ func (b *Book) blocks() []Account {
 	for _, a := range b.added {
 		a.Added = true
 		out = append(out, a)
-	}
-	// Pitboard's reading of an account shows where it is newer than ours;
-	// an account only Pitboard follows gets a block of its own.
-	for _, p := range b.others {
-		i := slices.IndexFunc(out, func(a Account) bool { return a.Key() == p.Key() })
-		if i < 0 {
-			out = append(out, p)
-			continue
-		}
-		if len(p.Limits) > 0 && p.ReadAt.After(out[i].ReadAt) {
-			out[i].Limits, out[i].ReadAt, out[i].Source = p.Limits, p.ReadAt, p.Source
-		}
 	}
 	for i := range out {
 		out[i].Limits = slices.Clone(out[i].Limits)
