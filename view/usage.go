@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"math"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -83,7 +84,12 @@ func (u *usage) load(a *App) {
 		return
 	}
 	u.scanning = true
+	first := !u.loaded
 	a.Go(func() {
+		if first {
+			// The first scan reads every transcript: give the heap it grew back now, not over minutes.
+			defer debug.FreeOSMemory()
+		}
 		progress := func(done, total int) {
 			if done%100 == 0 || done == total {
 				a.Update(func() { u.done, u.total = done, total })

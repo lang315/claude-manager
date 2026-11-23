@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -29,8 +30,13 @@ func readUsage(t *testing.T, path string) (*usageFile, int64) {
 	return f, n
 }
 
-func callsByKey(f *usageFile) map[string]call {
-	m := map[string]call{}
+// byKey maps calls by their key's text.
+type byKey map[uint64]call
+
+func (m byKey) get(k string) (call, bool) { c, ok := m[keyOf(k)]; return c, ok }
+
+func callsByKey(f *usageFile) byKey {
+	m := byKey{}
 	for _, c := range f.calls {
 		m[c.key] = c
 	}
@@ -47,23 +53,23 @@ func TestUsageFileReadsCalls(t *testing.T) {
 	if len(f.calls) != 6 {
 		t.Fatalf("%d calls, want 6 (o1, o2, o3, o5, its advisor, o6): %+v", len(f.calls), f.calls)
 	}
-	o1 := got["msg-o1/req-o1"]
+	o1, _ := got.get("msg-o1/req-o1")
 	if o1.Output != 200000 || o1.Input != 100000 || o1.CacheRead != 1000000 || !o1.time.Equal(time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC)) {
 		t.Errorf("o1: the 3 lines keep the first time and the final usage: %+v", o1)
 	}
-	if o2 := got["msg-o2/req-o2"]; o2.CacheWrite5m != 100000 || o2.CacheWrite1h != 200000 {
+	if o2, _ := got.get("msg-o2/req-o2"); o2.CacheWrite5m != 100000 || o2.CacheWrite1h != 200000 {
 		t.Errorf("o2: the 5m/1h split: %+v", o2)
 	}
-	if o3 := got["msg-o3/req-o3"]; !o3.Fast || !o3.US {
+	if o3, _ := got.get("msg-o3/req-o3"); !o3.Fast || !o3.US {
 		t.Errorf("o3: fast and US: %+v", o3)
 	}
-	if _, ok := got["msg-o4/req-o4"]; ok {
+	if _, ok := got.get("msg-o4/req-o4"); ok {
 		t.Error("a <synthetic> message counts as a call")
 	}
-	if a := got["msg-o5/req-o5:advisor:1"]; a.model != "claude-opus-5-5" || a.Input != 100000 || a.Output != 50000 {
+	if a, _ := got.get("msg-o5/req-o5:advisor:1"); a.model != "claude-opus-5-5" || a.Input != 100000 || a.Output != 50000 {
 		t.Errorf("the advisor call: %+v", a)
 	}
-	if o6 := got["msg-o6/req-o6"]; o6.CacheWrite5m != 400000 || o6.CacheWrite1h != 0 || o6.WebSearches != 100 {
+	if o6, _ := got.get("msg-o6/req-o6"); o6.CacheWrite5m != 400000 || o6.CacheWrite1h != 0 || o6.WebSearches != 100 {
 		t.Errorf("o6: writes without the split are 5m: %+v", o6)
 	}
 }
@@ -74,7 +80,7 @@ func TestUsageFileCountsBadLines(t *testing.T) {
 	if f.bad != 1 {
 		t.Errorf("bad = %d, want 1", f.bad)
 	}
-	if r3 := callsByKey(f)["msg-r3/req-r3"]; r3.Output != 1000 || !r3.time.Equal(time.Date(2026, 10, 25, 23, 59, 59, 900_000_000, time.UTC)) {
+	if r3 := callsByKey(f)[keyOf("msg-r3/req-r3")]; r3.Output != 1000 || !r3.time.Equal(time.Date(2026, 10, 25, 23, 59, 59, 900_000_000, time.UTC)) {
 		t.Errorf("r3: %+v", r3)
 	}
 }
@@ -102,8 +108,8 @@ func TestUsageFileLongLine(t *testing.T) {
 
 func TestMerge(t *testing.T) {
 	t0 := time.Date(2026, 10, 26, 8, 0, 0, 0, time.UTC)
-	partial := call{key: "k", time: t0, callTokens: callTokens{Output: 4}}
-	final := call{key: "k", time: t0.Add(time.Second), callTokens: callTokens{Output: 400}}
+	partial := call{key: keyOf("k"), time: t0, callTokens: callTokens{Output: 4}}
+	final := call{key: keyOf("k"), time: t0.Add(time.Second), callTokens: callTokens{Output: 400}}
 	for _, c := range []struct {
 		name string
 		a, b call
@@ -113,7 +119,7 @@ func TestMerge(t *testing.T) {
 			t.Errorf("%s: %+v, want output 400 at %v", c.name, got, t0)
 		}
 	}
-	tie := merge(call{key: "k", model: "a", callTokens: callTokens{Output: 1}}, call{key: "k", model: "b", callTokens: callTokens{Output: 1}})
+	tie := merge(call{key: keyOf("k"), model: "a", callTokens: callTokens{Output: 1}}, call{key: keyOf("k"), model: "b", callTokens: callTokens{Output: 1}})
 	if tie.model != "b" {
 		t.Errorf("a tie keeps %q, want the later copy", tie.model)
 	}
@@ -356,7 +362,7 @@ func TestUsageAdvisorTakesParentModes(t *testing.T) {
 	if _, err := f.read(strings.NewReader(line)); err != nil {
 		t.Fatal(err)
 	}
-	if a := callsByKey(f)["msg-a/req-a:advisor:0"]; !a.Fast || !a.US {
+	if a := callsByKey(f)[keyOf("msg-a/req-a:advisor:0")]; !a.Fast || !a.US {
 		t.Errorf("advisor call %+v, want fast and US like its call", a)
 	}
 }
@@ -377,5 +383,58 @@ func TestUsageUnreadableFolderCounts(t *testing.T) {
 	t.Cleanup(func() { os.Chmod(locked, 0o755) })
 	if _, _, unreadable, err := s.Usage(&UsageScan{}, nil); err != nil || unreadable != 1 {
 		t.Errorf("unreadable %d, err %v; want 1, nil", unreadable, err)
+	}
+}
+
+// Long lines in a row, then short ones, through the pooled buffer: each
+// long line is gathered whole and the next starts clean.
+func TestUsageFileLongLinesInARow(t *testing.T) {
+	long := func(id string, in int) string {
+		return `{"type":"assistant","cwd":"/p","timestamp":"2026-10-26T08:00:00.000Z","requestId":"r` + id + `","message":{"id":"m` + id +
+			`","model":"claude-haiku-4-5","content":[{"type":"text","text":"` + strings.Repeat("x", 3<<19) + `"}],"usage":{"input_tokens":` + strconv.Itoa(in) + `}}}` + "\n"
+	}
+	short := fixture.UsageLine("/p", "2026-10-26T08:00:00.000Z", "s", "claude-haiku-4-5", `{"input_tokens":5}`) + "\n"
+	for range 2 { // the second read reuses the first's buffer
+		f := &usageFile{}
+		if _, err := f.read(strings.NewReader(long("1", 1) + long("2", 2) + short)); err != nil || len(f.calls) != 3 {
+			t.Fatalf("%d calls, err %v", len(f.calls), err)
+		}
+		if got := []int64{f.calls[0].Input, f.calls[1].Input, f.calls[2].Input}; !slices.Equal(got, []int64{1, 2, 5}) {
+			t.Errorf("inputs %v", got)
+		}
+	}
+}
+
+// A streaming partial read in one scan and its final usage in the next count
+// once, at the final usage: the read's key index is gone by then, so the
+// scan's merge across reads must do it.
+func TestUsageScanMergesAcrossReads(t *testing.T) {
+	s, d, _ := newStore(t)
+	scan := UsageScan{}
+	before, _, _, _ := s.Usage(&scan, nil)
+	recent := filepath.Join(d.Root, fixture.Other, fixture.Recent+".jsonl")
+	add := func(line string) {
+		f, err := os.OpenFile(recent, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if _, err := f.WriteString(line + "\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add(fixture.UsageLine("/Users/me/other", "2026-10-26T10:00:00.000Z", "p9", "claude-haiku-4-5", `{"input_tokens":1000000,"output_tokens":1}`))
+	s.Usage(&scan, nil)
+	add(fixture.UsageLine("/Users/me/other", "2026-10-26T10:00:01.000Z", "p9", "claude-haiku-4-5", `{"input_tokens":1000000,"output_tokens":200000}`))
+	after, _, _, _ := s.Usage(&scan, nil)
+	calls := func(us []Usage) (n int) {
+		for _, u := range us {
+			n += u.Calls
+		}
+		return n
+	}
+	// claude-haiku-4-5: $1 per million in, $5 per million out.
+	if calls(after) != calls(before)+1 || !near(costOf(after), costOf(before)+2) {
+		t.Errorf("calls %d, cost %v; want %d, %v", calls(after), costOf(after), calls(before)+1, costOf(before)+2)
 	}
 }
