@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 func humanSize(n int64) string {
@@ -59,13 +60,16 @@ func containsFold(s, sub string) bool {
 // maxShown is how much of a tool call or result the transcript shows.
 const maxShown = 20000
 
-// clip cuts text the transcript shows to maxShown bytes.
-// shortcut: cuts on a byte, so a multi-byte rune at the cut may show as �; fine for logs, cut on a rune if users notice.
+// clip cuts text the transcript shows to at most maxShown bytes, on a rune.
 func clip(s string) string {
 	if len(s) <= maxShown {
 		return s
 	}
-	return s[:maxShown] + fmt.Sprintf("\n… %s more", humanSize(int64(len(s)-maxShown)))
+	n := maxShown
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + fmt.Sprintf("\n… %s more", humanSize(int64(len(s)-n)))
 }
 
 // commas writes n with thousands separators: 15,086.

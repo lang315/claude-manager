@@ -2,7 +2,9 @@ package view
 
 import (
 	"os"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestHumanSize(t *testing.T) {
@@ -10,6 +12,14 @@ func TestHumanSize(t *testing.T) {
 		if got := humanSize(n); got != want {
 			t.Errorf("humanSize(%d) = %q, want %q", n, got, want)
 		}
+	}
+}
+
+func TestClipOnARune(t *testing.T) {
+	s := strings.Repeat("a", maxShown-1) + "é and more"
+	got := clip(s)
+	if !utf8.ValidString(got) || !strings.HasPrefix(got, strings.Repeat("a", maxShown-1)+"\n… ") {
+		t.Errorf("clip cut inside a rune: %q", got[maxShown-4:])
 	}
 }
 
