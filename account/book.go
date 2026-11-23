@@ -427,6 +427,7 @@ func (b *Book) Remove(key string) error {
 	if slices.ContainsFunc(b.added, func(a Account) bool { return a.Key() == key && a.Terminal.Dir != "" }) {
 		return errInTerminal
 	}
+	// shortcut: no undo short of adding the account again (which also hides Take Over); add one if someone asks.
 	if !slices.Contains(b.hidden, key) {
 		b.hidden = append(b.hidden, key)
 	}

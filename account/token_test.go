@@ -238,7 +238,8 @@ func TestReadTokenLockedKeychain(t *testing.T) {
 // trouble: auto-switch holds on it, as on an API key, where claude-swap
 // fails over after its unhealthy ticks.
 func TestAutoHoldsOnAnUnprobedToken(t *testing.T) {
-	b, _, _, _ := switchBook(t)
+	b, _, _, f := switchBook(t)
+	f.usage["bob-at"] = 10 // bob has room: failover would take him
 	_, err := b.AddToken(tokB, "b@token.local")
 	must(t, err)
 	must(t, b.Switch(ctx, tokenUUID+"b@token.local/"))
