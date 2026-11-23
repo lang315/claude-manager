@@ -46,17 +46,22 @@ func (a *App) inUse() (account.Account, bool) {
 	return account.Account{}, false
 }
 
-// shares are b's 5-hour and 7-day shares used.
+// shares are b's 5-hour and 7-day shares used, 0 for a window not read.
 func shares(b account.Account) (five, seven float64) {
+	five, _, seven, _ = windowsRead(b)
+	return five, seven
+}
+
+func windowsRead(b account.Account) (five float64, hasFive bool, seven float64, hasSeven bool) {
 	for _, x := range b.Limits {
 		switch x.Kind {
 		case "session", "five_hour":
-			five = x.Percent
+			five, hasFive = x.Percent, true
 		case "weekly_all", "seven_day":
-			seven = x.Percent
+			seven, hasSeven = x.Percent, true
 		}
 	}
-	return five, seven
+	return
 }
 
 // TrayIcon is the menu bar icon for the account in use: empty bars before a
@@ -70,9 +75,24 @@ func (a *App) TrayIcon() []byte {
 // its windows.
 func (a *App) TrayTip() string {
 	b, ok := a.inUse()
-	if !ok || len(b.Limits) == 0 {
+	if !ok {
 		return "Claude Manager"
 	}
-	five, seven := shares(b)
-	return fmt.Sprintf("%s · 5h %.0f%% · 7d %.0f%%", cmp.Or(b.Alias, localPart(b.Email), "Claude Code"), five, seven)
+	return trayTip(b)
+}
+
+// trayTip is b and the windows read of it; a window not read is left out.
+func trayTip(b account.Account) string {
+	five, hasFive, seven, hasSeven := windowsRead(b)
+	if !hasFive && !hasSeven {
+		return "Claude Manager"
+	}
+	s := cmp.Or(b.Alias, localPart(b.Email), "Claude Code")
+	if hasFive {
+		s += fmt.Sprintf(" · 5h %.0f%%", five)
+	}
+	if hasSeven {
+		s += fmt.Sprintf(" · 7d %.0f%%", seven)
+	}
+	return s
 }

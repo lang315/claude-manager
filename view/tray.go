@@ -48,9 +48,7 @@ func (a *App) Tray() (title string, items []TrayItem) {
 	items = append(items, TrayItem{})
 	for _, b := range l.blocks {
 		if b.InUse {
-			if t := trayTitle(b, a.prefs); t != "" {
-				title = t
-			}
+			title = trayTitle(b, a.prefs)
 		}
 		name := b.Email
 		if name == "" {
@@ -161,8 +159,8 @@ func health(on bool, read, now time.Time, every time.Duration) string {
 // (or one, or none: the title percentage), then each model's weekly share
 // when title_scoped is on, joined by " · ".
 func trayTitle(b account.Account, p account.Prefs) string {
-	mode := p.TrayTitle
-	if mode == "" { // compact: beside the icon, the share of the fuller window alone
+	mode := p.TrayMode()
+	if mode == "compact" { // beside the icon, the share of the fuller window alone
 		for _, x := range b.Limits {
 			if x.Kind == "session" && x.Refused {
 				return "!"
@@ -364,10 +362,10 @@ func (l *limits) trayMenus(a *App, can bool) []TrayItem {
 		}
 	}
 	settings := TrayItem{Label: "Menu Bar"}
-	compact := a.prefs.TrayTitle == "" // no name, no model limits beside the icon
-	for _, t := range []struct{ label, mode string }{{"Title: Compact", ""}, {"Title: 5h · 7d", "both"}, {"Title: Session (5h)", "5h"}, {"Title: Weekly (7d)", "7d"}, {"Title: None", "off"}} {
-		v := cmp.Or(t.mode, "compact")
-		settings.Sub = append(settings.Sub, TrayItem{Label: t.label, Toggle: true, Checked: a.prefs.TrayTitle == t.mode, Do: set("menubar.title", v)})
+	mode := a.prefs.TrayMode()
+	compact := mode == "compact" // no name, no model limits beside the icon
+	for _, t := range []struct{ label, mode string }{{"Title: Compact", "compact"}, {"Title: 5h · 7d", "both"}, {"Title: Session (5h)", "5h"}, {"Title: Weekly (7d)", "7d"}, {"Title: None", "off"}} {
+		settings.Sub = append(settings.Sub, TrayItem{Label: t.label, Toggle: true, Checked: mode == t.mode, Do: set("menubar.title", t.mode)})
 	}
 	settings.Sub = append(settings.Sub, TrayItem{})
 	// claude-swap's "Show account name in menu bar" and "Show model limits in title"

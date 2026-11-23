@@ -143,7 +143,7 @@ func TestMenubarTitleModes(t *testing.T) {
 	if s := get(); s.Value != "compact" || s.Default != "compact" || s.Range != "compact, both, 5h, 7d, off" {
 		t.Errorf("default %+v", s)
 	}
-	for v, stored := range map[string]string{"both": "both", "7d": "7d", "compact": "", "off": "off"} {
+	for v, stored := range map[string]string{"both": "both", "7d": "7d", "compact": "compact", "off": "off"} {
 		must(t, b.Set("menubar.title", v))
 		if p, _ := b.Prefs(); p.TrayTitle != stored {
 			t.Errorf("%s stored %q, want %q", v, p.TrayTitle, stored)
@@ -154,5 +154,18 @@ func TestMenubarTitleModes(t *testing.T) {
 	}
 	if err := b.Set("menubar.title", "bad"); err == nil || err.Error() != "menubar.title is compact, both, 5h, 7d or off." {
 		t.Errorf("bad: %v", err)
+	}
+}
+
+// Before compact, "" stored both: one set explicitly stays both.
+func TestMenubarTitleBothFromBefore(t *testing.T) {
+	if m := (Prefs{Stored: []string{"menubar.title"}}).TrayMode(); m != "both" {
+		t.Errorf("an explicit both from before reads %q", m)
+	}
+	if m := (Prefs{}).TrayMode(); m != "compact" {
+		t.Errorf("unset reads %q", m)
+	}
+	if m := (Prefs{TrayTitle: "compact", Stored: []string{"menubar.title"}}).TrayMode(); m != "compact" {
+		t.Errorf("compact set reads %q", m)
 	}
 }

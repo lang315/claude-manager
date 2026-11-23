@@ -46,6 +46,16 @@ func TestTray(t *testing.T) {
 	if title != "62%" { // compact: the fuller of her 5h and 7d windows, beside the icon
 		t.Errorf("title %q, want the fuller of alice's 5h and 7d windows", title)
 	}
+	l.tt.Update(func() {
+		was := l.a.prefs
+		l.a.prefs = account.Prefs{TrayTitle: "off", NoTrayName: true}
+		title, _ = l.a.Tray()
+		l.a.prefs = was
+	})
+	l.tt.Frame()
+	if title != "" { // the icon alone, no "–" beside it
+		t.Errorf("title with nothing to show %q", title)
+	}
 	alice := trayItem(t, l, "alice@example.com")
 	if !strings.Contains(alice.Label, "alice@example.com  5h 62% (") || !strings.Contains(alice.Label, "· 7d 40%") || !alice.Checked || !alice.Disabled {
 		t.Errorf("alice %+v", alice)
@@ -423,5 +433,17 @@ func TestTrayIconAndTip(t *testing.T) {
 	}
 	if tip != "alice · 5h 62% · 7d 100%" {
 		t.Errorf("tip %q", tip)
+	}
+}
+
+// A window not read is left out of the tooltip, not shown as 0%.
+func TestTrayTipLeavesOutAWindowNotRead(t *testing.T) {
+	b := account.Account{Email: "alice@example.com", Limits: []account.Limit{{Kind: "session", Percent: 62}}}
+	if got := trayTip(b); got != "alice · 5h 62%" {
+		t.Errorf("tip %q", got)
+	}
+	b.Limits = []account.Limit{{Kind: "weekly_all", Percent: 40}}
+	if got := trayTip(b); got != "alice · 7d 40%" {
+		t.Errorf("tip %q", got)
 	}
 }

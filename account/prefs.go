@@ -17,7 +17,7 @@ type Prefs struct {
 	Theme          string `json:"theme,omitempty"`          // "auto" (as macOS), "light" or "dark"; "" is auto
 	NoUpdates      bool   `json:"noUpdates,omitempty"`      // don't look for a newer version
 	NoShareHistory bool   `json:"noShareHistory,omitempty"` // Open in Terminal shares no chat history unless asked
-	TrayTitle      string `json:"trayTitle,omitempty"`      // the menu bar title beside its icon: "" the fuller window's share, "both", "5h", "7d" or "off" (claude-swap's title percentage)
+	TrayTitle      string `json:"trayTitle,omitempty"`      // the menu bar title beside its icon: see TrayMode (claude-swap's title percentage)
 	TrayEvery      int    `json:"trayEvery,omitempty"`      // seconds between the menu bar's refreshes; 0 is 300
 	NoTrayName     bool   `json:"noTrayName,omitempty"`     // leave the account name out of the menu bar title (claude-swap's show_account_name, on by default)
 	TrayScoped     bool   `json:"trayScoped,omitempty"`     // add each model's weekly limit to the menu bar title (claude-swap's title_scoped)
@@ -56,6 +56,16 @@ func (b *Book) SetPrefs(p Prefs) error {
 	p.Stored = storedAfter(b.auto, b.prefs, b.auto, p)
 	b.prefs = p
 	return b.save()
+}
+
+// TrayMode is the menu bar title mode: "compact" (the fuller window's
+// share), "both", "5h", "7d" or "off". Unset is compact; but "" with
+// menubar.title set explicitly is from before compact, when "" stored both.
+func (p Prefs) TrayMode() string {
+	if p.TrayTitle == "" && slices.Contains(p.Stored, "menubar.title") {
+		return "both"
+	}
+	return cmp.Or(p.TrayTitle, "compact")
 }
 
 // storedAfter is the record of explicitly set keys after settings change from
@@ -161,7 +171,7 @@ func settingOf(key string, s Auto, p Prefs) Setting {
 	case "updates.check":
 		return Setting{key, bo(!p.NoUpdates), "true", "true, false", false}
 	case "menubar.title":
-		return Setting{key, cmp.Or(p.TrayTitle, "compact"), "compact", "compact, both, 5h, 7d, off", false}
+		return Setting{key, p.TrayMode(), "compact", "compact, both, 5h, 7d, off", false}
 	case "menubar.refreshSeconds":
 		return Setting{key, fmt.Sprint(int(p.TrayInterval().Seconds())), "300", "30, 60, 300", false}
 	case "menubar.showAccountName":
@@ -287,8 +297,8 @@ func (b *Book) Set(key, value string) error {
 		p.NoShareHistory = !v
 	case "menubar.title":
 		p.TrayTitle = ""
-		if !unset && value != "compact" {
-			if !slices.Contains([]string{"both", "5h", "7d", "off"}, value) {
+		if !unset {
+			if !slices.Contains([]string{"compact", "both", "5h", "7d", "off"}, value) {
 				err = fmt.Errorf("%s is compact, both, 5h, 7d or off.", key)
 			}
 			p.TrayTitle = value
