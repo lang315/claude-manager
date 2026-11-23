@@ -1,0 +1,72 @@
+name: ci
+
+on:
+  pull_request: # every base, so the stacked PRs run too
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # go.mod replaces mygo with ../mygo; pinned so a mygo push can't change a run. Bump with mygo.
+  MYGO_REF: 7f1b8b05eff315c6a1b2d2b358598468bee98f7f
+
+jobs:
+  lint-build: # cheap runner: format, vet and every OS's build
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0" # as the local cross-builds
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: claude-manager
+      - uses: actions/checkout@v4
+        with:
+          repository: lang315/mygo
+          ref: ${{ env.MYGO_REF }}
+          path: mygo
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: claude-manager/go.mod
+          cache-dependency-path: claude-manager/go.sum
+      - name: gofmt
+        working-directory: claude-manager
+        run: test -z "$(gofmt -l . | tee /dev/stderr)"
+      - name: vet and build
+        working-directory: claude-manager
+        run: |
+          for os in darwin windows linux; do
+            echo "== $os"
+            GOOS=$os go vet ./...
+            GOOS=$os go build ./...
+          done
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS runs the keychain tests against their own keychain file; ubuntu, the linux paths.
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: claude-manager
+      - uses: actions/checkout@v4
+        with:
+          repository: lang315/mygo
+          ref: ${{ env.MYGO_REF }}
+          path: mygo
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: claude-manager/go.mod
+          cache-dependency-path: claude-manager/go.sum
+      - name: go test -race
+        working-directory: claude-manager
+        shell: bash
+        run: go test -race -count=1 ./...

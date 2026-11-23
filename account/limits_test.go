@@ -67,3 +67,32 @@ func TestParseUsageWithoutLimits(t *testing.T) {
 		}
 	}
 }
+
+// claude-swap's spend line: extra_usage in cents, only with all three
+// figures and turned on.
+func TestParseUsageExtraUsage(t *testing.T) {
+	body := func(extra string) []byte {
+		return []byte(`{"five_hour":{"utilization":10,"resets_at":"2026-10-26T15:00:00Z"},"extra_usage":` + extra + `}`)
+	}
+	got, err := ParseUsage(body(`{"is_enabled":true,"used_credits":1234,"monthly_limit":5000,"utilization":24.68,"currency":"EUR","resets_at":"2026-11-01T00:00:00Z"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Limit{Kind: "extra_usage", Percent: 24.68, ResetsAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC), Used: 12.34, Cap: 50, Currency: "EUR"}
+	if len(got) != 2 || got[1] != want || got[1].Label() != "Extra usage" {
+		t.Fatalf("got %+v", got)
+	}
+	for name, extra := range map[string]string{
+		"off":       `{"is_enabled":false,"used_credits":1,"monthly_limit":2,"utilization":50}`,
+		"unlimited": `{"is_enabled":true,"used_credits":1,"monthly_limit":null,"utilization":null}`,
+		"no cap":    `{"is_enabled":true,"used_credits":1,"monthly_limit":null,"utilization":5}`,
+		"null":      `null`,
+	} {
+		if got, _ := ParseUsage(body(extra)); len(got) != 1 {
+			t.Errorf("%s: %+v", name, got)
+		}
+	}
+	if got, _ := ParseUsage(body(`{"is_enabled":true,"used_credits":1,"monthly_limit":2,"utilization":50}`)); got[1].Currency != "USD" {
+		t.Errorf("no currency: %+v", got[1])
+	}
+}

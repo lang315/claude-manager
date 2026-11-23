@@ -2,8 +2,9 @@ package view
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,10 +35,18 @@ type limits struct {
 	asking   bool // the Remove confirmation is open
 	removing account.Account
 
-	canSwitch bool            // Pitboard's command is here
-	switching string          // the key of the account a switch runs to, or ""
-	replacing bool            // the Replace confirmation is open
-	target    account.Account // the account it would switch to
+	switching string
+	failure   string // claude-swap's TUI output dialog: the whole error of an action that failed
+	failed2   bool
+	sel       int                // the account block j/k move to, s switches to
+	selShown  bool               // j/k were used: the chosen block is marked
+	switches  []account.Switched // the recent switches, the latest first
+	run       runUI
+	export    exportUI
+	importing importUI
+	token     tokenUI
+
+	auto autoUI
 }
 
 // load shows the book's saved readings, then refreshes them from
@@ -51,21 +60,39 @@ func (l *limits) load(a *App, force bool) {
 		return
 	}
 	l.loading = true
+	autoOn := l.auto.s.On && l.switching == ""
 	a.Go(func() {
-		saved, err := a.Accounts.Blocks()
+		saved, serr := a.Accounts.Blocks() // its own err: the closure runs on the UI goroutine after Refresh writes err
 		a.Update(func() {
 			if !l.loaded {
 				l.blocks = saved
 			}
-			l.toast(a, err)
+			l.toast(a, serr)
 		})
-		can := a.Accounts.CanSwitch() // may run a login shell: after the saved figures show
-		a.Update(func() { l.canSwitch = can })
 		blocks, err := a.Accounts.Refresh(context.Background(), force)
+		defer func() {
+			sw, _ := a.Accounts.Switches()
+			ranked, _ := a.Accounts.Ranking()
+			a.Update(func() { l.switches, l.auto.ranked = sw, ranked })
+		}()
+		var d account.Decision
+		var autoErr error
+		if autoOn {
+			d, autoErr = a.Accounts.AutoSwitch(context.Background())
+		}
 		a.Update(func() {
 			l.loading, l.loaded = false, true
 			l.blocks, l.updated = blocks, a.Store.Now()
 			l.toast(a, err)
+			if autoOn {
+				l.auto.why = d.Why
+				l.auto.logWhy(a.Store.Now(), d.Why)
+				if d.To != "" && autoErr == nil {
+					l.auto.why = "Switched to " + d.Email + ": " + d.Why + "."
+					a.notice = "Auto-switched to " + d.Email + ": " + d.Why + "."
+					l.again, l.force = true, true
+				}
+			}
 			if l.again {
 				f := l.force
 				l.again, l.force = false, false
@@ -82,16 +109,6 @@ func (l *limits) toast(a *App, err error) {
 	}
 }
 
-// LimitsTick refreshes the Limits page while it is shown and the app is in
-// front. main calls it every 5 minutes.
-func (a *App) LimitsTick() {
-	a.Update(func() {
-		if a.page == "limits" && a.live.active {
-			a.limits.load(a, false)
-		}
-	})
-}
-
 func (l *limits) subtitle(now time.Time) string {
 	switch {
 	case l.loading:
@@ -103,6 +120,36 @@ func (l *limits) subtitle(now time.Time) string {
 }
 
 func (l *limits) view(c *ui.Context, a *App, pal *palette) {
+	// claude-swap's TUI keys, as Command shortcuts: refresh, best pick,
+	// auto-switch on or off, add an account.
+	if a.Accounts != nil && l.switching == "" && len(l.blocks) > 0 && !l.failed2 {
+		// claude-swap's TUI keys: j/k move between accounts, s switches to
+		// the one chosen. (The arrows and Return stay the sidebar's.)
+		switch {
+		case c.Shortcut(0, ui.KeyJ):
+			l.sel, l.selShown = min(l.sel+1, len(l.blocks)-1), true
+		case c.Shortcut(0, ui.KeyK):
+			l.sel, l.selShown = max(l.sel-1, 0), true
+		case c.Shortcut(0, ui.KeyS):
+			if b := l.blocks[min(l.sel, len(l.blocks)-1)]; b.Added && !b.InUse && b.Terminal.Dir == "" && a.Accounts.CanSwitch() {
+				l.startSwitch(a, b)
+			}
+		}
+	}
+	if a.Accounts != nil && l.switching == "" {
+		switch {
+		case c.Shortcut(ui.Super, ui.KeyR) && !l.loading:
+			l.load(a, true)
+		case c.Shortcut(ui.Super, ui.KeyB) && a.Accounts.CanSwitch():
+			l.switchBest(a)
+		case c.Shortcut(ui.Super, ui.KeyL) && l.auto.loaded && a.Accounts.CanSwitch():
+			s := l.auto.s
+			s.On = !s.On
+			l.saveAuto(a, s)
+		case c.Shortcut(ui.Super, ui.KeyN):
+			l.startAdd(a)
+		}
+	}
 	switch {
 	case a.Accounts == nil:
 		ui.Text(c, "Limits are unavailable.").TextColor(pal.muted)
@@ -117,35 +164,60 @@ func (l *limits) view(c *ui.Context, a *App, pal *palette) {
 		now := a.Store.Now()
 		ui.Scroll(c).Grow(1).Children(func() {
 			ui.Column(c).Gap(14).Children(func() {
+				l.autoRow(c, a, pal)
 				for _, b := range l.blocks {
 					l.block(c, a, pal, b, now)
 				}
 				if n := a.Accounts.Note(); n != "" {
 					ui.Text(c, n).FontSize(12).TextColor(pal.muted)
 				}
+				if n := account.StoreNote(os.Getenv); n != "" {
+					ui.Text(c, n).FontSize(12).TextColor(pal.muted).Wrap()
+				}
 			})
 		})
 	}
 	l.dialogs(c, a, pal)
+	l.autoDialogs(c, a)
 }
 
 // block is one account: its name, then a meter per limit, or why there are
 // no figures.
 func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, now time.Time) {
-	face(c, pal).Padding(14, 16).Gap(10).Children(func() {
+	edge := pal.rule
+	if i := slices.IndexFunc(l.blocks, func(x account.Account) bool { return x.Key() == b.Key() }); l.selShown && i == l.sel {
+		edge = pal.sel // the account j/k chose
+	}
+	face(c, pal).Border(1, edge).Padding(14, 16).Gap(10).Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			name := b.Email
 			if name == "" {
 				name = "Claude Code"
 			}
+			if b.Slot > 0 { // claude-swap's number and alias on every card
+				ui.Text(c, fmt.Sprint(b.Slot)).TextColor(pal.muted).SingleLine()
+			}
 			ui.Text(c, name).Bold().SingleLine()
-			if s := planText(b); s != "" {
-				ui.Text(c, s).TextColor(pal.muted).SingleLine()
+			if b.Alias != "" {
+				ui.Text(c, b.Alias).TextColor(pal.muted).SingleLine()
+			}
+			switch s := planText(b) + tokenPlan(b); {
+			case account.PlanLapsed(b): // claude-swap's highlighted Free: the subscription lapsed
+				ui.Text(c, "Free (lapsed)").Bold().TextColor(pal.orange).SingleLine().Tooltip("Its subscription was canceled and is back on the free tier.")
+			case s != "":
+				ui.Text(c, s+planAge(b, now)).TextColor(pal.muted).SingleLine()
 			}
 			if b.InUse {
 				ui.Text(c, "In use").FontSize(11).Bold().TextColor(pal.muted)
 			}
+			if b.Terminal.Dir != "" {
+				ui.Text(c, "In a terminal").FontSize(11).Bold().TextColor(pal.muted)
+			}
 			ui.Spacer(c)
+			if b.Added && a.Accounts.CanSwitch() && !b.InUse && b.Terminal.Dir == "" &&
+				ui.Button(c, "Switch").Disabled(l.switching != "").Tooltip("Switch to "+b.Email).Clicked() {
+				l.startSwitch(a, b)
+			}
 			l.menu(c, a, b)
 		})
 		switch {
@@ -158,7 +230,7 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 			ui.Text(c, "No figures yet.").TextColor(pal.muted)
 		}
 		for _, x := range b.Limits {
-			limitRow(c, pal, x, now)
+			limitRow(c, pal, x, b.ReadAt, now, lineFor(x, b, l.auto.s))
 		}
 		if len(b.Limits) > 0 && b.Err != "" {
 			ui.Text(c, b.Err+" Showing numbers from "+clock(b.ReadAt, now)+".").TextColor(pal.muted).Wrap()
@@ -169,25 +241,82 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 		if b.Added && !b.GoodUntil.IsZero() {
 			ui.Text(c, goodUntil(b.GoodUntil, now)).FontSize(12).TextColor(pal.muted)
 		}
+		if s := autoBadges(b); b.Added && s != "" {
+			ui.Text(c, s).FontSize(12).TextColor(pal.muted)
+		}
+		if b.InUse && !b.Added && b.AccountUUID != "" && ui.Button(c, "Add This Account").Clicked() {
+			// claude-swap's add from the TUI: the login in use saved, no sign-in.
+			a.Go(func() {
+				_, err := a.Accounts.AddInUse(context.Background())
+				a.Update(func() {
+					if err == nil {
+						a.notice = "Added " + b.Email + "."
+					}
+					l.toast(a, err)
+					l.load(a, true)
+				})
+			})
+		}
+		if pitboardOnly := !b.Added && !b.InUse; pitboardOnly && a.Accounts.CanSwitch() {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, "Add this account here to switch to it.").FontSize(12).TextColor(pal.muted)
+				if b.PitboardLogin && ui.Button(c, "Take Over from Pitboard").Disabled(l.switching != "").
+					Tooltip("Moves its login here and has Pitboard forget the account, so this app alone renews it.").Clicked() {
+					l.startTakeOver(a, b)
+				}
+				if ui.Button(c, "Add Account…").Disabled(l.switching != "").Clicked() {
+					l.startAdd(a)
+				}
+			})
+		}
 		if l.switching == b.Key() {
-			ui.Text(c, "Switching…").FontSize(12).TextColor(pal.muted)
+			busy := "Switching…"
+			if !b.Added {
+				busy = "Taking over…"
+			}
+			ui.Text(c, busy).FontSize(12).TextColor(pal.muted)
 		}
 	})
 }
 
-// limitRow is one limit: its name, a meter, the share used and the reset.
-func limitRow(c *ui.Context, pal *palette, x account.Limit, now time.Time) {
+// limitRow is one limit: its name, a meter, the share used and the reset,
+// then "Limit reached" or, for a weekly window used faster than its week
+// goes, "Ahead of pace".
+func limitRow(c *ui.Context, pal *palette, x account.Limit, readAt, now time.Time, line float64) {
 	ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
 		ui.Text(c, x.Label()).Width(150).SingleLine()
-		meter(c, pal, x.Percent).Grow(1).Label(x.Label())
+		ui.Box(c).Grow(1).Children(func() {
+			meter(c, pal, x.Percent).Label(x.Label())
+			if line > 0 { // claude-swap's tick: where auto-switch moves off
+				ui.Box(c).Absolute().LeftPercent(float32(line)).Top(-3).Bottom(-3).Width(2).Background(pal.ink).
+					Tooltip(fmt.Sprintf("Auto-switch line: %g%%", line))
+			}
+		})
 		num(c, fmt.Sprintf("%.0f%%", x.Percent)).Width(44)
-		ui.Text(c, resets(x.ResetsAt, now)).TextColor(pal.muted).Width(150).SingleLine()
-		reached := "" // its slot stays, so every row's meter is as long
-		if x.Percent >= 100 {
-			reached = "Limit reached"
+		ui.Text(c, rowNote(x, now)).TextColor(pal.muted).Width(150).SingleLine()
+		switch {
+		case x.Refused:
+			ui.Text(c, "Refused").Bold().Width(100).SingleLine().Tooltip("Anthropic refused the account's requests until the reset.")
+			return
+		case x.Percent >= 100:
+			ui.Text(c, "Limit reached").Bold().Width(100).SingleLine()
+			return
 		}
-		ui.Text(c, reached).Bold().Width(100).SingleLine()
+		if expected, ahead, _ := x.Pace(readAt); ahead {
+			ui.Text(c, "Ahead of pace").TextColor(pal.muted).Width(100).SingleLine().Tooltip(fmt.Sprintf("On pace would be %.0f%% by now.", expected))
+		} else {
+			ui.Text(c, "").Width(100) // its slot stays, so every row's meter is as long
+		}
 	})
+}
+
+// rowNote is what follows a row's share: its reset, or, for extra usage,
+// the credits spent of the monthly cap.
+func rowNote(x account.Limit, now time.Time) string {
+	if x.Kind == "extra_usage" {
+		return fmt.Sprintf("%.2f of %.2f %s", x.Used, x.Cap, x.Currency)
+	}
+	return resets(x.ResetsAt, now)
 }
 
 // meter is a limit's bar: graphite, then MyGo's warning colour from 80%
@@ -204,6 +333,12 @@ func meter(c *ui.Context, pal *palette, pct float64) ui.Element {
 
 // planText names the plan, and the organisation of a team's.
 func planText(b account.Account) string {
+	if l := account.PlanLabel(b); l != "" {
+		if (l == "Team" || l == "Enterprise") && b.OrgName != "" {
+			l += " · " + b.OrgName
+		}
+		return l
+	}
 	if b.Plan == "" {
 		return ""
 	}
@@ -214,10 +349,14 @@ func planText(b account.Account) string {
 	return plan
 }
 
-// resets says when a limit resets.
+// resets says when a limit resets, as claude-swap's: "resets 2h 13m ·
+// 20:39".
 func resets(at, now time.Time) string {
 	if at.IsZero() {
 		return ""
+	}
+	if at.After(now) {
+		return "resets " + countdown(at.Sub(now)) + " · " + clock(at, now)
 	}
 	return "resets " + clock(at, now)
 }
@@ -317,6 +456,11 @@ func (l *limits) stopSignIn() {
 
 // dialogs are the Add Account dialog, the Remove confirmation and the Replace confirmation.
 func (l *limits) dialogs(c *ui.Context, a *App, pal *palette) {
+	l.runDialog(c, a)
+	l.failDialog(c, a)
+	l.exportDialog(c, a)
+	l.importDialog(c, a)
+	l.tokenDialog(c, a)
 	was := l.adding
 	ui.Modal(c, &l.adding, func() {
 		ui.Column(c).Gap(12).Padding(20).Width(440).Children(func() {
@@ -387,61 +531,119 @@ func (l *limits) dialogs(c *ui.Context, a *App, pal *palette) {
 			})
 		})
 	}
-	msg = "Claude Code's sign-in no longer works, so it can't be put away. Put " + l.target.Email + "'s sign-in in its place?"
-	if ui.AlertDialog(c, &l.replacing, "Replace Claude Code's sign-in?", msg, "Cancel", "Replace") == 1 {
-		l.startSwitch(a, l.target, true)
-	}
 }
 
-// menu holds an account's actions: switching to it, when Pitboard parks
-// it, and for an added account, signing in again and removing it.
 func (l *limits) menu(c *ui.Context, a *App, b account.Account) {
-	switchable := l.canSwitch && b.PitboardLabel != "" && !b.InUse
-	if !b.Added && !switchable {
+	if !b.Added {
 		return
 	}
+	inTerminal := b.Terminal.Dir != ""
+	switchable := a.Accounts.CanSwitch() && !b.InUse && !inTerminal
 	ui.MenuButton(c, "⋯", func(m *ui.Menu) {
 		if switchable && m.Item("Switch to This Account").Disabled(l.switching != "").Chosen() {
-			l.startSwitch(a, b, false)
+			l.startSwitch(a, b)
 		}
-		if b.Added && m.Item("Sign In Again").Chosen() {
+		if a.Accounts.CanSwitch() && !b.InUse && !b.Token && !b.APIKey && m.Item("Open in Terminal…").Chosen() {
+			l.startRun(a, b)
+		}
+		l.autoMenu(m, a, b)
+		if !inTerminal && !b.Token && !b.APIKey && m.Item("Sign In Again").Chosen() {
 			l.startAdd(a)
 		}
-		if b.Added && m.Item("Remove…").Destructive(true).Chosen() {
+		if !(b.InUse && a.Accounts.CanSwitch()) && !inTerminal && m.Item("Remove…").Destructive(true).Chosen() {
 			l.removing, l.asking = b, true
 		}
 	}).Tooltip("Actions for " + b.Email)
 }
 
-// startSwitch has Pitboard put Claude Code on b's account. replace answers
-// yes to replacing a sign-in Anthropic refuses for good.
-func (l *limits) startSwitch(a *App, b account.Account, replace bool) {
-	l.switching = b.Key()
+// fail shows the whole error of an action the user started, as
+// claude-swap's TUI output dialog, beside its toast.
+func (l *limits) fail(a *App, err error) {
+	if err == nil {
+		return
+	}
+	l.toast(a, err)
+	l.failure, l.failed2 = err.Error(), true
+}
+
+func (l *limits) failDialog(c *ui.Context, a *App) {
+	ui.Modal(c, &l.failed2, func() {
+		ui.Column(c).Gap(12).Padding(20).Width(520).Children(func() {
+			ui.Text(c, "Couldn't Finish").FontSize(17).Bold()
+			ui.Text(c, l.failure).Wrap().Selectable()
+			ui.Row(c).Gap(8).Children(func() {
+				ui.Spacer(c)
+				if ui.Button(c, "Copy").Clicked() {
+					a.CopyText(l.failure)
+				}
+				if ui.PrimaryButton(c, "Done").Clicked() {
+					l.failed2 = false
+				}
+			})
+		})
+	})
+}
+
+// startTakeOver moves the login Pitboard parks for b here.
+func (l *limits) startTakeOver(a *App, b account.Account) {
+	l.switching = b.Key() // the book is busy: no switch meanwhile
 	a.Go(func() {
-		s, err := a.Accounts.Switch(context.Background(), b.PitboardLabel, replace)
+		_, err := a.Accounts.TakeOver(context.Background(), b.Key())
 		a.Update(func() {
 			l.switching = ""
-			switch {
-			case errors.Is(err, account.ErrLiveRefused):
-				l.target, l.replacing = b, true
+			if err != nil {
+				l.fail(a, err)
 				return
-			case err != nil:
-				l.toast(a, err)
-			default:
-				a.notice = switchedText(b.Email, s)
+			}
+			a.notice = "Took over " + b.Email + " from Pitboard."
+			l.load(a, true)
+		})
+	})
+}
+
+func (l *limits) startSwitch(a *App, b account.Account) {
+	l.switching = b.Key()
+	a.Go(func() {
+		err := a.Accounts.Switch(context.Background(), b.Key())
+		a.Update(func() {
+			l.switching = ""
+			if err != nil {
+				l.fail(a, err)
+			} else {
+				a.notice = "Switched to " + b.Email + ". Running sessions follow once macOS's keychain cache lapses, or when started again."
 			}
 			l.load(a, true)
 		})
 	})
 }
 
-// switchedText is the toast after a switch to email.
-func switchedText(email string, s account.Switched) string {
-	switch {
-	case !s.Changed:
-		return email + " is already in use."
-	case s.Follow > 0:
-		return fmt.Sprintf("Switched to %s. Running sessions follow within %d seconds.", email, int(s.Follow.Seconds()))
+// planAge is how old a plan read is, when two 6-hour reads have been missed.
+func planAge(b account.Account, now time.Time) string {
+	if b.PlanAt.IsZero() || now.Sub(b.PlanAt) < 12*time.Hour {
+		return ""
 	}
-	return "Switched to " + email + ". Running sessions keep the old account until they're started again."
+	return " · " + ago(b.PlanAt, now)
+}
+
+// lineFor is the auto-switch line a row's window is judged on, while
+// auto-switch is on: the account's own five-hour line, the weekly line
+// for the 7-day window; 0 for none.
+func lineFor(x account.Limit, b account.Account, s account.Auto) float64 {
+	if !s.On || !b.Added {
+		return 0
+	}
+	line := s.Line
+	if b.Line != 0 {
+		line = b.Line
+	}
+	switch x.Kind {
+	case "session", "five_hour":
+		return line
+	case "weekly_all", "seven_day":
+		if s.WeeklyLine != 0 {
+			return s.WeeklyLine
+		}
+		return line
+	}
+	return 0
 }

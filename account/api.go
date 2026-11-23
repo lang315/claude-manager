@@ -3,6 +3,8 @@ package account
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,11 +22,30 @@ var (
 	// ErrUnauthorized says Anthropic refused an access token, lapsed or
 	// revoked. A renewal may mend it.
 	ErrUnauthorized = errors.New("Anthropic refused the sign-in.")
+	ErrForbidden    = errors.New("Anthropic refused this sign-in access (403).") // not renewed: claude-swap renews on 401 only
 	// ErrInvalidGrant says a login can't be renewed: it needs a sign-in.
 	ErrInvalidGrant = errors.New("Sign-in expired.")
 	// ErrUnreachable says no answer came.
 	ErrUnreachable = errors.New("Couldn't reach Anthropic.")
+	// ErrTLS says Anthropic's certificate was refused (claude-swap's
+	// tls-cert note).
+	ErrTLS = errors.New("Anthropic's TLS certificate was refused: if a proxy re-signs traffic, trust its CA in the system's certificates or set SSL_CERT_FILE; otherwise check for a captive portal or a wrong clock.")
 )
+
+// orgNote is claude-swap's note on oauth_not_allowed_for_organization.
+const orgNote = " A lapsed plan or the organization's policy bars OAuth sign-in, so its usage can't be read; renewing the plan restores it."
+
+// unreachable is ErrTLS for a refused certificate, else ErrUnreachable.
+func unreachable(err error) error {
+	var unknown x509.UnknownAuthorityError
+	var invalid x509.CertificateInvalidError
+	var host x509.HostnameError
+	var verify *tls.CertificateVerificationError
+	if errors.As(err, &unknown) || errors.As(err, &invalid) || errors.As(err, &host) || errors.As(err, &verify) {
+		return ErrTLS
+	}
+	return ErrUnreachable
+}
 
 // Refused is a refusal no renewal mends, in Anthropic's words.
 type Refused struct{ Message string }
@@ -37,7 +58,13 @@ type RateLimited struct{ Wait time.Duration }
 func (e *RateLimited) Error() string { return "Rate limited by Anthropic." }
 
 // Profile is whose a login is.
-type Profile struct{ AccountUUID, Email, OrgUUID, OrgName string }
+type Profile struct {
+	AccountUUID, Email, OrgUUID, OrgName string
+	// The plan, as claude-swap's subscription.fetch_plan reads it: the
+	// organization's rate-limit tier, type, subscription status and the
+	// server's own name for the plan. Empty where the answer gave none.
+	Tier, OrgType, Status, PlanName string
+}
 
 // Key names the account as Account.Key does.
 func (p Profile) Key() string { return p.AccountUUID + "/" + p.OrgUUID }
@@ -47,7 +74,9 @@ type API struct {
 	Base     string // https://api.anthropic.com
 	AuthBase string // https://platform.claude.com
 	Agent    string // the User-Agent
+	Version  string // the app's, as an export's swapVersion
 	Client   *http.Client
+	Debug    io.Writer // when set, each request's method, path, status and time: never a token
 }
 
 // NewAPI asks Anthropic itself, naming the app at version, and gives each
@@ -55,7 +84,7 @@ type API struct {
 func NewAPI(version string) *API {
 	return &API{
 		Base: "https://api.anthropic.com", AuthBase: "https://platform.claude.com",
-		Agent: "claude-manager/" + version, Client: &http.Client{Timeout: 5 * time.Second},
+		Agent: "claude-manager/" + version, Version: version, Client: &http.Client{Timeout: 5 * time.Second},
 	}
 }
 
@@ -81,8 +110,12 @@ func (a *API) Profile(ctx context.Context, token string) (Profile, error) {
 			EmailAddress string `json:"email_address"`
 		} `json:"account"`
 		Organization struct {
-			UUID string `json:"uuid"`
-			Name string `json:"name"`
+			UUID     string `json:"uuid"`
+			Name     string `json:"name"`
+			Tier     string `json:"rate_limit_tier"`
+			OrgType  string `json:"organization_type"`
+			Status   string `json:"subscription_status"`
+			PlanName string `json:"plan_display_name"`
 		} `json:"organization"`
 	}
 	if json.Unmarshal(body, &p) != nil || p.Account.UUID == "" || p.Organization.UUID == "" {
@@ -92,12 +125,20 @@ func (a *API) Profile(ctx context.Context, token string) (Profile, error) {
 	if email == "" { // the token endpoint's answer names it so
 		email = p.Account.EmailAddress
 	}
-	return Profile{AccountUUID: p.Account.UUID, Email: email, OrgUUID: p.Organization.UUID, OrgName: p.Organization.Name}, nil
+	o := p.Organization
+	return Profile{AccountUUID: p.Account.UUID, Email: email, OrgUUID: o.UUID, OrgName: o.Name,
+		Tier: o.Tier, OrgType: o.OrgType, Status: o.Status, PlanName: o.PlanName}, nil
 }
+
+// renewTimeout is claude-swap's refresh timeout.
+const renewTimeout = 10 * time.Second
 
 // Renew asks for fresh tokens for l, as Claude Code renews its own login,
 // and returns l with them. An answer without a refresh token keeps l's.
 func (a *API) Renew(ctx context.Context, l Login, now time.Time) (Login, error) {
+	if l.RefreshToken == "" { // claude-swap's no_refresh_token: nothing to renew with, ever
+		return l, ErrInvalidGrant
+	}
 	client := l.ClientID
 	if client == "" {
 		client = claudeCodeClient
@@ -111,16 +152,22 @@ func (a *API) Renew(ctx context.Context, l Login, now time.Time) (Login, error) 
 		return l, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	body, err := a.do(req, tokenRefusal)
+	c := *a.Client // a renewal outwaits a read: cut short, its new refresh token would be lost
+	if c.Timeout != 0 && c.Timeout < renewTimeout {
+		c.Timeout = renewTimeout
+	}
+	body, err := a.do(&c, req, tokenRefusal)
 	if err != nil {
 		return l, err
 	}
 	var r struct {
-		AccessToken      string `json:"access_token"`
-		RefreshToken     string `json:"refresh_token"`
-		ExpiresIn        int64  `json:"expires_in"`
-		RefreshExpiresIn int64  `json:"refresh_token_expires_in"`
-		Scope            string `json:"scope"`
+		AccessToken      string          `json:"access_token"`
+		RefreshToken     string          `json:"refresh_token"`
+		ExpiresIn        int64           `json:"expires_in"`
+		RefreshExpiresIn int64           `json:"refresh_token_expires_in"`
+		Scope            string          `json:"scope"`
+		Account          json.RawMessage `json:"account"`
+		Organization     json.RawMessage `json:"organization"`
 	}
 	if json.Unmarshal(body, &r) != nil || r.AccessToken == "" || r.ExpiresIn <= 0 {
 		return l, errors.New("Anthropic's token answer was malformed.")
@@ -136,6 +183,15 @@ func (a *API) Renew(ctx context.Context, l Login, now time.Time) (Login, error) 
 	if r.Scope != "" {
 		l.Scopes = strings.Fields(r.Scope)
 	}
+	// best-effort, as claude-swap's _parse_token_account: a malformed field must not lose the rotated token
+	var acct, org struct {
+		UUID string `json:"uuid"`
+	}
+	_ = json.Unmarshal(r.Account, &acct)
+	_ = json.Unmarshal(r.Organization, &org)
+	if u := strings.TrimSpace(acct.UUID); u != "" { // claude-swap's extract_token_account: no account uuid, no identity
+		l.TokenAccount, l.TokenOrg = u, org.UUID
+	}
 	return l, nil
 }
 
@@ -146,16 +202,18 @@ func (a *API) get(ctx context.Context, path, token string) ([]byte, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-	return a.do(req, refusal)
+	return a.do(a.Client, req, refusal)
 }
 
 // do sends req and returns the body of a 200. refused reads any other
 // answer but a 429.
-func (a *API) do(req *http.Request, refused func(int, []byte) error) ([]byte, error) {
+func (a *API) do(c *http.Client, req *http.Request, refused func(int, []byte) error) ([]byte, error) {
 	req.Header.Set("User-Agent", a.Agent)
-	resp, err := a.Client.Do(req)
+	start := time.Now()
+	resp, err := c.Do(req)
+	a.debug(req, resp, start)
 	if err != nil {
-		return nil, ErrUnreachable
+		return nil, unreachable(err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -193,11 +251,15 @@ func refusal(status int, body []byte) error {
 	}
 	_ = json.Unmarshal(body, &e)
 	switch {
-	case status == http.StatusForbidden && e.Error.Type == "permission_error" && e.Error.Details.ErrorCode == "verification_required",
+	case e.Error.Details.ErrorCode == "oauth_not_allowed_for_organization",
 		strings.Contains(e.Error.Message, "OAuth authentication is currently not allowed for this organization"):
+		return &Refused{Message: e.Error.Message + orgNote}
+	case status == http.StatusForbidden && e.Error.Type == "permission_error" && e.Error.Details.ErrorCode == "verification_required":
 		return &Refused{Message: e.Error.Message}
-	case status == http.StatusUnauthorized, status == http.StatusForbidden:
+	case status == http.StatusUnauthorized:
 		return ErrUnauthorized
+	case status == http.StatusForbidden:
+		return ErrForbidden
 	}
 	return fmt.Errorf("Anthropic answered %d.", status)
 }
@@ -220,8 +282,19 @@ func tokenRefusal(status int, body []byte) error {
 	switch {
 	case code == "invalid_grant" && bytes.Contains(body, []byte("account_on_hold")):
 		return &Refused{Message: "Your Anthropic account is on hold."}
-	case (status == http.StatusBadRequest || status == http.StatusUnauthorized) && code == "invalid_grant":
+	case (status == http.StatusBadRequest || status == http.StatusUnauthorized || status == http.StatusForbidden) && code == "invalid_grant":
 		return ErrInvalidGrant
 	}
 	return fmt.Errorf("Anthropic answered %d.", status)
+}
+
+func (a *API) debug(req *http.Request, resp *http.Response, start time.Time) {
+	if a.Debug == nil {
+		return
+	}
+	status := "no answer"
+	if resp != nil {
+		status = resp.Status
+	}
+	fmt.Fprintf(a.Debug, "%s %s %s: %s (%s)\n", time.Now().Format(time.TimeOnly), req.Method, req.URL.Path, status, time.Since(start).Round(time.Millisecond))
 }

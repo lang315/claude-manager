@@ -23,11 +23,26 @@ type App struct {
 	// OpenURL and CopyText reach the system: the browser and the clipboard.
 	OpenURL  func(string) error
 	CopyText func(string)
+	// SaveFile and OpenFile ask for a file, showing message: a save panel
+	// suggesting name, and an open panel. They return "" when canceled, and
+	// block until then, so they run off the main thread.
+	SaveFile func(name, message string) (string, error)
+	OpenFile func(message string) (string, error)
+	// ChooseFolder asks for a folder, as OpenFile does.
+	ChooseFolder func(message string) (string, error)
+	// Reveal shows a file or folder in the file manager: cswap's `open -R`.
+	Reveal func(path string) error
+	// LogPath is the app's log, which the menu bar opens; "" for none.
+	LogPath string
+	// Raise brings the window to the front, for the menu bar's Add and
+	// Remove; nil in tests.
+	Raise func()
 
 	root   string // Store.Root as shown, with ~ for the home directory
 	page   string
-	busy   int     // loads the user started and moves in flight; not Usage's scan nor quiet reloads, which feed no Trash target
-	notice string  // shown as a toast on the next frame
+	busy   int    // loads the user started and moves in flight; not Usage's scan nor quiet reloads, which feed no Trash target
+	notice string // shown as a toast on the next frame
+	prefs  account.Prefs
 	quiet  screens // the screen a quiet reload is starting for; 0 for a load the user started
 	live   live    // paces the reloads the watch asks for
 	shown  string  // the page live last heard of
@@ -65,7 +80,7 @@ func (a *App) Rescan() {
 }
 
 func (a *App) View(c *ui.Context) {
-	pal := applyTheme(c)
+	pal := applyTheme(c, a.prefs.Theme)
 	if a.page != a.shown { // a page opened: what it missed while hidden loads now
 		a.shown = a.page
 		a.live.show(pageScreens(a.page))
@@ -162,8 +177,17 @@ func (a *App) header(c *ui.Context, pal *palette, live int) {
 			if ui.Button(c, "Add Account…").Disabled(a.Accounts == nil || a.limits.switching != "").Clicked() {
 				a.limits.startAdd(a)
 			}
+			if ui.Button(c, "Add Token…").Disabled(a.Accounts == nil || a.limits.switching != "").Clicked() {
+				a.limits.startToken()
+			}
 			if ui.Button(c, "Refresh").Disabled(a.Accounts == nil || a.limits.loading || a.limits.switching != "").Clicked() {
 				a.limits.load(a, true)
+			}
+			if ui.Button(c, "Export…").Disabled(a.Accounts == nil || a.limits.switching != "").Clicked() {
+				a.limits.startExport(a)
+			}
+			if ui.Button(c, "Import…").Disabled(a.Accounts == nil || a.limits.switching != "").Clicked() {
+				a.limits.startImport(a)
 			}
 		} else if ui.Button(c, "Rescan").Disabled(a.busy > 0).Clicked() {
 			a.Rescan()
@@ -270,3 +294,6 @@ func (a *App) trash(paths func() []string) {
 		}
 	})
 }
+
+// Show opens page: "limits" and the others of the sidebar.
+func (a *App) Show(page string) { a.page = page }

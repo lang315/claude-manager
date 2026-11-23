@@ -89,6 +89,7 @@ func TestShortPath(t *testing.T) {
 		"/Users/lang/lang315/mygo": "lang315/mygo",
 		"/Users/me/proj":           "me/proj",
 		"/proj":                    "/proj",
+		`C:\proj`:                  `C:\proj`,
 		"proj":                     "proj",
 		"":                         "",
 	} {

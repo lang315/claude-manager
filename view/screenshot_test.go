@@ -93,18 +93,69 @@ func TestLimitsScreenshot(t *testing.T) {
 		}
 		f.Close()
 	}
-	// A switch under way, with carol parked by Pitboard.
 	l := limitsApp(t)
-	carolOnPitboard(t, l, "sleep 5\n"+pitboardOK)
+	h := canSwitch(t, l)
 	tt := ui.NewTester(l.a.View, 1100, 720)
 	l.a.Update, l.tt = tt.Update, tt
 	l.open(t)
-	waitFor(t, tt, func() bool { return tt.HasText("carol@example.com") })
+	waitFor(t, tt, func() bool { return tt.HasText("bob@example.com") })
 	l.a.Go = func(f func()) { go f() }
-	must(t, tt.Click("⋯"))
+	held := h.ClaudeJSON + ".lock"
+	must(t, os.Mkdir(held, 0o755))
+	defer os.Remove(held)
+	clickMenu(t, tt, "bob@example.com")
 	must(t, tt.ChooseMenuItem("Switch to This Account"))
 	waitFor(t, tt, func() bool { return tt.HasText("Switching…") })
 	f, err := os.Create(filepath.Join(dir, "limits-switching.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, tt.Image()); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	l = limitsApp(t)
+	canSwitch(t, l)
+	tt = ui.NewTester(l.a.View, 1100, 720)
+	l.a.Update, l.tt = tt.Update, tt
+	l.a.AutoTick()
+	l.open(t)
+	waitFor(t, tt, func() bool { return tt.HasText("bob@example.com") })
+	must(t, tt.Click("Auto-switch"))
+	waitFor(t, tt, func() bool { return tt.HasText("No account has room.") })
+	clickMenu(t, tt, "bob@example.com")
+	must(t, tt.ChooseMenuItem("Hold Out of Auto-Switch"))
+	waitFor(t, tt, func() bool { return tt.HasText("Held out of auto-switch") })
+	shot := func(name string) {
+		f, err := os.Create(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := png.Encode(f, tt.Image()); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+	shot("limits-auto.png")
+	must(t, tt.Click("Auto-Switch Settings…"))
+	waitFor(t, tt, func() bool { return tt.HasText("Auto-Switch Settings") && tt.HasText("Strategy") })
+	shot("limits-auto-settings.png")
+}
+
+// TestLimitsPaceScreenshot writes limits-pace.png: alice ahead of pace.
+func TestLimitsPaceScreenshot(t *testing.T) {
+	dir := os.Getenv("SCREENSHOT_DIR")
+	if dir == "" {
+		t.Skip("set SCREENSHOT_DIR to write PNGs of the Limits page")
+	}
+	l := limitsApp(t)
+	l.weekly.Store("alice", 70)
+	l.weeklyReset.Store("2026-10-30T00:00:00Z")
+	tt := ui.NewTester(l.a.View, 1100, 720)
+	l.a.Update, l.tt = tt.Update, tt
+	l.open(t)
+	waitFor(t, tt, func() bool { return tt.HasText("Ahead of pace") })
+	f, err := os.Create(filepath.Join(dir, "limits-pace.png"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,0 +1,595 @@
+package account
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/lang315/claude-manager/store"
+)
+
+// Terminal marks an added account open in a terminal: Claude Code runs it
+// from its own profile folder, and renews its login there.
+type Terminal struct {
+	Dir   string    `json:"dir"`   // the profile: its CLAUDE_CONFIG_DIR
+	Since time.Time `json:"since"` // when the app opened it
+	Seen  bool      `json:"seen"`  // a claude process has been seen on it
+}
+
+var (
+	errInTerminal  = errors.New("This account is open in a terminal. Quit Claude Code there first.")
+	ErrRunInUse    = errors.New("This account is the one in use: run claude in any terminal.")
+	errProfileBusy = errors.New("Claude Code is running in this account's terminal profile: quit it there first.")
+
+	errTerminalExpired = errors.New(InTerminalExpired)
+	errDrifted         = errors.New("The terminal opened as this account is signed in to another one now; its login will be kept as unclaimed when claude quits there.")
+)
+
+// InTerminalExpired is the status of an account open in a terminal whose
+// login has lapsed there: that terminal's claude renews it as it runs.
+const InTerminalExpired = "Its sign-in in the terminal has lapsed; claude there renews it as it runs."
+
+// launchGrace is how long after opening a terminal the app waits for its
+// claude to show up before it takes the account back.
+const launchGrace = 2 * time.Minute
+
+// setup and history are what a profile takes from ~/.claude by link, as
+// claude-swap's session mode: setup unless --no-share, history unless
+// --no-share-history. sessions, plugins, ide and the logins stay the
+// profile's own.
+var (
+	setup   = []string{"settings.json", "keybindings.json", "CLAUDE.md", "skills", "commands", "agents", "rules"}
+	history = []string{"projects", "history.jsonl"}
+)
+
+// Share is what a profile shares with ~/.claude: its setup (settings,
+// CLAUDE.md, skills…, and the user's MCP servers) and its chat history.
+type Share struct{ Setup, History bool }
+
+// ProfilesDir is where the profiles live, under dir, the app's folder.
+func ProfilesDir(dir string) string { return filepath.Join(dir, "profiles") }
+
+func (b *Book) profile(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return filepath.Join(ProfilesDir(b.Dir), hex.EncodeToString(sum[:6]))
+}
+
+// Run opens Claude Code in a terminal at folder, as the added account key,
+// from that account's own profile: the rest of the Mac stays on the
+// account in use. From then on that terminal renews the account's login;
+// the app takes it back once claude has quit there.
+//
+// share applies when the profile is seeded; opened again while claude may
+// run there, the profile is left as it is.
+func (b *Book) Run(key, folder string, share Share, args ...string) error {
+	dir, err := b.readyRun(key, share)
+	if err != nil {
+		return err
+	}
+	return b.Launch(folder, dir, args...) // unlocked: Terminal may wait on macOS's Automation prompt
+}
+
+// readyRun marks and seeds the profile Run opens, and returns its folder.
+func (b *Book) readyRun(key string, share Share) (string, error) {
+	h := b.Home
+	if h == nil {
+		return "", ErrCantSwitch
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if err := b.load(); err != nil {
+		return "", err
+	}
+	i := slices.IndexFunc(b.added, func(a Account) bool { return a.Key() == key })
+	if i < 0 {
+		return "", errNotAdded
+	}
+	a := &b.added[i]
+	if key == h.accountKey() && !b.inUseSignedOut(key) { // claude-swap: the fast path only on a usable login
+		return "", ErrRunInUse
+	}
+	if a.Terminal.Dir != "" {
+		// The profile holds the login now: open it again, with take-back
+		// waiting for this claude as for the first.
+		a.Terminal.Since, a.Terminal.Seen = b.Now(), false
+		if err := b.save(); err != nil {
+			return "", err
+		}
+		return a.Terminal.Dir, nil
+	}
+	if a.OAuthAccount == nil {
+		return "", errNoAccount
+	}
+	if b.Claude != nil { // claude-swap's check: the terminal would open on "command not found"
+		if _, err := b.Claude(); err != nil {
+			return "", err
+		}
+	}
+	if _, ok := b.unsaved[key]; ok {
+		return "", errUnsaved
+	}
+	parked, err := b.Vault.Get(ParkService, key)
+	if errors.Is(err, ErrNotFound) {
+		return "", ErrInvalidGrant
+	}
+	if err != nil {
+		return "", err
+	}
+	pl, ok := complete(parked)
+	if !ok {
+		return "", ErrInvalidGrant
+	}
+	// Claude Code's own login, whatever ~/.claude.json says: a seed of it
+	// would be a second renewer on Claude Code's chain.
+	if lb, err := h.readLive(b.Vault); err == nil {
+		if l, err := parseLogin(lb.data); keyOf(oauthOf(lb.data)) == key || err == nil && l.RefreshToken == pl.RefreshToken {
+			return "", ErrRunInUse
+		}
+	}
+	dir := b.profile(key)
+	if b.Running != nil { // its login there may be newer than the saved one
+		if running, err := b.Running(dir); running || err != nil {
+			return "", errProfileBusy
+		}
+	}
+	// Marked before the seed: a seed without its mark would be a second
+	// renewer the app doesn't know of.
+	a.Terminal = Terminal{Dir: dir, Since: b.Now()}
+	if err := b.save(); err != nil {
+		a.Terminal = Terminal{}
+		return "", err
+	}
+	if err := b.seed(dir, parked, a.OAuthAccount, share); err != nil {
+		if cerr := b.clearProfile(dir); cerr != nil {
+			return "", errors.Join(err, cerr) // the mark stays: the profile may still hold the login
+		}
+		a.Terminal = Terminal{}
+		return "", errors.Join(err, b.save())
+	}
+	return dir, nil
+}
+
+// InUseSignedOut reports whether key is the account in use, Claude Code's
+// login for it holds no usable token, and a login is saved for it: Run
+// then opens it from a profile, as claude-swap does.
+func (b *Book) InUseSignedOut(key string) bool {
+	if b.Home == nil || key != b.Home.accountKey() {
+		return false
+	}
+	return b.inUseSignedOut(key)
+}
+
+func (b *Book) inUseSignedOut(key string) bool {
+	if !b.liveSignedOut() {
+		return false
+	}
+	parked, err := b.Vault.Get(ParkService, key)
+	_, ok := complete(parked)
+	return err == nil && ok
+}
+
+// liveSignedOut is claude-swap's _default_login_signed_out: true only when
+// Claude Code's login certainly holds no usable token. What can't be told
+// from a working login (an unreadable keychain, an API key, an unknown
+// shape) answers false.
+func (b *Book) liveSignedOut() bool {
+	if os.Getenv("CLAUDE_SECURESTORAGE_CONFIG_DIR") != "" { // a store this read doesn't follow
+		return false
+	}
+	lb, err := b.Home.readLive(b.Vault)
+	if err != nil || lb.data == nil {
+		return false
+	}
+	if len(bytes.TrimSpace(lb.data)) == 0 {
+		return true
+	}
+	if IsAPIKey(string(lb.data)) {
+		return false
+	}
+	var o struct {
+		AccessToken  string   `json:"accessToken"`
+		RefreshToken string   `json:"refreshToken"`
+		ExpiresAt    *float64 `json:"expiresAt"`
+	}
+	raw := oauthOf(lb.data)
+	if raw == nil || json.Unmarshal(raw, &o) != nil || o.RefreshToken != "" {
+		return false
+	}
+	if o.AccessToken == "" {
+		return true
+	}
+	// An access token without a refresh token works until it expires.
+	return o.ExpiresAt != nil && *o.ExpiresAt <= float64(b.Now().UnixMilli())
+}
+
+func (b *Book) seed(dir string, parked []byte, acct json.RawMessage, share Share) error {
+	h := b.Home
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	// Claude Code reads its keychain item before the file: an old one would
+	// shadow the seed.
+	if err := b.Vault.Delete(liveService(dir), h.User); err != nil {
+		return err
+	}
+	creds, err := withOAuth(nil, oauthOf(parked))
+	if err != nil {
+		return err
+	}
+	if err := writeAtomic(filepath.Join(dir, ".credentials.json"), creds, 0o600); err != nil {
+		return err
+	}
+	conf := []byte(`{"hasCompletedOnboarding":true}`)
+	if old, err := os.ReadFile(filepath.Join(dir, ".claude.json")); err == nil {
+		conf = old
+	}
+	conf, err = spliceKey(conf, "oauthAccount", acct)
+	if err == nil { // claude-swap's _bootstrap: a profile kept from before doesn't onboard again
+		conf, err = spliceKey(conf, "hasCompletedOnboarding", json.RawMessage(`true`))
+	}
+	if err == nil { // claude-swap's setdefault("theme", saved theme or "dark"): claude onboards without one
+		var own map[string]json.RawMessage
+		if json.Unmarshal(conf, &own) == nil && own["theme"] == nil {
+			conf, err = spliceKey(conf, "theme", b.theme())
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if conf, err = mirrorMCP(dir, conf, h.ClaudeJSON, share.Setup); err != nil {
+		return err
+	}
+	if err := writeAtomic(filepath.Join(dir, ".claude.json"), conf, 0o600); err != nil {
+		return err
+	}
+	if share.History {
+		if err := b.mergeOwnHistory(dir); err != nil {
+			return err
+		}
+	}
+	for _, g := range []struct {
+		names []string
+		on    bool
+	}{{setup, share.Setup}, {history, share.History}} {
+		for _, name := range g.names {
+			if err := link(filepath.Join(h.Root, name), filepath.Join(dir, name), g.on); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// theme is ~/.claude.json's theme, else "dark".
+func (b *Book) theme() json.RawMessage {
+	var c struct{ Theme string }
+	if data, err := os.ReadFile(b.Home.ClaudeJSON); err == nil && json.Unmarshal(data, &c) == nil && c.Theme != "" {
+		t, _ := json.Marshal(c.Theme)
+		return t
+	}
+	return json.RawMessage(`"dark"`)
+}
+
+// mergeOwnHistory moves a profile's own history into ~/.claude's, as
+// claude-swap's; never under a claude still writing it.
+func (b *Book) mergeOwnHistory(dir string) error {
+	if b.Running != nil {
+		if running, err := b.Running(dir); running || err != nil {
+			return nil
+		}
+	}
+	h := b.Home
+	live := liveTranscripts(h.Root)
+	for _, name := range history {
+		if _, _, err := mergeHistoryLive(filepath.Join(h.Root, name), filepath.Join(dir, name), filepath.Join(b.Dir, "history-conflicts"), live); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// link makes dest a link to src, or, when !on, removes such a link. Only
+// links to src are touched: the profile's own file or folder of that name,
+// and src itself, never are.
+func link(src, dest string, on bool) error {
+	to, lerr := os.Readlink(dest)
+	ours := lerr == nil && to == src
+	switch {
+	case !on && ours:
+		return os.Remove(dest)
+	case !on:
+		return nil
+	}
+	if _, err := os.Lstat(dest); err == nil {
+		return nil // a link made before, or the profile's own
+	}
+	if _, err := os.Stat(src); err != nil {
+		return nil
+	}
+	return os.Symlink(src, dest)
+}
+
+// clearProfile removes a profile's logins, so a claude started there
+// later, as from shell history, can't renew a login the app holds.
+func (b *Book) clearProfile(dir string) error {
+	err := os.Remove(filepath.Join(dir, ".credentials.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		err = nil
+	}
+	return errors.Join(err, b.Vault.Delete(liveService(dir), b.user()))
+}
+
+// user is the keychain account Claude Code files its logins under; "" for
+// any, outside the default folder.
+func (b *Book) user() string {
+	if b.Home == nil {
+		return ""
+	}
+	return b.Home.User
+}
+
+// profileLogin reads the login Claude Code keeps for a profile.
+func (b *Book) profileLogin(dir string) ([]byte, error) {
+	blob, err := b.Vault.Get(liveService(dir), b.user())
+	if errors.Is(err, ErrNotFound) {
+		blob, err = os.ReadFile(filepath.Join(dir, ".credentials.json"))
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, ErrNotSignedIn
+		}
+	}
+	return blob, err
+}
+
+// takeBack ends a's terminal once no claude runs on its profile: a login
+// the profile renewed is saved first, and read back, then the profile's
+// logins are removed. A failed process scan keeps the mark.
+func (b *Book) takeBack(a *Account, now time.Time) error {
+	t := &a.Terminal
+	running, err := b.Running(t.Dir)
+	if err != nil {
+		return nil
+	}
+	if running {
+		t.Seen = true
+		return nil
+	}
+	if !t.Seen && now.Sub(t.Since) < launchGrace {
+		return nil
+	}
+	blob, err := b.profileLogin(t.Dir)
+	if err != nil && !errors.Is(err, ErrNotSignedIn) {
+		return err
+	}
+	if err == nil && b.drifted(*a) {
+		// A /login in that terminal put another account there: its login
+		// is not this account's to save. It is kept as unclaimed instead.
+		if err := b.stashLocked(blob, "signed in to another account in a terminal opened as "+a.Email); err != nil {
+			return err
+		}
+	} else if err == nil {
+		parked, _ := b.Vault.Get(ParkService, a.Key())
+		if _, ok := complete(blob); ok && newer(blob, parked) {
+			if err := b.park(a.Key(), blob); err != nil {
+				return err
+			}
+			saved, err := b.Vault.Get(ParkService, a.Key())
+			if err != nil || !bytes.Equal(oauthOf(saved), oauthOf(blob)) {
+				return errors.Join(err, errors.New("The login renewed in the terminal reads back different; it stays there."))
+			}
+			if l, err := parseLogin(blob); err == nil && l.RefreshTokenExpiresAt > 0 {
+				a.GoodUntil = time.UnixMilli(l.RefreshTokenExpiresAt)
+			}
+		}
+	}
+	if err := b.clearProfile(t.Dir); err != nil {
+		return err
+	}
+	a.Terminal = Terminal{}
+	return nil
+}
+
+// drifted reports whether a's profile is signed in to another account,
+// as claude-swap's session_identity_drifted: its .claude.json names
+// another account, or its login's own uuids do. Unreadable is no drift.
+func (b *Book) drifted(a Account) bool {
+	if a.Terminal.Dir == "" {
+		return false
+	}
+	conf, _ := os.ReadFile(filepath.Join(a.Terminal.Dir, ".claude.json"))
+	if k := keyOf(oauthAccountOf(conf)); k != "" && k != a.Key() {
+		return true
+	}
+	blob, err := b.profileLogin(a.Terminal.Dir)
+	k := keyOf(oauthOf(blob))
+	return err == nil && k != "" && k != a.Key()
+}
+
+// ClaudeRunning reports whether a claude runs on configDir, from the
+// sessions/<pid>.json records Claude Code keeps there, as claude-swap's
+// process_detection: a folder or record it can't read is an error, so the
+// caller keeps its guard; a missing folder is no session. A reused pid
+// counts as running.
+func ClaudeRunning(configDir string) (bool, error) {
+	es, err := os.ReadDir(filepath.Join(configDir, "sessions"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, e := range es {
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(configDir, "sessions", e.Name()))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		var r struct {
+			PID       int             `json:"pid"`
+			ProcStart json.RawMessage `json:"procStart"`
+		}
+		if err != nil || json.Unmarshal(data, &r) != nil {
+			return false, errors.Join(err, errors.New("a session record can't be read"))
+		}
+		if pidAlive(r.PID) && store.SameProcess(r.PID, store.Stamp(r.ProcStart)) { // not a crashed claude's pid, reused
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// authOverrides make claude go by a key or token over its config folder's
+// login (claude-swap's AUTH_OVERRIDE_ENV_VARS): a terminal opened as an
+// account runs without them, whatever the user's shell exports.
+var authOverrides = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+	"CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR", "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR"}
+
+// liveTranscripts reports whether a live claude under root may be writing
+// the transcript at rel (<project>/<session>.jsonl, or a file in
+// <project>/<session>/): the session's id is one of its parts. Records
+// that can't be read count as live.
+func liveTranscripts(root string) func(rel string) bool {
+	ids := map[string]bool{}
+	known := true
+	es, err := os.ReadDir(filepath.Join(root, "sessions"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		known = false
+	}
+	for _, e := range es {
+		var r struct {
+			PID       int             `json:"pid"`
+			SessionID string          `json:"sessionId"`
+			ProcStart json.RawMessage `json:"procStart"`
+		}
+		data, err := os.ReadFile(filepath.Join(root, "sessions", e.Name()))
+		if err != nil || json.Unmarshal(data, &r) != nil {
+			known = false
+			continue
+		}
+		if pidAlive(r.PID) && store.SameProcess(r.PID, store.Stamp(r.ProcStart)) {
+			ids[r.SessionID] = true
+		}
+	}
+	return func(rel string) bool {
+		if !known {
+			return true
+		}
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		parts[len(parts)-1] = strings.TrimSuffix(parts[len(parts)-1], ".jsonl")
+		return slices.ContainsFunc(parts, func(p string) bool { return ids[p] })
+	}
+}
+
+// RunDefault opens Claude Code in a terminal at folder as the account in
+// use, in its own folder: cswap run's fast path, nothing seeded. key is the
+// account in use, "" for none: its profile's own history is merged into
+// ~/.claude's when share.History, else note says which history is used
+// (claude-swap's _history_on_the_fast_path).
+func (b *Book) RunDefault(key, folder string, share Share, args ...string) (note string, err error) {
+	if b.Home == nil {
+		return "", ErrCantSwitch
+	}
+	if b.Claude != nil {
+		if _, err := b.Claude(); err != nil {
+			return "", err
+		}
+	}
+	if key != "" { // claude-swap's _history_on_the_fast_path: only a profile's own history counts
+		dir := b.profile(key)
+		own := slices.ContainsFunc(history, func(name string) bool {
+			fi, err := os.Lstat(filepath.Join(dir, name))
+			return err == nil && fi.Mode()&fs.ModeSymlink == 0
+		})
+		switch {
+		case own && share.History:
+			if err := b.mergeOwnHistory(dir); err != nil {
+				return "", err
+			}
+		case own:
+			note = "This launch uses the default login's chat history (~/.claude), not the account's own."
+		}
+	}
+	return note, b.Launch(folder, "", args...)
+}
+
+// RunCommand is the shell command LaunchInTerminal runs: the claude binary
+// FindClaude resolved, with args (claude-swap runs the path shutil.which
+// found, not the bare name); with no configDir, in the shell's own
+// environment.
+func RunCommand(claude, folder, configDir string, args ...string) string {
+	if configDir == "" {
+		cmd := "cd " + shellQuote(folder) + " && exec " + shellQuote(claude)
+		for _, a := range args {
+			cmd += " " + shellQuote(a)
+		}
+		return cmd
+	}
+	cmd := "cd " + shellQuote(folder) + " && exec env"
+	for _, v := range authOverrides {
+		cmd += " -u " + v
+	}
+	cmd += " CLAUDE_CONFIG_DIR=" + shellQuote(configDir) + " " + shellQuote(claude)
+	for _, a := range args {
+		cmd += " " + shellQuote(a)
+	}
+	return cmd
+}
+
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// The MCP mirror's marker, that a profile's mcpServers are ~/.claude.json's,
+// and where its own were kept the first time (claude-swap's
+// MCP_MIRROR_MARKER and MCP_DISPLACED_STASH).
+const (
+	mcpMarker    = ".claude-manager-mcp-mirror"
+	mcpDisplaced = ".claude-manager-mcp-displaced.json"
+)
+
+// mirrorMCP is claude-swap's _sync_mcp_servers (issue #139) on a profile's
+// .claude.json, conf: shared, mcpServers become ~/.claude.json's, its
+// own kept aside once; not shared, a mirrored copy goes, and a profile
+// never mirrored is left as it is. Anything unreadable leaves conf be.
+func mirrorMCP(dir string, conf []byte, mine string, share bool) ([]byte, error) {
+	marker := filepath.Join(dir, mcpMarker)
+	_, merr := os.Stat(marker)
+	adopted := merr == nil
+	src := json.RawMessage(`{}`)
+	if share {
+		var m map[string]json.RawMessage
+		data, err := os.ReadFile(mine)
+		if err != nil || json.Unmarshal(data, &m) != nil {
+			return conf, nil
+		}
+		if s, ok := m["mcpServers"]; ok {
+			src = s
+		}
+	} else if !adopted {
+		return conf, nil
+	}
+	var p map[string]json.RawMessage
+	if json.Unmarshal(conf, &p) != nil {
+		return conf, nil
+	}
+	if own := p["mcpServers"]; share && !adopted && len(own) > 0 && string(own) != "{}" {
+		stash := filepath.Join(dir, mcpDisplaced)
+		if _, err := os.Stat(stash); errors.Is(err, fs.ErrNotExist) {
+			if err := writeAtomic(stash, own, 0o600); err != nil {
+				return conf, err
+			}
+		}
+	}
+	out, err := spliceKey(conf, "mcpServers", src)
+	if err == nil && share && !adopted {
+		err = os.WriteFile(marker, nil, 0o600)
+	}
+	return out, err
+}

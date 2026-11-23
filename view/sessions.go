@@ -262,7 +262,7 @@ func (s *sessions) confirm(c *ui.Context, a *App) {
 // shortPath keeps a project path's last two components: the long prefix is
 // the same for every project.
 func shortPath(p string) string {
-	if d := filepath.Dir(p); d != "/" && d != "." {
+	if d := filepath.Dir(p); d != filepath.VolumeName(p)+string(filepath.Separator) && d != "." {
 		return filepath.Base(d) + "/" + filepath.Base(p)
 	}
 	return p

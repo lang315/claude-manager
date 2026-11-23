@@ -3,6 +3,7 @@ package view
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -305,8 +306,8 @@ func TestHistoryRescanKeepsChoice(t *testing.T) {
 
 // A history.jsonl that can't be read is not "no history".
 func TestHistoryUnreadable(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root reads any file")
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root reads any file; windows ignores chmod 0")
 	}
 	a, tt, d, _ := newApp(t)
 	must(t, os.Chmod(filepath.Join(d.Root, "history.jsonl"), 0))

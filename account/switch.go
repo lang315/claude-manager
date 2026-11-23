@@ -5,118 +5,278 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os/exec"
-	"syscall"
-	"time"
+	"fmt"
+	"os"
+	"slices"
+	"strings"
 )
 
 var (
-	ErrNoPitboard  = errors.New("Pitboard not found.")
-	ErrLiveRefused = errors.New("Claude Code's sign-in no longer works.")
-	errNoAnswer    = errors.New("Pitboard gave no answer.")
-	errSwitchSlow  = errors.New("Pitboard took too long.")
+	ErrCantSwitch = errors.New("Switching works with Claude Code's default folder only.")
+	errNotAdded   = errors.New("Add this account here to switch to it.")
+	errNoAccount  = errors.New("Sign in again to this account to switch to it.")
+	errLiveMoved  = errors.New("Claude Code renewed its sign-in during the switch. Try again.")
+	errLiveWhose  = errors.New("Claude Code's sign-in had expired and names no added account.")
+	errRestore    = errors.New("The switch failed, and Claude Code's sign-in could not be put back. Run claude and /login.")
 )
 
-// SwitchError is Pitboard's refusal: its code, and its words for a person.
-type SwitchError struct{ Code, Message string }
+func (b *Book) CanSwitch() bool { return b.Home != nil }
 
-func (e *SwitchError) Error() string { return e.Message }
-
-// Switched is what a switch did. Follow is how long sessions already
-// running take to follow; 0 means only once they're started again.
-type Switched struct {
-	To      string
-	Changed bool
-	Follow  time.Duration
+// Switch puts Claude Code on the added account key names.
+func (b *Book) Switch(ctx context.Context, key string) error {
+	h := b.Home
+	if h == nil {
+		return ErrCantSwitch
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if err := b.load(); err != nil {
+		return err
+	}
+	return b.switchRecorded(ctx, key, false, "by hand")
 }
 
-// FindPitboard finds Pitboard's command line, which its app bundle holds.
-func FindPitboard() (string, error) {
-	p, err := findTool("pitboard", ErrNoPitboard.Error(), "/opt/homebrew/bin/pitboard", "/usr/local/bin/pitboard",
-		"/Applications/Pitboard.app/Contents/Helpers/pitboard")
+// switchRecorded is switchLocked, recorded when it switches.
+func (b *Book) switchRecorded(ctx context.Context, key string, force bool, why string) error {
+	from, to := b.inUseEmail(), b.emailOf(key)
+	before := b.switched
+	if err := b.switchLocked(ctx, key, force); err != nil {
+		b.logf("switch to %s failed: %v", to, err)
+		return err
+	}
+	if b.switched != before {
+		b.record(from, to, why, false)
+		return b.save()
+	}
+	return nil
+}
+
+// SwitchForce is Switch, also onto the account in use: its saved login,
+// such as one just imported, replaces Claude Code's (cswap switch --force).
+func (b *Book) SwitchForce(ctx context.Context, key string) error {
+	if b.Home == nil {
+		return ErrCantSwitch
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if err := b.load(); err != nil {
+		return err
+	}
+	return b.switchRecorded(ctx, key, true, "by hand, forced")
+}
+
+func (b *Book) switchLocked(ctx context.Context, key string, force bool) error {
+	h := b.Home
+	ti := slices.IndexFunc(b.added, func(a Account) bool { return a.Key() == key })
+	if ti < 0 {
+		return errNotAdded
+	}
+	if b.added[ti].OAuthAccount == nil {
+		return errNoAccount
+	}
+	if b.added[ti].Terminal.Dir != "" {
+		return errInTerminal
+	}
+	if _, ok := b.unsaved[key]; ok {
+		return errUnsaved // the keychain holds its spent login
+	}
+	parked, err := b.Vault.Get(ParkService, key)
+	if errors.Is(err, ErrNotFound) {
+		return ErrInvalidGrant
+	}
 	if err != nil {
-		return "", ErrNoPitboard
+		return err
 	}
-	return p, nil
-}
-
-// CanSwitch says whether Pitboard's command is here. It may run a login
-// shell: call it off the main thread.
-func (b *Book) CanSwitch() bool {
-	_, err := b.pitboard()
-	return err == nil
-}
-
-// pitboard is Pitboard's command, looked for until it is found once.
-func (b *Book) pitboard() (string, error) {
-	b.cliMu.Lock()
-	defer b.cliMu.Unlock()
-	if b.cli != "" {
-		return b.cli, nil
-	}
-	if b.PitboardCLI == nil {
-		return "", ErrNoPitboard
-	}
-	p, err := b.PitboardCLI()
-	if err == nil {
-		b.cli = p
-	}
-	return p, err
-}
-
-// Switch puts Claude Code on the account Pitboard parks under label, by
-// running pitboard use. replace answers yes to Pitboard's one question:
-// whether to replace a sign-in Anthropic refuses for good. Pitboard does
-// every write; the app reads its JSON answer, and never its stderr.
-func (b *Book) Switch(ctx context.Context, label string, replace bool) (Switched, error) {
-	bin, err := b.pitboard()
-	if err != nil {
-		return Switched{}, err
-	}
-	limit := b.SwitchTimeout
-	if limit == 0 {
-		limit = time.Minute
-	}
-	ctx, cancel := context.WithTimeout(ctx, limit)
-	defer cancel()
-	args := []string{"use", "claude/" + label, "--json"}
-	if replace {
-		args = append(args, "--yes")
-	}
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	cmd.WaitDelay = time.Second
-	out, _ := cmd.Output() // the exit status says less than the envelope
-	if ctx.Err() == context.DeadlineExceeded {
-		return Switched{}, errSwitchSlow
-	}
-	var env struct {
-		OK   *bool `json:"ok"`
-		Data *struct {
-			To      string   `json:"to"`
-			Changed bool     `json:"changed"`
-			Follow  *float64 `json:"adoption_ceiling_seconds"`
-		} `json:"data"`
-		Error *struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if json.Unmarshal(bytes.TrimSpace(out), &env) != nil || env.OK == nil {
-		return Switched{}, errNoAnswer
-	}
+	tgt := b.added[ti]
+	oauth := oauthOf(parked)
+	apiKey := strings.TrimSpace(string(parked))
 	switch {
-	case !*env.OK && env.Error != nil && env.Error.Code == "live_login_refused":
-		return Switched{}, ErrLiveRefused
-	case !*env.OK && env.Error != nil:
-		return Switched{}, &SwitchError{Code: env.Error.Code, Message: env.Error.Message}
-	case !*env.OK || env.Data == nil:
-		return Switched{}, errNoAnswer
+	case tgt.APIKey && !IsAPIKey(apiKey), !tgt.APIKey && oauth == nil:
+		return ErrInvalidGrant
 	}
-	s := Switched{To: env.Data.To, Changed: env.Data.Changed}
-	if f := env.Data.Follow; f != nil && *f > 0 {
-		s.Follow = time.Duration(*f * float64(time.Second))
+
+	was, err := h.readLive(b.Vault)
+	if err != nil {
+		return err
 	}
-	return s, nil
+	who, err := b.whose(ctx, was.data)
+	unclaimed := errors.Is(err, errLiveWhose)
+	if err != nil && !unclaimed {
+		return err
+	}
+	if !force && (who != nil && who.Key() == key || tgt.APIKey && b.keyInUse() == key) {
+		return nil
+	}
+	forced := force && who != nil && who.Key() == key
+	if forced {
+		who = nil // the saved login replaces the one in use: the latter isn't kept over it
+	}
+
+	free, err := h.lockAll(ctx)
+	if err != nil {
+		return err
+	}
+	defer free()
+	again, err := h.readLive(b.Vault)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(again.data, was.data) || !bytes.Equal(again.fileData, was.fileData) {
+		return errLiveMoved
+	}
+	if o := oauthOf(was.data); forced && o != nil { // it may be the newer: kept as the previous login
+		prev, err := withOAuth(nil, o)
+		if err == nil {
+			err = b.Vault.Put(ParkPrev, key, prev)
+		}
+		if err != nil {
+			return fmt.Errorf("The login in use could not be kept, so nothing was switched: %w", err)
+		}
+	}
+	conf, err := os.ReadFile(h.ClaudeJSON)
+	if err != nil {
+		return fmt.Errorf("~/.claude.json could not be read: %w", err)
+	}
+	// One way in at a time, as Claude Code's saveApiKey and removeApiKey: an
+	// OAuth login clears the managed key, a key clears the OAuth login (its
+	// MCP sign-ins kept). A managed key the app doesn't hold is added first.
+	prevKey, err := b.managedKey(conf)
+	if err != nil {
+		return err
+	}
+	prevItem, perr := b.Vault.Get(managedService, h.User)
+	if perr != nil && !errors.Is(perr, ErrNotFound) {
+		return perr
+	}
+	if prevKey != "" && b.keyOwner(conf) == "" {
+		if _, err := b.addKeyLocked(prevKey, ""); err != nil {
+			return fmt.Errorf("The API key in use could not be saved, so nothing was switched: %w", err)
+		}
+	}
+	newConf, err := spliceKey(conf, "oauthAccount", tgt.OAuthAccount)
+	if err == nil {
+		newConf, err = dropKey(newConf, "primaryApiKey")
+	}
+	if err == nil && tgt.APIKey && h.FileOnly { // no keychain: Claude Code reads the key from here
+		k, _ := json.Marshal(apiKey)
+		newConf, err = spliceKey(newConf, "primaryApiKey", k)
+	}
+	var newLive []byte
+	if err == nil && tgt.APIKey {
+		if newConf, err = approveKey(newConf, apiKey); err == nil {
+			newLive, err = withoutOAuth(was.data)
+		}
+	} else if err == nil {
+		newLive, err = withOAuth(was.data, oauth)
+	}
+	if err != nil {
+		return err
+	}
+
+	if unclaimed {
+		if err := b.stashLocked(was.data, errLiveWhose.Error()); err != nil {
+			return fmt.Errorf("The login in use could not be kept, so nothing was switched: %w", err)
+		}
+	}
+	if who != nil {
+		mine := oauthAccountOf(conf)
+		if keyOf(mine) != who.Key() {
+			mine = nil
+		}
+		_, err := b.keepLocked(was.data, *who, mine)
+		if err == nil {
+			err = b.save()
+		}
+		if err == nil {
+			saved, gerr := b.Vault.Get(ParkService, who.Key())
+			if gerr != nil || !bytes.Equal(oauthOf(saved), oauthOf(was.data)) {
+				err = errors.Join(gerr, errors.New("it reads back different"))
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("The login in use could not be saved, so nothing was switched: %w", err)
+		}
+	}
+	err = h.writeLive(b.Vault, was, newLive)
+	switch {
+	case err != nil, h.FileOnly:
+	case tgt.APIKey:
+		err = b.Vault.Put(managedService, h.User, []byte(apiKey))
+	default:
+		err = b.Vault.Delete(managedService, h.User)
+	}
+	if err == nil {
+		err = writeAtomic(h.ClaudeJSON, newConf, 0o600)
+	}
+	if err != nil {
+		rerr := h.restoreLive(b.Vault, was)
+		if perr == nil {
+			rerr = errors.Join(rerr, b.Vault.Put(managedService, h.User, prevItem))
+		} else {
+			rerr = errors.Join(rerr, b.Vault.Delete(managedService, h.User))
+		}
+		if rerr != nil {
+			return errRestore
+		}
+		return fmt.Errorf("The switch failed; Claude Code still uses its earlier account: %w", err)
+	}
+	b.inUse = nil
+	b.lastSwitch = b.Now()
+	b.switched++
+	return b.save()
+}
+
+func (b *Book) whose(ctx context.Context, blob []byte) (*Profile, error) {
+	l, err := parseLogin(blob)
+	if err != nil {
+		return nil, nil
+	}
+	if p := b.tokenOwner(l); p != nil {
+		return p, nil
+	}
+	lapsed := l.expiresBy(b.Now())
+	if !lapsed {
+		p, err := b.profileOf(ctx, l.AccessToken)
+		if err == nil {
+			return &p, nil
+		}
+		if !errors.Is(err, ErrUnauthorized) {
+			return nil, err
+		}
+	}
+	// A wrong owner would lose that account's only saved login: the
+	// login's own uuids count only when ~/.claude.json names the same
+	// account.
+	if k := keyOf(oauthOf(blob)); lapsed && k != "" && k == b.Home.accountKey() {
+		if i := slices.IndexFunc(b.added, func(a Account) bool { return a.Key() == k }); i >= 0 {
+			a := b.added[i]
+			if saved, err := b.Vault.Get(ParkService, k); err == nil {
+				if s, err := parseLogin(saved); err == nil && s.ExpiresAt > l.ExpiresAt {
+					return nil, nil
+				}
+			}
+			return &Profile{AccountUUID: a.AccountUUID, Email: a.Email, OrgUUID: a.OrgUUID, OrgName: a.OrgName}, nil
+		}
+	}
+	for _, a := range b.added {
+		saved, err := b.Vault.Get(ParkService, a.Key())
+		if err != nil {
+			continue
+		}
+		if s, err := parseLogin(saved); err == nil && l.RefreshToken != "" && s.RefreshToken == l.RefreshToken {
+			return &Profile{AccountUUID: a.AccountUUID, Email: a.Email, OrgUUID: a.OrgUUID, OrgName: a.OrgName}, nil
+		}
+	}
+	return nil, errLiveWhose
+}
+
+func keyOf(oauthAccount json.RawMessage) string {
+	var o struct {
+		AccountUUID string `json:"accountUuid"`
+		OrgUUID     string `json:"organizationUuid"`
+	}
+	if json.Unmarshal(oauthAccount, &o) != nil || o.AccountUUID == "" {
+		return ""
+	}
+	return o.AccountUUID + "/" + o.OrgUUID
 }

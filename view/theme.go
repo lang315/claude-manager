@@ -43,8 +43,15 @@ func paletteOf(c *ui.Context) *palette {
 
 // applyTheme sets the frame's theme from the palette of the system's
 // appearance and returns that palette.
-func applyTheme(c *ui.Context) *palette {
+func applyTheme(c *ui.Context, theme string) *palette {
 	t := *c.Theme()
+	switch theme { // ui.theme: as macOS unless set
+	case "light":
+		t = *ui.LightTheme()
+	case "dark":
+		t = *ui.DarkTheme()
+	}
+	c.SetTheme(&t)
 	p := paletteOf(c)
 	t.Background = p.panel
 	t.Text, t.TextMuted, t.Border = p.ink, p.muted, p.rule

@@ -26,7 +26,19 @@ back.
 
 A local, read-first tool. It never sends data anywhere, never edits Claude Code
 configuration, and never deletes: everything it removes goes to the macOS Trash,
-and running sessions are protected by checks made again at trash time.
+and running sessions are protected by checks made again at trash time. One
+exception: switching accounts, on the user's click or by auto-switch once the
+user turns it on, writes Claude Code's login and the `oauthAccount` key of
+`~/.claude.json`, after saving the login it replaces. The app also keeps its own
+copy of the login in use, in its own keychain item. Export writes the added
+accounts' logins, unencrypted, to a file the user names, readable by the user only.
+Closing the window keeps the app in the menu bar, reading the accounts' limits
+from Anthropic every 5 minutes, and renewing the added accounts' saved logins
+as they near expiry, until the user quits it.
+Open in Terminal writes a per-account profile folder under the app's own folder,
+whose links point into `~/.claude`. Opening one that kept its own chat history
+moves that history into `~/.claude` first (a copy that clashes with one there is
+parked under the app's `history-conflicts`, never deleted).
 
 ## Operating Context
 

@@ -21,7 +21,7 @@ func rel(t *testing.T, root string, items []Item) []string {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out = append(out, r)
+		out = append(out, filepath.ToSlash(r))
 	}
 	return out
 }

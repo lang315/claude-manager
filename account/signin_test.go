@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lang315/claude-manager/internal/fixture"
 )
 
 const signLink = "https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a&state=abc"
@@ -15,34 +17,17 @@ const signLink = "https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a
 // fakeClaude stands in for `claude auth login --claudeai`. It prints the
 // link wrapped in the terminal's escapes (bold, and an OSC 8 hyperlink)
 // and asks for a code with no newline. On "good" it copies loginFile, if
-// any, to its config folder, as claude falls back to .credentials.json.
+// any, to its config folder, as claude falls back to .credentials.json,
+// and writes bob's oauthAccount in the folder's .claude.json.
 func fakeClaude(t *testing.T, loginFile string) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "claude")
-	script := `#!/bin/sh
-[ "$*" = "auth login --claudeai" ] || { echo "bad args: $*" >&2; exit 2; }
-echo "Opening browser to sign in…"
-printf 'Visit: \033[1m\033]8;;%s\033\\%s\033]8;;\033\\\033[0m\n' "` + signLink + `" "` + signLink + `"
-printf 'Paste code here if prompted > '
-read code
-[ "$code" = "good" ] || { echo "Invalid code" >&2; exit 1; }
-if [ -n '` + loginFile + `' ]; then cp '` + loginFile + `' "$CLAUDE_CONFIG_DIR/.credentials.json"; fi
-echo "Login successful."
-`
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return bin
+	return fixture.FakeClaude(t, fixture.Claude{Link: signLink, Escapes: true, Login: loginFile, OAuthAccount: bobAccount})
 }
 
 // sleepyClaude prints a link, then waits for good.
 func sleepyClaude(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "claude")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"Visit: https://claude.ai/x\"\nexec sleep 30\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return bin
+	return fixture.FakeClaude(t, fixture.Claude{Link: "https://claude.ai/x", Sleep: true})
 }
 
 // signInBook is a book on a fake Anthropic that knows bob's token bob-1.
@@ -109,6 +94,9 @@ func TestSignInAddsTheAccount(t *testing.T) {
 	e := next()
 	if !e.Done || e.Err != nil || e.Account.Email != "bob@example.com" || !e.Account.Added {
 		t.Fatalf("got %+v", e)
+	}
+	if string(e.Account.OAuthAccount) != bobAccount {
+		t.Fatalf("oauthAccount = %s", e.Account.OAuthAccount)
 	}
 	if _, err := v.Get(ParkService, "bob/org-b"); err != nil {
 		t.Fatalf("bob's login was not kept: %v", err)
@@ -231,6 +219,16 @@ func TestLoadRemovesLeftovers(t *testing.T) {
 	if err := v.Put(liveService(left), "me", []byte("x")); err != nil {
 		t.Fatal(err)
 	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(left, old, old); err != nil {
+		t.Fatal(err)
+	}
+	// Another process's sign-in, still going: the command line's first
+	// load must not take it for a leftover.
+	live := filepath.Join(b.Dir, "signin-live")
+	if err := os.MkdirAll(live, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := b.Blocks(); err != nil {
 		t.Fatal(err)
 	}
@@ -240,12 +238,16 @@ func TestLoadRemovesLeftovers(t *testing.T) {
 	if v.Len() != 0 {
 		t.Fatal("its keychain item stays")
 	}
+	if _, err := os.Stat(live); err != nil {
+		t.Fatalf("a sign-in in progress was removed: %v", err)
+	}
 }
 
 func TestSignInEnv(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "leak")
-	env := strings.Join(signInEnv("/d", "/opt/x/bin/claude"), "\n")
-	if !strings.Contains(env, "CLAUDE_CONFIG_DIR=/d") || !strings.Contains(env, "PATH=/opt/x/bin:") || strings.Contains(env, "leak") {
+	dir, bin := filepath.FromSlash("/d"), filepath.FromSlash("/opt/x/bin/claude")
+	env := strings.Join(signInEnv(dir, bin), "\n")
+	if !strings.Contains(env, "CLAUDE_CONFIG_DIR="+dir) || !strings.Contains(env, "PATH="+filepath.Dir(bin)+string(os.PathListSeparator)) || strings.Contains(env, "leak") {
 		t.Fatalf("env:\n%s", env)
 	}
 }

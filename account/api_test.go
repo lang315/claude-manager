@@ -52,6 +52,7 @@ func TestProfile(t *testing.T) {
 	a = apiOn(t, func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"account":{"uuid":"acc","email":"me@example.com","display_name":"Me"},"organization":{"uuid":"org","name":"Acme","rate_limit_tier":"x"}}`)
 	})
+	want.Tier = "x"
 	if got, err := a.Profile(context.Background(), "tok"); err != nil || got != want {
 		t.Fatalf("Profile of the real shape = %+v, %v", got, err)
 	}
@@ -79,10 +80,13 @@ func TestRefusals(t *testing.T) {
 		ok     func(error) bool
 	}{
 		{401, `{"type":"error","error":{"type":"authentication_error","message":"OAuth access token is invalid."}}`, is(ErrUnauthorized)},
-		{403, `{"type":"error","error":{"type":"permission_error","message":"OAuth token does not meet scope requirement user:profile"}}`, is(ErrUnauthorized)},
+		// claude-swap renews on 401 only: a 403 is a refusal, not a lapsed token.
+		{403, `{"type":"error","error":{"type":"permission_error","message":"OAuth token does not meet scope requirement user:profile"}}`, is(ErrForbidden)},
+		{403, `{"type":"error","error":{"type":"permission_error","message":"x","details":{"error_code":"oauth_not_allowed_for_organization"}}}`,
+			refusedWith("x" + orgNote)},
 		{403, `{"type":"error","error":{"type":"permission_error","message":"Verify your account","details":{"error_code":"verification_required"}}}`, refusedWith("Verify your account")},
 		{401, `{"type":"error","error":{"type":"authentication_error","message":"OAuth authentication is currently not allowed for this organization."}}`,
-			refusedWith("OAuth authentication is currently not allowed for this organization.")},
+			refusedWith("OAuth authentication is currently not allowed for this organization." + orgNote)},
 		{500, `{"leak":"SECRET"}`, func(err error) bool { return err.Error() == "Anthropic answered 500." }},
 	} {
 		a := apiOn(t, func(w http.ResponseWriter, r *http.Request) {
@@ -136,6 +140,23 @@ func TestRenew(t *testing.T) {
 	}
 }
 
+// the identity fields are best-effort: a malformed one must not lose the rotated refresh token
+func TestRenewIdentityIsBestEffort(t *testing.T) {
+	for _, c := range []struct{ name, extra, acct, org string }{
+		{"account array", `"account":[]`, "", ""},
+		{"organization string", `"account":{"uuid":"u1"},"organization":"x"`, "u1", ""},
+		{"well formed", `"account":{"uuid":"u1"},"organization":{"uuid":"o1"}`, "u1", "o1"},
+	} {
+		a := apiOn(t, func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, `{"access_token":"new","refresh_token":"rt2","expires_in":60,`+c.extra+`}`)
+		})
+		got, err := a.Renew(context.Background(), login("old", "rt", t0), t0)
+		if err != nil || got.RefreshToken != "rt2" || got.TokenAccount != c.acct || got.TokenOrg != c.org {
+			t.Errorf("%s: Renew = %+v, %v", c.name, got, err)
+		}
+	}
+}
+
 func TestRenewAsTheLoginsClient(t *testing.T) {
 	a := apiOn(t, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]string
@@ -160,6 +181,7 @@ func TestRenewRefusals(t *testing.T) {
 	}{
 		{400, `{"error":"invalid_grant","error_description":"Refresh token not found or invalid"}`, is(ErrInvalidGrant)},
 		{401, `{"error":{"type":"invalid_grant"}}`, is(ErrInvalidGrant)},
+		{403, `{"error":"invalid_grant"}`, is(ErrInvalidGrant)},
 		{400, `{"error":"invalid_grant","error_description":"account_on_hold"}`, refusedWith("Your Anthropic account is on hold.")},
 		{500, `{"access_token":"SECRET"}`, func(err error) bool { return err.Error() == "Anthropic answered 500." }},
 		{200, `{}`, func(err error) bool { return err != nil && !strings.Contains(err.Error(), "SECRET") }},
@@ -171,5 +193,53 @@ func TestRenewRefusals(t *testing.T) {
 		if _, err := a.Renew(context.Background(), login("old", "rt", t0), t0); err == nil || !c.ok(err) {
 			t.Errorf("%d %s: err = %v", c.status, c.body, err)
 		}
+	}
+}
+
+// claude-swap's tls-cert note: a refused certificate says so, not "couldn't reach".
+func TestTLSRefused(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	t.Cleanup(srv.Close)
+	a := NewAPI("test")
+	a.Base = srv.URL
+	if _, err := a.Usage(context.Background(), "tok"); !errors.Is(err, ErrTLS) {
+		t.Errorf("err = %v", err)
+	}
+	a.Base = "http://127.0.0.1:1"
+	if _, err := a.Usage(context.Background(), "tok"); !errors.Is(err, ErrUnreachable) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestStoreNote(t *testing.T) {
+	if StoreNote(func(string) string { return "" }) != "" || StoreNote(func(string) string { return "/x" }) == "" {
+		t.Error("StoreNote")
+	}
+}
+
+// A renewal rotates the refresh token: one cut short by the reads' timeout
+// would spend it unseen. It gets claude-swap's 10 seconds.
+func TestRenewOutwaitsReads(t *testing.T) {
+	a := apiOn(t, func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(150 * time.Millisecond)
+		io.WriteString(w, `{"access_token":"new","expires_in":60,"limits":[]}`)
+	})
+	a.Client.Timeout = 50 * time.Millisecond
+	if _, err := a.Usage(context.Background(), "tok"); err == nil {
+		t.Error("a slow read wasn't cut short")
+	}
+	if got, err := a.Renew(context.Background(), login("old", "rt", t0), t0); err != nil || got.AccessToken != "new" {
+		t.Errorf("Renew = %+v, %v", got, err)
+	}
+}
+
+// A login with no refresh token is not posted: claude-swap's
+// no_refresh_token, as final as a refused one.
+func TestRenewWithoutRefreshToken(t *testing.T) {
+	a := apiOn(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("posted an empty refresh token")
+	})
+	if _, err := a.Renew(context.Background(), login("old", "", t0), t0); !errors.Is(err, ErrInvalidGrant) {
+		t.Fatalf("err = %v", err)
 	}
 }

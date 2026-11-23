@@ -14,7 +14,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -327,10 +326,7 @@ func (sc *UsageScan) refresh(root, path string, open func(string) (*os.File, err
 	if err != nil {
 		return err
 	}
-	var ino uint64
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		ino = st.Ino
-	}
+	ino := inode(info)
 	f := sc.files[path]
 	if f != nil && f.size == info.Size() && f.mtime.Equal(info.ModTime()) {
 		return nil

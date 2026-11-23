@@ -178,5 +178,8 @@ func (a *App) Watch(ctx context.Context, root, claudeJSON string) {
 		a.Update(func() { a.notice = "Live refresh is off: " + err.Error() })
 		return
 	}
-	go a.follow(ctx, w, func(string) screens { return configScreen }, refreshEvery)
+	go a.follow(ctx, w, func(string) screens {
+		a.TrayTick() // an outside switch moves the menu bar's check at once, as claude-swap's
+		return configScreen
+	}, refreshEvery)
 }

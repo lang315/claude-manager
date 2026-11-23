@@ -1,0 +1,1463 @@
+// Package cli is Claude Manager from the command line, as claude-swap's
+// cswap: the same accounts, readings and switching as the app, for
+// scripts and cron. `claude-manager <command>` runs one and exits; with no
+// command the app opens.
+package cli
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"io/fs"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/lang315/claude-manager/account"
+	"github.com/lang315/claude-manager/store"
+)
+
+// Exit codes of auto --once, as cswap's: switched, error, nothing to do,
+// blocked (it should move and no account has room).
+const (
+	ok      = 0
+	failed  = 1
+	nothing = 2
+	blocked = 3
+)
+
+// Commands are the commands Run knows; main opens the app for anything
+// else.
+var Commands = []string{"list", "status", "switch", "auto", "add-token", "remove", "purge", "export", "import", "import-usage", "run", "alias", "map", "unmap", "move", "swap", "unclaimed", "add", "disable", "enable", "threshold", "priority", "menubar", "history", "config", "upgrade", "version", "--version", "help", "-h", "--help"}
+
+// verbAliases are cswap's other names for commands.
+var verbAliases = map[string]string{"ls": "list", "rm": "remove", "update": "upgrade"}
+
+// Upgrade installs a newer version of the app, if there is one, and says
+// what it did; main sets it.
+var Upgrade = func(ctx context.Context) (string, error) {
+	return "", errors.New("This build doesn't update itself.")
+}
+
+// Version is the app's, for version.
+var Version = "dev"
+
+// Run runs the command in args (without the program name) on b, writing
+// to out and errs, and returns its exit code.
+func Run(ctx context.Context, args []string, b *account.Book, in io.Reader, out, errs io.Writer) int {
+	if len(args) > 0 && verbAliases[args[0]] != "" {
+		args = append([]string{verbAliases[args[0]]}, args[1:]...)
+	}
+	if len(args) == 0 || !slices.Contains(Commands, args[0]) {
+		fmt.Fprintln(errs, usage)
+		return failed
+	}
+	c := &cmd{b: b, in: in, out: out, errs: errs}
+	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
+	fs.SetOutput(errs)
+	jsonOut := fs.Bool("json", false, "print JSON")
+	dry := fs.Bool("dry-run", false, "auto: say what it would do, switch nothing")
+	once := fs.Bool("once", false, "auto: one check")
+	email := fs.String("email", "", "add-token: the account's label")
+	full := fs.Bool("full", false, "export: a full backup for this Mac")
+	hold := fs.Int("hold", -1, "import: don't read the accounts read on the other Mac for this many seconds (0 lifts a hold)")
+	yes := fs.Bool("yes", false, "purge: really remove every account")
+	noShare := fs.Bool("no-share", false, "run: don't share settings, CLAUDE.md, skills and MCP servers")
+	noHistory := fs.Bool("no-share-history", false, "run: don't share chat history")
+	unset := fs.Bool("unset", false, "alias: take an account's alias away")
+	debug := fs.Bool("debug", false, "print each request made to Anthropic (never a token)")
+	purgeID := fs.String("purge", "", "unclaimed: delete the kept login with this id")
+	slot := fs.Int("slot", 0, "add: the slot to put the account in")
+	aliasFlag := fs.String("alias", "", "add: an alias for the account")
+	strategy := fs.String("strategy", "", "switch: rotate, best or next-available; auto: a strategy for this run")
+	threshold := fs.Float64("threshold", 0, "auto: the five-hour line for this run")
+	weeklyThreshold := fs.Float64("weekly-threshold", 0, "auto: the weekly line for this run")
+	model := fs.String("model", "", "auto: model windows for this run")
+	interval := fs.Float64("interval", 0, "auto: seconds between checks for this run")
+	cooldown := fs.Float64("cooldown", -1, "auto: least seconds between proactive switches for this run")
+	keys := fs.Bool("include-api-key-accounts", false, "auto: fall back on an API key account")
+	tokenStatus := fs.Bool("token-status", false, "list: where each login is and when it lapses")
+	requireSession := fs.Bool("require-session", false, "run: refuse rather than open Claude Code as the account in use")
+	exportAccount := fs.String("account", "", "export: only this account")
+	force := fs.Bool("force", false, "import: replace saved logins even when not older; switch: put the saved login in use even for the account in use")
+	svcStatus := fs.Bool("service-status", false, "menubar: does the app start at login, is auto-switch on")
+	svcInstall := fs.Bool("install-service", false, "menubar: start the app at login")
+	svcUninstall := fs.Bool("uninstall-service", false, "menubar: stop starting the app at login")
+	autoOn := fs.Bool("auto-switch", false, "menubar: turn auto-switch on")
+	autoOff := fs.Bool("no-auto-switch", false, "menubar: turn auto-switch off")
+	shareHistory := fs.Bool("share-history", false, "run: share chat history, whatever run.shareHistory says")
+	if err := fs.Parse(reorder(args[1:])); err != nil {
+		return failed
+	}
+	holdSet := false
+	fs.Visit(func(f *flag.Flag) { holdSet = holdSet || f.Name == "hold" })
+	if holdSet && *hold < 0 { // -1 is "not given": cswap refuses any negative
+		fmt.Fprintln(errs, "--hold must be a non-negative number of seconds")
+		return failed
+	}
+	rest := fs.Args()
+	if slices.Contains(mutating, args[0]) && c.inSessionShell() && !(args[0] == "auto" && *dry) {
+		fmt.Fprintln(errs, "This shell is a terminal opened as an account (its CLAUDE_CONFIG_DIR is a Claude Manager profile): run this from a normal shell.")
+		return failed
+	}
+	if *debug && b.API != nil {
+		b.API.Debug = errs
+	}
+	var err error
+	code := ok
+	switch args[0] {
+	case "help", "-h", "--help":
+		fmt.Fprintln(out, usage)
+	case "version", "--version":
+		fmt.Fprintln(out, "claude-manager", Version)
+	case "alias":
+		err = c.alias(rest, *unset)
+	case "map":
+		err = c.mapDir(rest)
+	case "unmap":
+		err = c.unmap(one(rest))
+	case "config":
+		err = c.config(rest, *jsonOut)
+	case "history":
+		var hs []account.Switched
+		if hs, err = b.Switches(); err == nil {
+			for _, h := range hs {
+				how := "by hand"
+				if h.Auto {
+					how = "auto"
+				}
+				why := ""
+				if h.Auto || h.Why != "by hand" {
+					why = ": " + h.Why
+				}
+				from := h.From
+				if from == "" {
+					from = "(none)"
+				}
+				fmt.Fprintf(out, "%s  %s -> %s  %s%s\n", h.At.Local().Format("2006-01-02 15:04"), from, h.To, how, why)
+			}
+		}
+	case "unclaimed":
+		err = c.unclaimed(*purgeID)
+	case "move", "swap":
+		err = c.reslot(args[0], rest)
+	case "upgrade":
+		var said string
+		if said, err = Upgrade(ctx); err == nil {
+			fmt.Fprintln(out, said)
+		}
+	case "list":
+		if *tokenStatus {
+			var accts []account.Account
+			if accts, err = c.read(ctx); len(accts) > 0 {
+				err = nil
+				c.tokenStatus(accts)
+			}
+			break
+		}
+		err = c.list(ctx, *jsonOut)
+	case "add":
+		err = c.add(ctx, *slot, *aliasFlag, *yes)
+	case "disable", "enable", "threshold", "priority":
+		err = c.tune(args[0], rest, *unset)
+	case "menubar":
+		err = c.menubar(*svcStatus, *svcInstall, *svcUninstall, *autoOn, *autoOff)
+	case "status":
+		err = c.status(ctx, *jsonOut)
+	case "switch":
+		name := one(rest)
+		strat := "direct" // cswap's strategy label: direct for a named account
+		if name == "" {
+			if strat = *strategy; strat != "best" && strat != "next-available" {
+				strat = "rotation"
+			}
+			if *model != "" { // claude-swap's switch --model: its windows count in best and next-available
+				s, _ := c.b.AutoInEffect()
+				s.Model = *model
+				if err = c.b.Override(s); err != nil {
+					break
+				}
+			}
+			var a account.Account
+			a, err = c.pick(ctx, *strategy)
+			var stay *account.Stay
+			if errors.As(err, &stay) { // nothing to gain: said, not failed
+				err = nil
+				if *jsonOut { // cswap's _switch_noop: from and to are the account in use, null when none
+					var ref any
+					accts, _ := c.b.Blocks()
+					if i := slices.IndexFunc(accts, func(x account.Account) bool { return x.InUse }); i >= 0 {
+						var n any
+						if accts[i].Slot > 0 {
+							n = accts[i].Slot
+						}
+						ref = map[string]any{"number": n, "email": accts[i].Email}
+					}
+					err = json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "switched": false, "from": ref, "to": ref, "strategy": strat, "reason": stay.Reason, "message": stay.Message, "warnings": []string{}})
+				} else {
+					fmt.Fprintln(c.out, stay.Message)
+				}
+				break
+			}
+			if err != nil {
+				break
+			}
+			name = a.Key()
+		}
+		err = c.switchTo(ctx, name, strat, *jsonOut, *force)
+	case "auto":
+		if err = c.autoFlags(*threshold, *weeklyThreshold, *model, *strategy, *interval, *cooldown, *keys); err != nil {
+			break
+		}
+		if !*once {
+			err = c.autoLoop(ctx, *dry, *jsonOut)
+			break
+		}
+		code, err = c.auto(ctx, *dry, *jsonOut)
+	case "add-token":
+		err = c.addToken(one(rest), *email, *slot, *yes)
+	case "remove":
+		err = c.remove(one(rest), *yes)
+	case "purge":
+		err = c.purge(*yes)
+	case "export":
+		path := one(rest)
+		var keys []string
+		if *exportAccount != "" {
+			accts, _ := c.b.Blocks()
+			var a account.Account
+			if a, err = find(accts, *exportAccount); err != nil {
+				break
+			}
+			keys = []string{a.Key()}
+		}
+		if path != "-" {
+			err = c.export(path, *full, keys...)
+			break
+		}
+		var done func()
+		if path, done, err = stdioFile(nil); err != nil {
+			break
+		}
+		defer done()
+		if _, _, err = b.Export(path, *full, keys...); err == nil {
+			var f *os.File
+			if f, err = os.Open(path); err == nil {
+				_, err = io.Copy(out, f)
+				f.Close()
+			}
+		}
+	case "import", "import-usage":
+		path := one(rest)
+		if path == "-" {
+			var done func()
+			if path, done, err = stdioFile(in); err != nil {
+				break
+			}
+			defer done()
+		}
+		err = c.importFile(path, *hold, *force, args[0] == "import-usage")
+	case "run":
+		history := !*noHistory
+		if p, perr := b.Prefs(); perr == nil && p.NoShareHistory && !*shareHistory {
+			history = false
+		}
+		err = c.run(rest, account.Share{Setup: !*noShare, History: history}, *requireSession)
+	}
+	if err != nil {
+		if *jsonOut {
+			json.NewEncoder(out).Encode(map[string]any{"schemaVersion": 1, "error": map[string]string{"type": errType(err), "message": err.Error()}})
+		} else {
+			fmt.Fprintln(errs, err)
+		}
+		return failed
+	}
+	if !*jsonOut && !slices.Contains([]string{"upgrade", "version", "--version", "help", "-h", "--help", "menubar", "purge"}, args[0]) {
+		if h := c.updateHint(ctx); h != "" { // cswap's notice after a command
+			fmt.Fprintln(errs, h)
+		}
+	}
+	return code
+}
+
+const usage = `claude-manager <command> [flags]
+
+  list [--json]                    every account and its limits
+  status [--json]                  the account in use
+  switch <email> [--json]          put Claude Code on an added account
+  auto --once [--dry-run] [--json] one auto-switch check (exit 0 switched, 1 error, 2 nothing to do, 3 blocked)
+  add-token <token|-> [--email E]  add a setup-token or a Console API key
+  remove <email>                   remove an added account
+  purge [--yes]                    remove every added account, all app data and the menu bar service; asks first
+  export <file> [--full]           write the added accounts to a file
+  import <file> [--hold SECONDS]   add an export's accounts, or take a readings file (cswap list --json)
+  run [<email>] [folder] [--no-share] [--no-share-history] [--require-session]
+                                   open Claude Code in Terminal as an account; with none
+                                   named, the one mapped to the folder; as the account in
+                                   use when it is that one or none is mapped, unless
+                                   --require-session
+  alias [<email> <name> | <email> --unset]
+                                   a short name for an account, or list them
+  map [<email> [folder]]           map a folder (and those below) to an account, or list
+  unmap [folder]                   take a folder's mapping away
+  config [list | get <key> | set <key> <value> | unset <key> | path]
+                                   settings, by claude-swap's names
+  upgrade                          install a newer version of the app
+  unclaimed [--purge ID]           logins in use kept as nobody's when switched off
+  move <from> <to> | swap <a> <b>  renumber accounts (move swaps when <to> is taken)
+  add [--slot N] [--alias A]       add the account Claude Code is signed in to
+  disable | enable <account>       hold an account out of auto-switch, or put it back
+  threshold [<account> <pct> | <account> --unset]   an account's own line, or list them
+  priority [<account> <tier> | <account> --unset]   an account's tier, or list them
+  switch [--strategy rotate|best|next-available] [--model M]   with no account: the next one;
+                                   best only onto more room than the account in use
+  auto [--once] [--threshold P] [--weekly-threshold P] [--model M] [--strategy S]
+       [--interval S] [--cooldown S] [--include-api-key-accounts]  without --once: every interval until stopped
+  list --token-status              where each login is and when it lapses
+  run <account> [folder] -- <claude args>
+  export - | import -              to stdout, from stdin
+  menubar [--install-service | --uninstall-service | --service-status | --auto-switch | --no-auto-switch]
+  tui | watch | menubar [--foreground]   open the app
+  history                          the recent switches
+  version
+  ls, rm, update                   list, remove, upgrade
+  --debug                          with any command: print each request made to Anthropic
+
+With no command the app opens.`
+
+// reorder puts flags before arguments, so "switch a@b --json" parses.
+func reorder(args []string) []string {
+	var flags, rest []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--": // what follows goes to claude, "--" kept to tell it apart
+			rest = append(rest, args[i:]...)
+			i = len(args)
+		case strings.HasPrefix(a, "-") && a != "-":
+			flags = append(flags, a)
+			if !strings.Contains(a, "=") && takesValue(a) && i+1 < len(args) {
+				flags = append(flags, args[i+1])
+				i++
+			}
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return append(append(flags, "--"), rest...) // its own end of flags, so a -- for claude stays
+}
+
+func takesValue(f string) bool {
+	return slices.Contains([]string{"email", "hold", "purge", "slot", "alias", "strategy", "threshold", "weekly-threshold", "model", "interval", "cooldown", "account"}, strings.TrimLeft(f, "-"))
+}
+
+func one(rest []string) string {
+	if len(rest) == 0 {
+		return ""
+	}
+	return rest[0]
+}
+
+type cmd struct {
+	b         *account.Book
+	in        io.Reader
+	br        *bufio.Reader
+	out, errs io.Writer
+	held      bool // the last auto tick was an idle hold
+}
+
+// find is the account email (or its key) names among accts.
+func find(accts []account.Account, name string) (account.Account, error) {
+	if name == "" {
+		return account.Account{}, errors.New("name an account by its email")
+	}
+	var hits []account.Account
+	for _, a := range accts {
+		if a.Email == name || a.Key() == name || a.Alias != "" && strings.EqualFold(a.Alias, name) || a.Slot != 0 && strconv.Itoa(a.Slot) == name {
+			hits = append(hits, a)
+		}
+	}
+	switch len(hits) {
+	case 0:
+		return account.Account{}, fmt.Errorf("no account %s", name)
+	case 1:
+		return hits[0], nil
+	}
+	return account.Account{}, &ambiguous{hits}
+}
+
+// window is a usage window in cswap's list --json.
+type window struct {
+	Pct      float64  `json:"pct"`
+	ResetsAt string   `json:"resetsAt,omitempty"`
+	Name     string   `json:"name,omitempty"`
+	Used     *float64 `json:"used,omitempty"`
+	Limit    *float64 `json:"limit,omitempty"`
+	Currency string   `json:"currency,omitempty"`
+	// Pace on weekly windows, as cswap's: expectedPct and aheadOfPace once
+	// a day into the week; the projections, for --json only.
+	Expected  *float64 `json:"expectedPct,omitempty"`
+	Ahead     *bool    `json:"aheadOfPace,omitempty"`
+	Exhausted string   `json:"projectedExhaustionAt,omitempty"`
+	Lasts     *bool    `json:"willLastToReset,omitempty"`
+}
+
+type usageJSON struct {
+	FiveHour *window  `json:"fiveHour,omitempty"`
+	SevenDay *window  `json:"sevenDay,omitempty"`
+	Scoped   []window `json:"scoped,omitempty"`
+	Spend    *window  `json:"spend,omitempty"`
+}
+
+// row is an account as cswap's list --json gives it, so cswap
+// import-usage, and this one, take it.
+type row struct {
+	Number      int        `json:"number"`
+	Email       string     `json:"email"`
+	OrgName     string     `json:"organizationName"`
+	OrgUUID     string     `json:"organizationUuid"`
+	IsOrg       bool       `json:"isOrganization"`
+	Alias       string     `json:"alias,omitempty"`
+	Key         string     `json:"key"`
+	Active      bool       `json:"active"`
+	Added       bool       `json:"added"`
+	Status      string     `json:"usageStatus"`
+	FetchedAt   string     `json:"usageFetchedAt,omitempty"`
+	Age         *float64   `json:"usageAgeSeconds,omitempty"`
+	Usage       *usageJSON `json:"usage"`
+	Error       string     `json:"usageError,omitempty"`
+	RetryAt     string     `json:"usageRetryAt,omitempty"`
+	LastGood    *usageJSON `json:"lastGoodUsage,omitempty"`
+	LastGoodAt  string     `json:"lastGoodFetchedAt,omitempty"`
+	LastGoodAge *float64   `json:"lastGoodAgeSeconds,omitempty"`
+	Disabled    bool       `json:"disabled,omitempty"`
+	Threshold   float64    `json:"threshold,omitempty"`
+	LoginExpiry string     `json:"loginExpiresAt,omitempty"`
+	Plan        *planJSON  `json:"plan,omitempty"`
+}
+
+// planJSON is cswap's plan object.
+type planJSON struct {
+	Label     string `json:"label"`
+	Tier      string `json:"tier"`
+	OrgType   string `json:"organizationType,omitempty"`
+	Status    string `json:"subscriptionStatus,omitempty"`
+	Name      string `json:"planDisplayName,omitempty"`
+	Expired   bool   `json:"expired"`
+	FetchedAt string `json:"fetchedAt"`
+}
+
+func stamp(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+func toRow(a account.Account, now time.Time) row {
+	r := row{Number: a.Slot, Email: a.Email, OrgName: a.OrgName, OrgUUID: a.OrgUUID, IsOrg: a.OrgUUID != "", Alias: a.Alias, Key: a.Key(), Active: a.InUse, Added: a.Added,
+		Disabled: a.AutoOff, Threshold: a.Line, LoginExpiry: stamp(a.GoodUntil), Status: usageStatus(a), Error: a.Err}
+	if a.PlanTier != "" {
+		r.Plan = &planJSON{Label: account.PlanLabel(a), Tier: a.PlanTier, OrgType: a.PlanOrg, Status: a.PlanStatus,
+			Name: a.PlanName, Expired: account.PlanLapsed(a), FetchedAt: stamp(a.PlanAt)}
+	}
+	age := now.Sub(a.ReadAt).Seconds()
+	if !a.Usable(now) {
+		// Display-grade, never decision-grade: cswap's lastGood fields.
+		if len(a.Limits) > 0 && !a.ReadAt.IsZero() {
+			r.LastGood, r.LastGoodAt, r.LastGoodAge = usageOf(a), stamp(a.ReadAt), &age
+		}
+		if !a.RetryAt().IsZero() {
+			r.RetryAt = stamp(a.RetryAt())
+		}
+		return r
+	}
+	r.Status, r.Usage, r.Age, r.FetchedAt, r.Error = "ok", usageOf(a), &age, stamp(a.ReadAt), ""
+	return r
+}
+
+func usageOf(a account.Account) *usageJSON {
+	u := &usageJSON{}
+	for _, l := range a.Limits {
+		w := &window{Pct: l.Percent, ResetsAt: stamp(l.ResetsAt)}
+		if e, ahead, ok := l.Pace(a.ReadAt); ok {
+			w.Expected, w.Ahead = &e, &ahead
+			if at, lasts, ok := l.Projection(a.ReadAt); ok {
+				if !at.IsZero() {
+					w.Exhausted = stamp(at)
+				}
+				w.Lasts = &lasts
+			}
+		}
+		switch l.Kind {
+		case "session", "five_hour":
+			u.FiveHour = w
+		case "weekly_all", "seven_day":
+			u.SevenDay = w
+		case "weekly_scoped":
+			w.Name = l.Scope
+			u.Scoped = append(u.Scoped, *w)
+		case "extra_usage":
+			used, limit := l.Used, l.Cap
+			w.Used, w.Limit, w.Currency = &used, &limit, l.Currency
+			u.Spend = w
+		}
+	}
+	return u
+}
+
+// read refreshes the readings and lists the accounts by slot, as cswap's
+// list; the account in use when not added comes first, numberless.
+func (c *cmd) read(ctx context.Context) ([]account.Account, error) {
+	accts, err := c.b.Refresh(ctx, false)
+	slices.SortStableFunc(accts, func(x, y account.Account) int { return x.Slot - y.Slot })
+	return accts, err
+}
+
+func (c *cmd) list(ctx context.Context, asJSON bool) error {
+	accts, err := c.read(ctx)
+	if err != nil && len(accts) == 0 {
+		return err
+	}
+	if n := account.StoreNote(os.Getenv); n != "" {
+		fmt.Fprintln(c.errs, n)
+	}
+	now := c.b.Now()
+	if asJSON {
+		doc := map[string]any{"schemaVersion": 1, "activeAccountNumber": nil}
+		var rows []row
+		for _, a := range accts {
+			if a.Email == "" {
+				continue // a login nobody could be named for: an importer refuses a row without an email
+			}
+			r := toRow(a, now)
+			if r.Active && r.Number > 0 {
+				doc["activeAccountNumber"] = r.Number
+			}
+			rows = append(rows, r)
+		}
+		doc["accounts"] = rows
+		var dup, lock []string // cswap adds each array only when it has a warning
+		for _, d := range c.b.Duplicates() {
+			dup = append(dup, d[0]+" and "+d[1]+" hold the same login")
+		}
+		for _, d := range lockstep(accts) {
+			lock = append(lock, d[0]+" and "+d[1]+" report identical usage and resets")
+		}
+		if dup != nil {
+			doc["duplicateAccountWarnings"] = dup
+		}
+		if lock != nil {
+			doc["lockstepUsageWarnings"] = lock
+		}
+		return json.NewEncoder(c.out).Encode(doc)
+	}
+	w := bufio.NewWriter(c.out)
+	defer w.Flush()
+	if !slices.ContainsFunc(accts, func(a account.Account) bool { return a.Added }) {
+		fmt.Fprintln(w, "No accounts are added yet: claude-manager add adds the one Claude Code uses; Add Account in the app signs in to another.")
+	}
+	for _, a := range accts {
+		fmt.Fprintln(w, listHead(a))
+		for _, r := range listRows(a, now) {
+			fmt.Fprintln(w, "    "+r)
+		}
+	}
+	for _, d := range c.b.Duplicates() {
+		fmt.Fprintf(w, "Warning: %s and %s hold the same login: one renewing it spends the other's.\n", d[0], d[1])
+	}
+	for _, d := range lockstep(accts) {
+		fmt.Fprintf(w, "Warning: %s and %s report identical usage and resets: they may be one account under two names.\n", d[0], d[1])
+	}
+	if s, err := c.b.AutoSettings(); err == nil {
+		if u := s.Unseen(accts); len(u) > 0 {
+			fmt.Fprintf(c.errs, "autoswitch.model: %s matches no account's windows: only the 5h and 7d limits count for it (typo?).\n", strings.Join(u, ", "))
+		}
+	}
+	c.instances(w)
+	return nil
+}
+
+func (c *cmd) instances(w io.Writer) {
+	if Instances == nil {
+		return
+	}
+	if ins := Instances(); len(ins) > 0 {
+		fmt.Fprintln(w, "Running instances:")
+		for _, in := range ins {
+			where := in.Folder
+			if in.Profile != "" {
+				where += " (a terminal's profile)"
+			}
+			fmt.Fprintf(w, "  %-8s %s\n", in.Kind, where)
+		}
+	}
+}
+
+// statusActive is cswap's status "active": managed sits inside it, and an
+// unmanaged account is only its email.
+func statusActive(a account.Account, now time.Time) map[string]any {
+	if !a.Added {
+		return map[string]any{"email": a.Email, "managed": false}
+	}
+	b, _ := json.Marshal(toRow(a, now))
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	m["managed"] = true
+	return m
+}
+
+func (c *cmd) status(ctx context.Context, asJSON bool) error {
+	accts, err := c.read(ctx)
+	if err != nil && len(accts) == 0 {
+		return err
+	}
+	i := slices.IndexFunc(accts, func(a account.Account) bool { return a.InUse })
+	managed := 0
+	for _, a := range accts {
+		if a.Added {
+			managed++
+		}
+	}
+	if asJSON {
+		doc := map[string]any{"schemaVersion": 1, "active": nil}
+		if i >= 0 && accts[i].Email != "" {
+			doc["active"] = statusActive(accts[i], c.b.Now())
+			if accts[i].Added { // cswap: the total only for a managed account
+				doc["totalManagedAccounts"] = managed
+			}
+		}
+		return json.NewEncoder(c.out).Encode(doc)
+	}
+	switch {
+	case i < 0 || accts[i].Email == "":
+		fmt.Fprintln(c.out, "Not signed in to Claude Code.")
+	default: // cswap's status: the account and its usage
+		head := strings.TrimSpace(listHead(accts[i]))
+		if !accts[i].Added {
+			head += " (not managed)"
+		}
+		fmt.Fprintln(c.out, "Status: "+strings.TrimPrefix(head, "* "))
+		for _, r := range listRows(accts[i], c.b.Now()) {
+			fmt.Fprintln(c.out, "    "+r)
+		}
+	}
+	fmt.Fprintf(c.out, "Total managed accounts: %d\n", managed)
+	c.instances(c.out)
+	return nil
+}
+
+// Instances lists the running Claude Codes for status; main sets it.
+var Instances func() []store.Instance
+
+func (c *cmd) inUse() string {
+	accts, _ := c.b.Blocks()
+	if i := slices.IndexFunc(accts, func(a account.Account) bool { return a.InUse }); i >= 0 {
+		return accts[i].Email
+	}
+	return ""
+}
+
+func (c *cmd) switchTo(ctx context.Context, name, strategy string, asJSON, force bool) error {
+	accts, _ := c.b.Blocks()
+	a, err := c.pickOne(accts, name, "switch to")
+	if err != nil {
+		return err
+	}
+	from := c.inUse()
+	var fromN any
+	if i := slices.IndexFunc(accts, func(x account.Account) bool { return x.InUse }); i >= 0 && accts[i].Slot > 0 {
+		fromN = accts[i].Slot
+	}
+	var toN any
+	if a.Slot > 0 {
+		toN = a.Slot
+	}
+	if a.InUse && !force { // cswap's _switch_noop; --json says it too
+		if asJSON {
+			ref := map[string]any{"number": toN, "email": a.Email}
+			return json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "switched": false, "from": ref, "to": ref, "strategy": strategy,
+				"reason": "already-active", "message": fmt.Sprintf("Already on Account-%v (%s)", toN, a.Email), "warnings": []string{}})
+		}
+		fmt.Fprintf(c.out, "Already on %s. switch --force puts its saved login in use.\n", a.Email)
+		return nil
+	}
+	kept, _ := c.b.UnclaimedLogins()
+	sw := c.b.Switch
+	if force {
+		sw = c.b.SwitchForce
+	}
+	if err := sw(ctx, a.Key()); err != nil {
+		return err
+	}
+	if asJSON {
+		reason, msg := "switched", "Switched to"
+		if from == a.Email {
+			reason, msg = "already-active", "Already on" // cswap's _switch_result_from_op: from == to
+			if force {                                   // the stored login was really put in use
+				reason, msg = "activated", "Activated"
+			}
+		}
+		msg = fmt.Sprintf("%s Account-%v (%s)", msg, toN, a.Email)
+		if reason == "activated" {
+			msg += " from stored backup"
+		}
+		return json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "switched": from != a.Email, "strategy": strategy, "reason": reason,
+			"message": msg, "warnings": []string{},
+			"from": map[string]any{"number": fromN, "email": from}, "to": map[string]any{"number": toN, "email": a.Email}})
+	}
+	if now, _ := c.b.UnclaimedLogins(); len(now) > len(kept) {
+		fmt.Fprintln(c.errs, "Claude Code's sign-in named no added account; it was kept as unclaimed (claude-manager unclaimed).")
+	}
+	hint := restartHint
+	if c.b.Home != nil && c.b.Home.FileOnly { // no keychain cache to wait out
+		hint = fileHint
+	}
+	fmt.Fprintf(c.out, "Switched to %s.\n%s\n", a.Email, hint)
+	return nil
+}
+
+func (c *cmd) auto(ctx context.Context, dry, asJSON bool) (int, error) {
+	if _, err := c.read(ctx); err != nil {
+		return failed, err
+	}
+	from := c.inUse()
+	d, err := c.b.Once(ctx, dry)
+	if err != nil {
+		return failed, err
+	}
+	if s, serr := c.b.AutoInEffect(); serr == nil { // --model's names too
+		accts, _ := c.b.Blocks()
+		if u := s.Unseen(accts); len(u) > 0 {
+			fmt.Fprintf(c.errs, "autoswitch.model: %s matches no account's windows (typo?).\n", strings.Join(u, ", "))
+		}
+	}
+	c.held = d.Hold
+	code := nothing
+	switch {
+	case d.To != "" && !dry:
+		code = ok
+	case d.Blocked:
+		code = blocked
+	}
+	if asJSON {
+		return code, c.autoEvents(d, from, dry)
+	}
+	switch {
+	case d.To != "" && dry:
+		fmt.Fprintf(c.out, "Would switch to %s: %s.\n", d.Email, d.Why)
+	case d.To != "":
+		fmt.Fprintf(c.out, "Switched to %s: %s.\n", d.Email, d.Why)
+	default:
+		fmt.Fprintln(c.out, d.Why)
+	}
+	return code, nil
+}
+
+func (c *cmd) addToken(token, email string, slot int, yes bool) error {
+	if token == "-" || token == "" {
+		line, err := c.reader().ReadString('\n')
+		if err != nil && line == "" {
+			return errors.New("give a token, or - and the token on stdin")
+		}
+		token = line
+	}
+	token = strings.TrimSpace(token)
+	var a account.Account
+	var err error
+	if account.IsAPIKey(token) {
+		a, err = c.b.AddAPIKey(token, email)
+	} else {
+		a, err = c.b.AddToken(token, email)
+	}
+	if err != nil {
+		return err
+	}
+	if slot > 0 {
+		accts, _ := c.b.Blocks()
+		i := slices.IndexFunc(accts, func(x account.Account) bool { return x.Key() == a.Key() })
+		if j := slices.IndexFunc(accts, func(x account.Account) bool { return x.Slot == slot && x.Key() != a.Key() }); j >= 0 && !yes &&
+			!c.ask(fmt.Sprintf("Slot %d holds %s: move it to slot %d?", slot, accts[j].Email, accts[i].Slot), false) {
+			fmt.Fprintf(c.out, "Added %s in slot %d.\n", a.Email, accts[i].Slot)
+			return nil
+		}
+		if err := c.b.Move(accts[i].Slot, slot); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(c.out, "Added %s.\n", a.Email)
+	return nil
+}
+
+func (c *cmd) remove(name string, yes bool) error {
+	accts, _ := c.b.Blocks()
+	a, err := c.pickOne(slices.DeleteFunc(accts, func(a account.Account) bool { return !a.Added }), name, "remove")
+	if err != nil {
+		return err
+	}
+	if a.InUse {
+		fmt.Fprintf(c.errs, "%s is the account Claude Code uses: in its default folder the app adds it again at the next refresh.\n", a.Email)
+	}
+	if !yes && !c.ask(fmt.Sprintf("Remove %s for good? Its saved login leaves the keychain (it stays valid at Anthropic until it lapses).", a.Email), false) {
+		return errors.New("nothing removed")
+	}
+	if err := c.b.Remove(a.Key()); err != nil {
+		return err
+	}
+	fmt.Fprintf(c.out, "Removed %s.\n", a.Email)
+	return nil
+}
+
+func (c *cmd) purge(yes bool) error {
+	// cswap's _quarantined_history_files: the losing halves of collided transcripts may be the only copy
+	parked := filepath.Join(c.b.Dir, "history-conflicts")
+	files := 0
+	_ = filepath.WalkDir(parked, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			files++
+		}
+		return nil
+	})
+	warn := func(w io.Writer) {
+		if files > 0 {
+			fmt.Fprintf(w, "  - %d quarantined conversation transcript(s) in %s\n    These are the ONLY remaining copy of the losing half of each collided\n    session: history migration parked them here rather than deleting them.\n    Copy them somewhere else first if you want them.\n", files, parked)
+		}
+	}
+	if yes {
+		warn(c.errs)
+	} else { // cswap lists what goes and asks; --yes is for scripts
+		fmt.Fprintf(c.out, "This will remove:\n  - Data folder: %s\n  - Every added account's saved logins, the unclaimed logins and the terminal profiles with their keychain items\n", c.b.Dir)
+		if goos == "darwin" {
+			fmt.Fprintln(c.out, "  - The menu bar start-at-login service and its log")
+		}
+		warn(c.out)
+		fmt.Fprintln(c.out, "Claude Code's own login stays.")
+		if !c.ask("Are you sure you want to purge all data?", false) {
+			fmt.Fprintln(c.out, "Cancelled")
+			return nil
+		}
+	}
+	n, err := c.b.Purge()
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(c.out, "Removed %d accounts, their saved logins, the unclaimed logins and the terminal profiles. Claude Code's own login stays.\n", n)
+	if goos == "darwin" { // cswap's purge also takes the menu bar LaunchAgent, after purge() so a refusal leaves it
+		if err := uninstallService(); err != nil {
+			fmt.Fprintf(c.errs, "Menu bar service not removed: %v\n", err)
+		}
+	}
+	return nil
+}
+
+func (c *cmd) export(path string, full bool, keys ...string) error {
+	if path == "" {
+		return errors.New("name the file to export to")
+	}
+	n, left, err := c.b.Export(path, full, keys...)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(c.out, "Exported %d accounts to %s", n, path)
+	if left > 0 {
+		fmt.Fprintf(c.out, " (left out %d)", left)
+	}
+	fmt.Fprintln(c.out, ". It holds sign-ins, unencrypted: keep it private and delete it after import.")
+	return nil
+}
+
+func (c *cmd) importFile(path string, hold int, force, usageOnly bool) error {
+	if path == "" {
+		return errors.New("name the file to import")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if usageOnly || account.IsReadings(data) { // ImportUsage refuses what isn't readings
+		got, err := c.b.ImportUsage(path, time.Duration(hold)*time.Second)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(c.out, "Readings: %d taken, %d kept, %d skipped.\n", got.Adopted, got.Kept, got.Skipped)
+		return nil
+	}
+	got, err := c.b.ImportWith(path, force)
+	if err != nil {
+		return err
+	}
+	fmt.Fprint(c.errs, got.Warnings) // cswap's _eprint of a dropped alias
+	fmt.Fprintf(c.out, "Added %d, updated %d, left %d.\n", got.Added, got.Updated, got.Skipped)
+	return nil
+}
+
+func (c *cmd) run(rest []string, share account.Share, requireSession bool) error {
+	var forward []string
+	if i := slices.Index(rest, "--"); i >= 0 {
+		rest, forward = rest[:i], rest[i+1:]
+	}
+	accts, _ := c.b.Blocks()
+	name, folder := one(rest), "."
+	if len(rest) > 1 {
+		folder = rest[1]
+	} else if _, ferr := find(accts, name); ferr != nil && isDir(name) {
+		name, folder = "", name // run <folder>: its mapped account; an account's name wins
+	}
+	folder, err := absPath(folder)
+	if err != nil {
+		return err
+	}
+	if name == "" {
+		key, _, err := c.b.Mapped(folder)
+		if err != nil {
+			return err
+		}
+		if key == "" {
+			if requireSession {
+				return fmt.Errorf("No account is mapped to %s: name an account.", folder)
+			}
+			return c.runDefault("", folder, fmt.Sprintf("No account is mapped to %s", folder), share, forward)
+		}
+		name = key
+		if _, err := find(accts, name); err != nil && !requireSession {
+			return c.runDefault("", folder, "The account mapped to "+folder+" is no longer added", share, forward)
+		}
+	}
+	a, err := find(accts, name)
+	if err != nil {
+		return err
+	}
+	if c.b.InUseSignedOut(a.Key()) { // cswap's notice, before the launch from the profile
+		fmt.Fprintf(c.out, "%s is the default login, but that login holds no usable token; launching from the stored login in a session profile.\n", a.Email)
+	}
+	if err := c.b.Run(a.Key(), folder, share, forward...); errors.Is(err, account.ErrRunInUse) && !requireSession {
+		return c.runDefault(a.Key(), folder, a.Email+" is the account in use", share, forward)
+	} else if err != nil {
+		return err
+	}
+	fmt.Fprintf(c.out, "Opened Claude Code in Terminal as %s.\n", a.Email)
+	return nil
+}
+
+func absPath(p string) (string, error) { return filepath.Abs(p) }
+
+func isDir(p string) bool {
+	if p == "" {
+		return false
+	}
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
+}
+
+func (c *cmd) alias(rest []string, unset bool) error {
+	accts, _ := c.b.Blocks()
+	if len(rest) == 0 {
+		for _, a := range accts {
+			if a.Alias != "" {
+				fmt.Fprintf(c.out, "%s\t%s\n", a.Alias, a.Email)
+			}
+		}
+		return nil
+	}
+	a, err := find(accts, rest[0])
+	if err != nil {
+		return err
+	}
+	name := one(rest[1:])
+	switch {
+	case unset:
+		name = ""
+	case name == "":
+		return errors.New("give the alias, or --unset")
+	}
+	if err := c.b.SetAlias(a.Key(), name); err != nil {
+		return err
+	}
+	if name == "" {
+		fmt.Fprintf(c.out, "%s has no alias.\n", a.Email)
+	} else {
+		fmt.Fprintf(c.out, "%s is %s.\n", strings.ToLower(strings.TrimSpace(name)), a.Email)
+	}
+	return nil
+}
+
+func (c *cmd) mapDir(rest []string) error {
+	accts, _ := c.b.Blocks()
+	if len(rest) == 0 {
+		m, err := c.b.Maps()
+		if err != nil {
+			return err
+		}
+		dirs := slices.Sorted(maps.Keys(m))
+		for _, d := range dirs {
+			email := m[d]
+			if i := slices.IndexFunc(accts, func(a account.Account) bool { return a.Key() == m[d] }); i >= 0 {
+				email = accts[i].Email
+			}
+			fmt.Fprintf(c.out, "%s\t%s\n", d, email)
+		}
+		return nil
+	}
+	a, err := find(accts, rest[0])
+	if err != nil {
+		return err
+	}
+	dir := "."
+	if len(rest) > 1 {
+		dir = rest[1]
+	}
+	if dir, err = absPath(dir); err != nil {
+		return err
+	}
+	if err := c.b.Map(a.Key(), dir); err != nil {
+		return err
+	}
+	fmt.Fprintf(c.out, "%s now opens as %s.\n", dir, a.Email)
+	return nil
+}
+
+func (c *cmd) unmap(dir string) error {
+	if dir == "" {
+		dir = "."
+	}
+	dir, err := absPath(dir)
+	if err != nil {
+		return err
+	}
+	ok, err := c.b.Unmap(dir)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("%s is not mapped.", dir)
+	}
+	fmt.Fprintf(c.out, "Unmapped %s.\n", dir)
+	return nil
+}
+
+func (c *cmd) config(rest []string, asJSON bool) error {
+	verb := one(rest)
+	if verb == "" {
+		verb = "list"
+	}
+	all, err := c.b.Settings()
+	if err != nil {
+		return err
+	}
+	get := func(key string) (account.Setting, error) {
+		for _, s := range all {
+			if s.Key == key {
+				return s, nil
+			}
+		}
+		return account.Setting{}, fmt.Errorf("No setting %s: claude-manager config lists them.", key)
+	}
+	switch verb {
+	case "list":
+		if asJSON { // cswap's config --json
+			doc := map[string]any{"schemaVersion": 1, "path": filepath.Join(c.b.Dir, "accounts.json")}
+			list := []map[string]any{}
+			for _, s := range all {
+				list = append(list, map[string]any{"key": s.Key, "value": s.Value, "default": s.Default, "range": s.Range, "isSet": s.IsSet})
+			}
+			doc["settings"] = list
+			doc["unrecognized"] = []any{} // cswap's unrecognized_keys; Go has no unknown keys to report
+			return json.NewEncoder(c.out).Encode(doc)
+		}
+		for _, s := range all {
+			v := s.Value
+			if v == s.Default {
+				v += " (default)"
+			}
+			fmt.Fprintf(c.out, "%-34s %-24s %s\n", s.Key, v, s.Range)
+		}
+	case "get":
+		s, err := get(one(rest[1:]))
+		if err != nil {
+			return err
+		}
+		if asJSON { // cswap's config get --json
+			return json.NewEncoder(c.out).Encode(map[string]any{"schemaVersion": 1, "key": s.Key, "value": s.Value, "isSet": s.IsSet})
+		}
+		fmt.Fprintln(c.out, s.Value)
+	case "set":
+		if len(rest) < 3 {
+			return errors.New("config set <key> <value>")
+		}
+		if strings.TrimSpace(rest[2]) == "" {
+			return fmt.Errorf("config set %s takes a value: config unset %s clears it.", rest[1], rest[1])
+		}
+		if err := c.b.Set(rest[1], rest[2]); err != nil {
+			return err
+		}
+		all, _ = c.b.Settings()
+		if s, err := get(rest[1]); err == nil {
+			fmt.Fprintf(c.out, "%s = %s\n", s.Key, s.Value)
+		}
+	case "unset":
+		if len(rest) < 2 {
+			return errors.New("config unset <key>")
+		}
+		if err := c.b.Set(rest[1], ""); err != nil {
+			return err
+		}
+		all, _ = c.b.Settings()
+		if s, err := get(rest[1]); err == nil {
+			fmt.Fprintf(c.out, "%s unset (default: %s)\n", s.Key, s.Default)
+		}
+	case "path":
+		fmt.Fprintln(c.out, filepath.Join(c.b.Dir, "accounts.json")) // cswap's config path: where the settings live
+	default:
+		return errors.New("config list, get, set, unset or path")
+	}
+	return nil
+}
+
+func slotOf(a account.Account) string {
+	if a.Slot == 0 {
+		return "-"
+	}
+	return strconv.Itoa(a.Slot)
+}
+
+func (c *cmd) reslot(verb string, rest []string) error {
+	if len(rest) != 2 {
+		return fmt.Errorf("%s takes two arguments", verb)
+	}
+	accts, _ := c.b.Blocks()
+	accts = slices.DeleteFunc(accts, func(a account.Account) bool { return !a.Added })
+	slotArg := func(name string) (int, error) { // cswap's _resolve_account_identifier: NUM|EMAIL|ALIAS
+		if n, err := strconv.Atoi(name); err == nil {
+			return n, nil
+		}
+		a, err := c.pickOne(accts, name, verb)
+		return a.Slot, err
+	}
+	x, err := slotArg(rest[0])
+	if err != nil {
+		return err
+	}
+	var y int
+	if verb == "move" { // the target is a number, as cswap's
+		if y, err = strconv.Atoi(rest[1]); err != nil {
+			return fmt.Errorf("move takes an account and a slot number")
+		}
+	} else if y, err = slotArg(rest[1]); err != nil {
+		return err
+	}
+	if verb == "move" {
+		err = c.b.Move(x, y)
+		if err == nil {
+			fmt.Fprintf(c.out, "Moved slot %d to %d.\n", x, y)
+		}
+		return err
+	}
+	err = c.b.Swap(x, y)
+	if err == nil {
+		fmt.Fprintf(c.out, "Swapped slots %d and %d.\n", x, y)
+	}
+	return err
+}
+
+func (c *cmd) unclaimed(purge string) error {
+	if purge != "" {
+		if err := c.b.PurgeUnclaimed(purge); err != nil {
+			return err
+		}
+		fmt.Fprintf(c.out, "Deleted %s. Sign in to its account with /login and Add Account to have it back.\n", purge)
+		return nil
+	}
+	kept, err := c.b.UnclaimedLogins()
+	if err != nil {
+		return err
+	}
+	if len(kept) == 0 {
+		fmt.Fprintln(c.out, "No unclaimed logins.")
+	}
+	for _, u := range kept {
+		fmt.Fprintf(c.out, "%s  %s  %s\n", u.ID, u.At.Local().Format("2006-01-02 15:04"), u.Why)
+	}
+	return nil
+}
+
+// runDefault is cswap run's fast path: Claude Code as the account in use,
+// in its own folder, for a folder mapped to nobody or a run as the account
+// in use (--require-session refuses instead).
+func (c *cmd) runDefault(key, folder, why string, share account.Share, args []string) error {
+	note, err := c.b.RunDefault(key, folder, share, args...)
+	if err != nil {
+		return err
+	}
+	if note != "" {
+		fmt.Fprintln(c.out, "   "+note)
+	}
+	fmt.Fprintf(c.out, "%s: opened Claude Code in Terminal as the account in use.\n", why)
+	return nil
+}
+
+// listHead is an account's first line in list: in use, slot, email, alias,
+// tag, plan, and (disabled) when held out of auto-switch.
+func listHead(a account.Account) string {
+	mark := " "
+	if a.InUse {
+		mark = "*"
+	}
+	plan := account.PlanLabel(a)
+	if account.PlanLapsed(a) {
+		plan = "Free (lapsed)"
+	}
+	if plan != "" {
+		plan = " · " + plan
+	}
+	alias := ""
+	if a.Alias != "" {
+		alias = " (" + a.Alias + ")"
+	}
+	off := ""
+	if a.AutoOff {
+		off = " (disabled)"
+	}
+	return fmt.Sprintf("%s %2s %s%s [%s]%s%s", mark, slotOf(a), a.Email, alias, tag(a), plan, off)
+}
+
+// listRows are an account's rows in list, as cswap's: each window with
+// its reset clock and countdown, (ahead of pace) and (!) at 100, extra
+// usage in money, the reading's age when it isn't fresh, the last good
+// reading when a read failed, and when the login lapses.
+func listRows(a account.Account, now time.Time) []string {
+	var out []string
+	usable := a.Usable(now)
+	if !usable && a.Err != "" && len(a.Limits) > 0 && !a.ReadAt.IsZero() {
+		p, _ := account.Fullest(a)
+		out = append(out, fmt.Sprintf("last seen %.0f%% used · %s ago", p, ago(now.Sub(a.ReadAt))))
+	}
+	for _, l := range a.Limits {
+		if !usable && a.Err != "" {
+			break
+		}
+		body := fmt.Sprintf("%3.0f%%", l.Percent)
+		if l.Kind == "extra_usage" && l.Cap > 0 {
+			body += fmt.Sprintf("   %s / %s", money(l.Used, l.Currency), money(l.Cap, l.Currency))
+		}
+		if !l.ResetsAt.IsZero() {
+			body += fmt.Sprintf("   resets %-12s  in %s", clock(l.ResetsAt, now), ago(l.ResetsAt.Sub(now)))
+		}
+		if _, ahead, ok := l.Pace(a.ReadAt); ok && ahead {
+			body += " (ahead of pace)"
+		}
+		if l.Percent >= 100 || l.Refused {
+			body += " (!)"
+		}
+		out = append(out, fmt.Sprintf("%-22s %s", l.Label()+":", body))
+	}
+	if usable && now.Sub(a.ReadAt) >= time.Minute {
+		out = append(out, "read "+ago(now.Sub(a.ReadAt))+" ago")
+	}
+	if a.Err != "" {
+		out = append(out, a.Err)
+	}
+	if !a.GoodUntil.IsZero() {
+		if a.GoodUntil.After(now) {
+			out = append(out, fmt.Sprintf("%-22s expires %-12s  in %s", "login:", clock(a.GoodUntil, now), ago(a.GoodUntil.Sub(now))))
+		} else {
+			out = append(out, fmt.Sprintf("%-22s expired %-12s  re-login needed", "login:", clock(a.GoodUntil, now)))
+		}
+	}
+	return out
+}
+
+// clock is t as a wall clock: the time today, else the date too.
+func clock(t, now time.Time) string {
+	t = t.Local()
+	if y, m, d := t.Date(); y == now.Local().Year() && m == now.Local().Month() && d == now.Local().Day() {
+		return t.Format("15:04")
+	}
+	return t.Format("Jan 2 15:04")
+}
+
+// ago is a duration as cswap's countdowns: 5d 12h, 2h 13m, 12m, 30s.
+func ago(d time.Duration) string {
+	d = max(d, 0).Round(time.Second)
+	switch {
+	case d >= 24*time.Hour:
+		return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
+	case d >= time.Hour:
+		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+	case d >= time.Minute:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%ds", int(d.Seconds()))
+}
+
+func money(v float64, currency string) string {
+	if currency == "" || currency == "USD" {
+		return fmt.Sprintf("$%.2f", v)
+	}
+	return fmt.Sprintf("%.2f %s", v, currency)
+}
+
+// lockstep pairs the added accounts whose 5h and 7d windows read the same
+// use and resets (cswap's _lockstep_usage_warnings): one account added
+// twice, or a login that drifted to another.
+func lockstep(accts []account.Account) [][2]string {
+	type row struct {
+		email          string
+		s, w           float64
+		sReset, wReset time.Time
+	}
+	var rows []row
+	for _, a := range accts {
+		if !a.Added {
+			continue
+		}
+		r, hs, hw := row{email: a.Email}, false, false
+		for _, l := range a.Limits {
+			if l.ResetsAt.IsZero() { // two fresh accounts at 0% match without being one
+				continue
+			}
+			switch l.Kind {
+			case "session", "five_hour":
+				r.s, r.sReset, hs = l.Percent, l.ResetsAt, true
+			case "weekly_all", "seven_day":
+				r.w, r.wReset, hw = l.Percent, l.ResetsAt, true
+			}
+		}
+		if hs && hw {
+			rows = append(rows, r)
+		}
+	}
+	near := func(a, b time.Time) bool { return a.Sub(b).Abs() <= 5*time.Second } // _LOCKSTEP_RESET_TOLERANCE_S
+	var out [][2]string
+	for i, r := range rows {
+		for _, o := range rows[:i] {
+			if r.s == o.s && r.w == o.w && near(r.sReset, o.sReset) && near(r.wReset, o.wReset) {
+				out = append(out, [2]string{o.email, r.email})
+				break // one warning per slot, as cswap's
+			}
+		}
+	}
+	return out
+}
+
+// usageStatus is cswap's usageStatus for an account without a usable
+// reading: why there is none.
+func usageStatus(a account.Account) string {
+	switch {
+	case a.APIKey:
+		return "api_key"
+	case a.Err == account.LiveExpired, a.Err == account.InTerminalExpired:
+		return "token_expired" // its holder renews it on the next message
+	case a.Err == account.ErrInvalidGrant.Error():
+		return "relogin_required"
+	case a.Err == account.ErrLocked.Error(), a.Err == account.ErrKeychainSlow.Error():
+		return "keychain_unavailable"
+	}
+	return "unavailable"
+}
+
+// errType is cswap's error.type for --json: what kind of failure.
+func errType(err error) string {
+	var refused *account.Refused
+	switch {
+	case errors.Is(err, account.ErrUnreachable), errors.Is(err, account.ErrTLS):
+		return "network"
+	case errors.Is(err, account.ErrInvalidGrant), errors.Is(err, account.ErrUnauthorized), errors.As(err, &refused):
+		return "auth"
+	case errors.Is(err, account.ErrLocked), errors.Is(err, account.ErrKeychainSlow):
+		return "keychain"
+	}
+	return "error"
+}
+
+// autoEvents writes auto --once's JSON lines, as cswap auto --json: a poll
+// event with every account's readings, then switch, no-switch or
+// all-exhausted.
+func (c *cmd) autoEvents(d account.Decision, from string, dry bool) error {
+	accts, _ := c.b.Blocks()
+	s, _ := c.b.AutoInEffect()
+	now := c.b.Now()
+	ts := now.UTC().Format(time.RFC3339)
+	ref := func(email string) map[string]any {
+		r := map[string]any{"number": nil, "email": email}
+		if i := slices.IndexFunc(accts, func(a account.Account) bool { return a.Email == email }); i >= 0 && accts[i].Slot > 0 {
+			r["number"] = accts[i].Slot
+		}
+		return r
+	}
+	poll := map[string]any{"schemaVersion": 1, "event": "poll", "ts": ts, "active": nil, "threshold": s.Line}
+	if s.WeeklyLine != 0 {
+		poll["weeklyThreshold"] = s.WeeklyLine
+	}
+	if from != "" { // the account in use when the tick polled, before any switch
+		poll["active"] = ref(from)
+	}
+	headroom, windows, errs := map[string]any{}, map[string]map[string]float64{}, map[string]string{}
+	for _, a := range accts {
+		if !a.Added && !a.InUse || a.Email == "" {
+			continue
+		}
+		n := fmt.Sprint(a.Slot)
+		if a.InUse && from == "" {
+			poll["active"] = ref(a.Email)
+		}
+		if p, ok := account.Fullest(a); ok && a.Usable(now) {
+			headroom[n] = 100 - p
+			w := map[string]float64{}
+			for _, l := range a.Limits {
+				w[l.Label()] = l.Percent
+			}
+			windows[n] = w
+		} else {
+			headroom[n] = nil
+			if a.Err != "" {
+				errs[n] = usageStatus(a)
+			}
+		}
+	}
+	poll["headroomPct"], poll["windowsPct"] = headroom, windows
+	if len(errs) > 0 {
+		poll["fetchErrors"] = errs
+	}
+	enc := json.NewEncoder(c.out)
+	if err := enc.Encode(poll); err != nil {
+		return err
+	}
+	switch {
+	case d.To != "":
+		return enc.Encode(map[string]any{"schemaVersion": 1, "event": "switch", "ts": ts, "trigger": d.Trigger(),
+			"from": ref(from), "to": ref(d.Email), "warnings": []string{}, "dryRun": dry, "detail": d.Why})
+	case d.Blocked:
+		return enc.Encode(map[string]any{"schemaVersion": 1, "event": "all-exhausted", "ts": ts, "detail": d.Why})
+	}
+	return enc.Encode(map[string]any{"schemaVersion": 1, "event": "no-switch", "ts": ts, "reason": noSwitchReason(d.Why), "detail": d.Why})
+}
+
+// noSwitchReason is cswap's no-switch reason code for a stay.
+func noSwitchReason(why string) string {
+	for prefix, code := range map[string]string{
+		"The account in use is under its lines": "below-threshold",
+		"Waiting out the cooldown":              "cooldown",
+		"Waiting after a failed switch":         "cooldown",
+		"Waiting for a fresh reading":           "active-usage-unknown",
+		"The account in use can't be read":      "active-usage-unknown",
+		"The account in use reports no limits":  "active-usage-unknown",
+		"An API key is in use":                  "active-api-key",
+		"Not signed in":                         "no-active-account",
+		"Claude Code's sign-in has lapsed":      "idle-hold",
+		"No account is ahead":                   "no-qualifying-candidate",
+		"No account with a fresh reading":       "no-comparison",
+	} {
+		if strings.HasPrefix(why, prefix) {
+			return code
+		}
+	}
+	return "no-action"
+}

@@ -4,8 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMemoryVault(t *testing.T) {
@@ -38,6 +40,9 @@ func TestMemoryVault(t *testing.T) {
 // and stdin in its folder, then runs then.
 func fakeSecurity(t *testing.T, then string) (Keychain, string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the keychain is macOS's: windows keeps logins in a file")
+	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "security")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + dir + "/args'\ncat > '" + dir + "/stdin'\n" + then + "\n"
@@ -102,7 +107,7 @@ func TestKeychainPutUsesStdin(t *testing.T) {
 	if args := readFile(t, dir+"/args"); args != "-i\n" {
 		t.Fatalf("args = %q: the secret must not be on the command line", args)
 	}
-	want := "add-generic-password -U -s claude-manager-park -a acc/org -X 736563726574\n"
+	want := "add-generic-password -U -s \"claude-manager-park\" -a \"acc/org\" -X 736563726574\n"
 	if in := readFile(t, dir+"/stdin"); in != want {
 		t.Fatalf("stdin = %q, want %q", in, want)
 	}
@@ -120,9 +125,81 @@ func TestKeychainPutFailsOnStderr(t *testing.T) {
 	}
 }
 
-func TestKeychainPutRefusesSpaces(t *testing.T) {
-	k, _ := fakeSecurity(t, ":")
-	if err := k.Put("two words", "a", []byte("x")); err == nil {
-		t.Fatal("Put took a service with a space")
+// Claude Code's own item has a space in its service: security -i splits
+// its line as a shell would, so names are quoted.
+func TestKeychainPutQuotes(t *testing.T) {
+	k, dir := fakeSecurity(t, ":")
+	if err := k.Put("Claude Code-credentials", `me"\`, []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	want := `add-generic-password -U -s "Claude Code-credentials" -a "me\"\\" -X 78` + "\n"
+	if in := readFile(t, dir+"/stdin"); in != want {
+		t.Fatalf("stdin = %q, want %q", in, want)
+	}
+	if err := k.Put("a\nb", "a", []byte("x")); err == nil {
+		t.Fatal("Put took a service with a newline")
+	}
+}
+
+func TestKeychainPutTooLongUsesArgs(t *testing.T) {
+	k, dir := fakeSecurity(t, ":")
+	secret := strings.Repeat("x", 3000)
+	if err := k.Put("Claude Code-credentials", "me", []byte(secret)); err != nil {
+		t.Fatal(err)
+	}
+	args := readFile(t, dir+"/args")
+	if !strings.HasPrefix(args, "add-generic-password\n-U\n-s\nClaude Code-credentials\n-a\nme\n-X\n") {
+		t.Fatalf("args = %.80q", args)
+	}
+}
+
+// claude-swap's keychain calls: bounded, so a prompt nobody answers can't
+// hold the book, and a read that fails once is tried once more.
+func TestKeychainTimeoutAndRetry(t *testing.T) {
+	was := keychainTimeout
+	keychainTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { keychainTimeout = was })
+	k, _ := fakeSecurity(t, "exec sleep 5")
+	start := time.Now()
+	if _, err := k.Get("s", "a"); err == nil || time.Since(start) > 3*time.Second {
+		t.Errorf("a hung keychain: %v after %v", err, time.Since(start))
+	}
+	keychainTimeout = was // a fresh script is slow to start on macOS
+	k, dir := fakeSecurity(t, `d=$(dirname "$0"); n=$(cat "$d/n" 2>/dev/null || echo 0); echo $((n+1)) > "$d/n"
+[ "$n" -ge 1 ] && { echo ok; exit 0; }
+echo busy >&2; exit 1`)
+	if got, err := k.Get("s", "a"); err != nil || string(got) != "ok" {
+		n, _ := os.ReadFile(filepath.Join(dir, "n"))
+		t.Errorf("retried read: %q %v (tries %s)", got, err, n)
+	}
+}
+
+// claude-swap's _ACTIVE_READ_ATTEMPTS = 2: a read is tried twice in all,
+// a timeout too, and an item that is not there is not tried again.
+func TestKeychainReadAttempts(t *testing.T) {
+	count := `d=$(dirname "$0"); n=$(cat "$d/n" 2>/dev/null || echo 0); echo $((n+1)) > "$d/n"` + "\n"
+	for _, c := range []struct {
+		name, script string
+		slow         bool
+		tries        string
+		ok           bool
+	}{
+		{"fails twice", count + "echo busy >&2; exit 1", false, "2", false},
+		{"hangs once", count + `[ "$n" -ge 1 ] && { echo ok; exit 0; }; exec sleep 5`, true, "2", true},
+		{"hangs twice", count + "exec sleep 5", true, "2", false},
+		{"not found", count + "echo could not be found >&2; exit 44", false, "1", false},
+	} {
+		if c.slow {
+			was := keychainTimeout
+			// Long enough for the stand-in to count itself under load before it is cut.
+			keychainTimeout = time.Second
+			t.Cleanup(func() { keychainTimeout = was })
+		}
+		k, dir := fakeSecurity(t, c.script)
+		got, err := k.Get("s", "a")
+		n, _ := os.ReadFile(filepath.Join(dir, "n"))
+		if (err == nil) != c.ok || strings.TrimSpace(string(n)) != c.tries {
+			t.Errorf("%s: %q %v after %s tries, want %s", c.name, got, err, strings.TrimSpace(string(n)), c.tries)
+		}
 	}
 }

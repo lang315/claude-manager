@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -73,16 +72,10 @@ func (b *Book) SignIn(ctx context.Context, on func(Event)) (*SignIn, error) {
 	if err != nil {
 		return nil, err
 	}
-	timeout := b.SignInTimeout
-	if timeout == 0 {
-		timeout = 10 * time.Minute
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, b.signInTimeout())
 	cmd := exec.CommandContext(ctx, bin, "auth", "login", "--claudeai")
 	cmd.Dir, cmd.Env = dir, signInEnv(dir, bin)
-	// Its own process group, so a cancel also stops what claude started.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	ownGroup(cmd)
 	r, w, err := os.Pipe()
 	if err != nil {
 		cancel()
@@ -186,7 +179,8 @@ func signInEnv(dir, bin string) []string {
 }
 
 // adopt keeps the login claude left for dir: in the keychain item it named
-// after dir, or in dir's .credentials.json.
+// after dir, or in dir's .credentials.json; and the oauthAccount claude
+// wrote in dir's .claude.json.
 func (b *Book) adopt(dir string) (Account, error) {
 	var blob []byte
 	err := ErrNotFound
@@ -209,7 +203,12 @@ func (b *Book) adopt(dir string) (Account, error) {
 	if err != nil {
 		return Account{}, err
 	}
-	return b.keep(l, p)
+	conf, _ := os.ReadFile(filepath.Join(dir, ".claude.json"))
+	acct := oauthAccountOf(conf)
+	if keyOf(acct) != p.Key() {
+		acct = nil
+	}
+	return b.keep(blob, p, acct)
 }
 
 // services are the names claude may give dir's keychain item: from the
@@ -230,11 +229,21 @@ func (b *Book) forget(dir string) {
 	_ = os.RemoveAll(dir)
 }
 
-// cleanLeftovers removes what a sign-in the app did not finish left.
+func (b *Book) signInTimeout() time.Duration {
+	if b.SignInTimeout == 0 {
+		return 10 * time.Minute
+	}
+	return b.SignInTimeout
+}
+
+// cleanLeftovers removes what a sign-in the app did not finish left: one
+// older than a sign-in may run, so not another process's still going.
 func (b *Book) cleanLeftovers() {
 	dirs, _ := filepath.Glob(filepath.Join(b.Dir, "signin-*"))
 	for _, d := range dirs {
-		b.forget(d)
+		if fi, err := os.Stat(d); err == nil && time.Since(fi.ModTime()) > b.signInTimeout() {
+			b.forget(d)
+		}
 	}
 }
 
@@ -258,6 +267,9 @@ func findTool(name, notFound string, places ...string) (string, error) {
 		if p := strings.TrimSpace(lines[len(lines)-1]); filepath.IsAbs(p) {
 			return p, nil
 		}
+	}
+	if p, err := exec.LookPath(name); err == nil && filepath.IsAbs(p) { // no zsh (Windows, some Linux): PATH, as claude-swap's shutil.which
+		return p, nil
 	}
 	for _, p := range places {
 		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {

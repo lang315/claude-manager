@@ -16,6 +16,17 @@ type Limit struct {
 	Scope    string    `json:"scope,omitempty"`   // the model or surface a scoped limit is for
 	Percent  float64   `json:"percent"`           // used, 0 to 100
 	ResetsAt time.Time `json:"resetsAt,omitzero"` // zero where the answer gave none
+
+	// Extra usage (Kind "extra_usage"): the pay-as-you-go credits spent and
+	// the monthly cap, in Currency's units. Never a window auto-switch
+	// weighs, as claude-swap's spend.
+	// Refused: the header probe's 429 rejecting the account, read as 100%
+	// until ResetsAt (claude-swap's "rejected (!)" row).
+	Refused bool `json:"refused,omitempty"`
+
+	Used     float64 `json:"used,omitempty"`
+	Cap      float64 `json:"cap,omitempty"`
+	Currency string  `json:"currency,omitempty"`
 }
 
 // Label names the limit as the Limits page shows it.
@@ -26,11 +37,66 @@ func (l Limit) Label() string {
 		name = "Session (5h)"
 	case "weekly_all", "seven_day", "weekly_scoped":
 		name = "Weekly"
+	case "extra_usage":
+		name = "Extra usage"
 	}
 	if l.Scope != "" {
 		name += " · " + l.Scope
 	}
+	if l.Refused {
+		name += " · refused"
+	}
 	return name
+}
+
+// Pace is claude-swap's weekly pace (pace.py): expected is the share of a
+// weekly window used on schedule, read at readAt, from how far into its
+// 7-day cycle it is; ahead is 15 points or more past it. ok is false for
+// a window that isn't weekly, has no reset, or reset less than a day ago,
+// when nearly any use reads as ahead.
+func (l Limit) Pace(readAt time.Time) (expected float64, ahead, ok bool) {
+	switch l.Kind {
+	case "weekly_all", "seven_day", "weekly_scoped":
+	default:
+		return 0, false, false
+	}
+	if l.ResetsAt.IsZero() || readAt.IsZero() {
+		return 0, false, false
+	}
+	const week = 7 * 24 * time.Hour
+	left := l.ResetsAt.Sub(readAt) % week
+	if left < 0 {
+		left += week
+	}
+	elapsed := week - left
+	if left == 0 {
+		elapsed = 0
+	}
+	if elapsed < 24*time.Hour {
+		return 0, false, false
+	}
+	expected = min(100, 100*float64(elapsed)/float64(week))
+	return expected, l.Percent-expected >= 15, true
+}
+
+// Projection is pace.py's projected_exhaustion_ts and will_last_to_reset,
+// for --json only (too rough to show as fact): at the rate used so far in
+// this weekly cycle, when it reaches 100%, and whether it lasts to the
+// reset. ok is false where Pace is, or with no use to go by.
+func (l Limit) Projection(readAt time.Time) (at time.Time, lasts bool, ok bool) {
+	expected, _, ok := l.Pace(readAt)
+	if !ok || expected <= 0 || l.Percent <= 0 {
+		return time.Time{}, l.Percent <= 0, ok && l.Percent <= 0
+	}
+	const week = 7 * 24 * time.Hour
+	elapsed := time.Duration(expected / 100 * float64(week))
+	rate := l.Percent / elapsed.Seconds() // points a second
+	if l.Percent >= 100 {
+		at = readAt
+	} else {
+		at = readAt.Add(time.Duration((100 - l.Percent) / rate * float64(time.Second)))
+	}
+	return at, l.Percent+rate*(week-elapsed).Seconds() <= 100, true
 }
 
 var errNoLimits = errors.New("Anthropic's answer holds no limits.")
@@ -62,6 +128,14 @@ func ParseUsage(body []byte) ([]Limit, error) {
 		FiveHour *window           `json:"five_hour"`
 		SevenDay *window           `json:"seven_day"`
 		Limits   []json.RawMessage `json:"limits"`
+		Extra    *struct {
+			On       bool     `json:"is_enabled"`
+			Used     *float64 `json:"used_credits"` // in cents
+			Cap      *float64 `json:"monthly_limit"`
+			Pct      *float64 `json:"utilization"`
+			Currency string   `json:"currency"`
+			ResetsAt string   `json:"resets_at"`
+		} `json:"extra_usage"`
 	}
 	if json.Unmarshal(body, &u) != nil {
 		return nil, errNoLimits
@@ -99,6 +173,16 @@ func ParseUsage(body []byte) ([]Limit, error) {
 	}
 	if len(out) == 0 {
 		return nil, errNoLimits
+	}
+	// claude-swap's spend: only with all three figures, an unlimited cap
+	// (null) showing none.
+	if e := u.Extra; e != nil && e.On && valid(e.Used) && valid(e.Cap) && valid(e.Pct) {
+		cur := e.Currency
+		if cur == "" {
+			cur = "USD"
+		}
+		out = append(out, Limit{Kind: "extra_usage", Percent: math.Min(*e.Pct, 100), ResetsAt: when(e.ResetsAt),
+			Used: *e.Used / 100, Cap: *e.Cap / 100, Currency: cur})
 	}
 	return out, nil
 }

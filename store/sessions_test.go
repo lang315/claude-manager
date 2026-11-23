@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -252,8 +253,8 @@ func movedSession(t *testing.T, d fixture.Dirs) (dir, id string) {
 // A head that couldn't be read is read again on the next scan, once the
 // file can be: the error isn't kept.
 func TestProjectsRetriesFailedHead(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root reads any file")
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root reads any file; windows ignores chmod 0")
 	}
 	s, d, _ := newStore(t)
 	recent := filepath.Join(d.Root, fixture.Other, fixture.Recent+".jsonl")
@@ -272,5 +273,56 @@ func TestProjectsRetriesFailedHead(t *testing.T) {
 	ps, _ = s.Projects(&scan)
 	if x := session(t, ps, fixture.Recent); x.Err != "" || x.FirstPrompt != "Recent thing" {
 		t.Errorf("after the file can be read: err %q, first prompt %q", x.Err, x.FirstPrompt)
+	}
+}
+
+// A session run from a Claude Manager profile writes its transcript to the
+// shared projects/, so it is live too.
+func TestLiveIDsInProfiles(t *testing.T) {
+	s, _, _ := newStore(t)
+	s.Profiles = t.TempDir()
+	dir := filepath.Join(s.Profiles, "abc", "sessions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "4242.json"), []byte(`{"pid":4242,"sessionId":"other"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.LiveIDs(); !got["other"] || !got[fixture.Live] {
+		t.Errorf("LiveIDs %v", got)
+	}
+}
+
+func TestInstances(t *testing.T) {
+	s, _, _ := newStore(t)
+	s.Profiles = t.TempDir()
+	dir := filepath.Join(s.Profiles, "abc", "sessions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "4242.json"), []byte(`{"pid":4242,"sessionId":"x","cwd":"/w","entrypoint":"claude-vscode"}`), 0o600)
+	os.MkdirAll(filepath.Join(s.Root, "ide"), 0o700)
+	os.WriteFile(filepath.Join(s.Root, "ide", "1.lock"), []byte(`{"pid":4242,"ideName":"Visual Studio Code","workspaceFolders":["/a","/b"]}`), 0o600)
+	os.WriteFile(filepath.Join(s.Root, "ide", "2.lock"), []byte(`{"pid":9,"ideName":"Gone"}`), 0o600)
+	got := s.Instances()
+	var kinds []string
+	for _, i := range got {
+		kinds = append(kinds, i.Kind+"@"+i.Folder)
+	}
+	want := map[string]bool{"VS Code@/w": false, "VS Code@/a, /b": false}
+	for _, k := range kinds {
+		if _, ok := want[k]; ok {
+			want[k] = true
+		}
+	}
+	for k, seen := range want {
+		if !seen {
+			t.Errorf("%s missing in %q", k, kinds)
+		}
+	}
+	for _, i := range got {
+		if i.Kind == "Gone" {
+			t.Error("a dead IDE listed")
+		}
 	}
 }

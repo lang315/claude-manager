@@ -2,12 +2,16 @@ package account
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -32,33 +36,67 @@ type Vault interface {
 // own items, so no read asks for a password.
 type Keychain struct {
 	Bin string // tests point it at a stand-in; "" is /usr/bin/security
+	// File, when set, is the keychain file every command reads and writes,
+	// rather than the user's: the end-to-end test's own keychain.
+	File string
 }
 
 func (k Keychain) Get(service, acct string) ([]byte, error) {
-	out, err := k.run("the read", "", args("find-generic-password", service, acct, "-w")...)
+	out, err := k.run("the read", "", k.in(args("find-generic-password", service, acct, "-w"))...)
+	if err != nil && !errors.Is(err, ErrNotFound) { // claude-swap's _ACTIVE_READ_ATTEMPTS = 2, a timeout too
+		time.Sleep(300 * time.Millisecond) // claude-swap's retry of a read that failed once
+		out, err = k.run("the read", "", k.in(args("find-generic-password", service, acct, "-w"))...)
+	}
 	if err != nil {
 		return nil, err
 	}
 	return bytes.TrimSuffix(out, []byte("\n")), nil
 }
 
+// stdinLimit is the longest line security -i reads whole.
+const stdinLimit = 4096 - 64
+
 // Put sends its command to security -i on stdin, so the secret is on no
-// argument line another process could read.
+// argument line another process could read. A secret too long for one
+// line goes on the argument line, hex-encoded, as claude-swap does: the
+// alternative is a cut-off login.
 func (k Keychain) Put(service, acct string, secret []byte) error {
-	if strings.ContainsAny(service+acct, " \t\n\"'") {
+	if strings.ContainsAny(service+acct, "\n\r") {
 		return fmt.Errorf("The keychain item %q %q can't be written.", service, acct)
 	}
-	cmd := fmt.Sprintf("add-generic-password -U -s %s -a %s -X %s\n", service, acct, hex.EncodeToString(secret))
+	hexed := hex.EncodeToString(secret)
+	file := ""
+	if k.File != "" {
+		file = " " + quote(k.File)
+	}
+	cmd := fmt.Sprintf("add-generic-password -U -s %s -a %s -X %s%s\n", quote(service), quote(acct), hexed, file)
+	if len(cmd) > stdinLimit {
+		_, err := k.run("the write", "", k.in([]string{"add-generic-password", "-U", "-s", service, "-a", acct, "-X", hexed})...)
+		return err
+	}
 	_, err := k.run("the write", cmd, "-i")
 	return err
 }
 
+// quote quotes s for a security -i line, which is split as a shell would.
+func quote(s string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
+}
+
 func (k Keychain) Delete(service, acct string) error {
-	_, err := k.run("the removal", "", args("delete-generic-password", service, acct)...)
+	_, err := k.run("the removal", "", k.in(args("delete-generic-password", service, acct))...)
 	if errors.Is(err, ErrNotFound) {
 		return nil
 	}
 	return err
+}
+
+// in names k.File last on a command line, as security takes a keychain.
+func (k Keychain) in(a []string) []string {
+	if k.File == "" {
+		return a
+	}
+	return append(a, k.File)
 }
 
 func args(cmd, service, acct string, more ...string) []string {
@@ -74,7 +112,14 @@ func (k Keychain) run(what, stdin string, arg ...string) ([]byte, error) {
 	if bin == "" {
 		bin = "/usr/bin/security"
 	}
-	cmd := exec.Command(bin, arg...)
+	// A test on a keychain of its own sets the guard to that keychain's
+	// path: a command naming no such keychain would reach the user's.
+	if g := os.Getenv("CLAUDE_MANAGER_KEYCHAIN_GUARD"); g != "" && !slices.Contains(arg, g) && !strings.Contains(stdin, quote(g)) {
+		return nil, fmt.Errorf("The keychain command names no %s: refused, to keep the user's keychain out of a test.", g)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), keychainTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, arg...)
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
@@ -83,6 +128,8 @@ func (k Keychain) run(what, stdin string, arg ...string) ([]byte, error) {
 	err := cmd.Run()
 	text := msg.String()
 	switch {
+	case ctx.Err() != nil:
+		return nil, ErrKeychainSlow
 	case strings.Contains(text, "could not be found"):
 		return nil, ErrNotFound
 	case strings.Contains(text, "User interaction is not allowed"), strings.Contains(text, "locked"):
@@ -94,6 +141,12 @@ func (k Keychain) run(what, stdin string, arg ...string) ([]byte, error) {
 	}
 	return out.Bytes(), nil
 }
+
+// keychainTimeout bounds a security call, as claude-swap's: a prompt
+// nobody answers can't hold the book.
+var keychainTimeout = 5 * time.Second
+
+var ErrKeychainSlow = errors.New("The keychain didn't answer in time: it may be locked, or waiting on a prompt.")
 
 // Memory is a Vault in memory, for tests. Fail, when set, fails every Put.
 type Memory struct {

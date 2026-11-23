@@ -17,6 +17,9 @@ type Login struct {
 	SubscriptionType      string   `json:"subscriptionType,omitempty"`
 	RateLimitTier         string   `json:"rateLimitTier,omitempty"`
 	ClientID              string   `json:"clientId,omitempty"`
+
+	// Whose token a renewal says it is (claude-swap's token_account); not saved.
+	TokenAccount, TokenOrg string `json:"-"`
 }
 
 var errNoToken = errors.New("The saved login holds no access token.")

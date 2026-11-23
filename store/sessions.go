@@ -107,7 +107,7 @@ var aiTitle = []byte(`"ai-title"`)
 var userType = []byte(`"type":"user"`)
 
 // LiveIDs returns the ids of the sessions whose process runs, from
-// sessions/<pid>.json.
+// sessions/<pid>.json in Root and in each profile.
 func (s *Store) LiveIDs() map[string]bool {
 	ids, _ := s.live()
 	return ids
@@ -118,11 +118,19 @@ func (s *Store) LiveIDs() map[string]bool {
 func (s *Store) live() (ids map[string]bool, since time.Time) {
 	ids = map[string]bool{}
 	unknown := false
-	for _, f := range listFiles(filepath.Join(s.Root, "sessions"), ".json") {
+	files := listFiles(filepath.Join(s.Root, "sessions"), ".json")
+	if s.Profiles != "" {
+		ps, _ := os.ReadDir(s.Profiles)
+		for _, p := range ps {
+			files = append(files, listFiles(filepath.Join(s.Profiles, p.Name(), "sessions"), ".json")...)
+		}
+	}
+	for _, f := range files {
 		var r struct {
-			PID       int    `json:"pid"`
-			SessionID string `json:"sessionId"`
-			StartedAt int64  `json:"startedAt"` // epoch milliseconds
+			PID       int             `json:"pid"`
+			SessionID string          `json:"sessionId"`
+			StartedAt int64           `json:"startedAt"` // epoch milliseconds
+			ProcStart json.RawMessage `json:"procStart"`
 		}
 		b, err := os.ReadFile(f)
 		if err != nil {
@@ -133,7 +141,7 @@ func (s *Store) live() (ids map[string]bool, since time.Time) {
 		if err := json.Unmarshal(b, &r); err != nil && !errors.As(err, &typeErr) || r.SessionID == "" {
 			continue
 		}
-		if !s.Alive(r.PID) {
+		if !s.Alive(r.PID) || !SameProcess(r.PID, Stamp(r.ProcStart)) { // a crashed claude's pid, reused
 			continue
 		}
 		ids[r.SessionID] = true

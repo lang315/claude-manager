@@ -178,6 +178,8 @@ A grey instrument with two signal colours, each bound to one meaning.
   - From 80% it takes MyGo's Warning amber, and from 95% its Danger red.
   - Amber and red mean "near a limit", and appear nowhere else.
   - The percentage is always printed beside the meter, with "Limit reached" at 100%, so colour is never the only signal.
+  - An "Extra usage" row (pay-as-you-go credits) puts "12.34 of 50.00 USD" where the reset is.
+  - Below 100%, a weekly row used 15 points or more faster than its week has gone shows a muted "Ahead of pace" in that slot, with the on-pace share as its tooltip; never in a cycle's first day.
   - Green stays the lamp's.
 
 ### Named Rules
@@ -279,19 +281,35 @@ The reader is padded 16 by 24. It shows the title (Heading), then the meta line:
 ### Backups Table
 MyGo's native data table, with the File column filling the width. Its footer matches Cleanup's: a muted "Selected", the bold tabular "N files · size", and the orange "Move to Trash…" at the right.
 
+### Add Token
+"Add Token…" on the Limits toolbar, after "Add Account…": a modal with the token (a password field), an optional email, "Read setup-token usage" with its cost in a 12px note, Cancel and Add (off until a token is typed). A setup-token account's plan reads "Setup-token"; an API key account's "API key · no subscription limits". The same modal takes either: its title is "Add a Token or API Key".
+
+### Export and Import
+On the Limits page's toolbar, after Refresh: "Export…" opens a modal (the warnings, a "Full backup for this Mac" checkbox, Cancel and "Choose File…"), then a save panel on the Desktop ("Claude accounts.json", JSON) and "Import…" a modal (what an accounts file and a readings file each do, "Don't read those accounts here for N minutes", Cancel and "Choose File…"), then an open panel (JSON, or all files: claude-swap's exports go by any name), both off while a switch runs. The save panel's message is both warnings (the file holds sign-ins, unencrypted; one Mac per account), the open panel's the second, and the toast after repeats them with what was done: "Exported 2 accounts. Left out 1: sign in again to it first.", "Imported: added 1 account, updated 1, left 1 as they were."
+
+### Auto-Switch Row
+First on the Limits page, above the account blocks: the "Auto-switch" checkbox, then a muted 12px status (why it stays, or whom it last switched to; "Checks every minute while the app is open." with nothing to report; the reason it is off outside Claude Code's default folder), then, at the right, "Auto-Switch Settings…", which opens a modal: five-hour line, an optional weekly line, cooldown in minutes, margin in points, check every (seconds), unreadable ticks before moving on, strategy (Most left, Weekly reset first, Spend soonest reset, By priority), and Model windows: the per-model weekly windows that count too, comma separated, or "all".
+
 ### Account Block
 A face per account on the Limits page, padded 14 by 16.
-- **Header:** the email in bold, the plan in muted (with the organisation for a team plan), a small bold muted "In use" on the account Claude Code is signed in to, and a "⋯" menu: Switch to This Account for an account Pitboard parks, while Pitboard is installed, and Sign In Again and Remove… for an added account.
+- **Header:** the email in bold, the plan in muted (with the organisation for a team plan), a small bold muted "In use" on the account Claude Code is signed in to, and a "⋯" menu on an added account: Switch to This Account (when it is not in use, and Claude Code runs from its default folder), Hold Out of / Put Back in Auto-Switch, Auto-Switch Line and Priority… (a modal: its own five-hour line, its priority tier), Open in Terminal… (not on the account in use; a modal: the folder with "Choose Folder…", the two sharing checkboxes, Cancel and Open, Open off until a folder is chosen), Sign In Again and Remove… (not on the account in use while the app follows its login: it would come back at the next refresh). An account open in a terminal carries a small bold muted "In a terminal" and offers neither Switch, Sign In Again nor Remove… until claude quits there. The account in use is added by itself in Claude Code's default folder.
 - **Rows:** one per limit:
   - the name (150);
   - the meter, filling the width;
   - the percentage, tabular (44);
   - the muted reset time (150).
 - **Footer:**
-  - An added account ends with its sign-in date, muted, at 12px.
+  - An added account ends with its sign-in date, muted, at 12px, then its own auto-switch settings ("Held out of auto-switch · Own line 85% · Priority 3"), muted, at 12px.
   - Figures from Pitboard end with "Read N min ago by Pitboard", muted, at 12px.
+  - An account only Pitboard holds, while the app can switch, ends with "Add this account here to switch to it.", muted, at 12px.
   - A block with no figures says why, in muted text.
   - A switch under way ends the block with "Switching…", muted, at 12px.
+
+### TUI Actions
+The auto-switch row adds, after its status, "Next: …" (the first three accounts by quota left) and a "Log…" button (a modal of the last 50 decisions); its settings add a dry-run checkbox, and turning a dry run off asks "Go live?". Each 5h and 7d meter of an added account carries a 2px ink tick at its auto-switch line while auto-switch is on. A refused header probe's row says "Refused" in the status slot. The account in use, when the app doesn't hold it, has "Add This Account". Add Token has a Slot field. Keys on Limits: ⌘R refresh, ⌘B switch to the best account, ⌘L auto-switch on/off, ⌘N add account.
+
+### Menu Bar Item
+A text-only menu bar item: the account in use's fullest five-hour or 7-day share, "62%" ("–" before a reading). Its menu: a disabled status row (auto-switch's last reason, else "Updated …"), a separator, one row per account, "email  5h 62% · 7d 40%", checked on the account in use and "(in a terminal)" after one open there, a click switching to it; then Auto-switch (a checkbox) and Refresh; then Open Claude Manager, Start at Login (a checkbox) and Quit Claude Manager. Closing the window hides it: the item and auto-switch keep running until Quit.
 
 ## Do's and Don'ts
 
