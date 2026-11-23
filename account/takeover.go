@@ -119,6 +119,9 @@ func (b *Book) TakeOver(ctx context.Context, key string) (Account, error) {
 		return undo(errParkMoved)
 	}
 	if err := b.PitboardForget(ctx, p.label); err != nil {
+		if _, rerr := readPitboardPark(b.PitboardDir, key); errors.Is(rerr, errNoPark) {
+			return a, nil // it failed after Pitboard let go: this is the only copy now
+		}
 		return undo(fmt.Errorf("Pitboard didn't forget %s, so its login stays with Pitboard: %w", p.who.Email, err))
 	}
 	return a, nil

@@ -224,3 +224,22 @@ func TestForgetInPitboardRunsItsCommand(t *testing.T) {
 		t.Errorf("refusal: %v", err)
 	}
 }
+
+// A forget that fails after Pitboard let go (killed at its timeout, or a
+// warning's exit code) leaves the copy taken the only one: it is kept.
+func TestTakeOverKeepsTheCopyPitboardLetGo(t *testing.T) {
+	b, v, _, _ := newBook(t, newAnthropic())
+	_, _ = pitboardHolding(t, b, v)
+	forget := b.PitboardForget
+	b.PitboardForget = func(ctx context.Context, label string) error {
+		must(t, forget(ctx, label))
+		return errors.New("signal: killed")
+	}
+	a, err := b.TakeOver(context.Background(), "carol/org-c")
+	if err != nil || !a.Added {
+		t.Fatalf("%+v, %v", a, err)
+	}
+	if _, err := v.Get(ParkService, "carol/org-c"); err != nil {
+		t.Errorf("the only copy left was dropped: %v", err)
+	}
+}
