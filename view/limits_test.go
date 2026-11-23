@@ -538,3 +538,61 @@ func TestLimitsLoadOffTheMainThread(t *testing.T) {
 		waitFor(t, l.tt, func() bool { return l.usage.Load() > n && !l.a.limits.loading })
 	}
 }
+
+// count is how many elements show s.
+func count(tt *ui.Tester, s string) int {
+	n := 0
+	for _, x := range tt.Texts() {
+		if x == s {
+			n++
+		}
+	}
+	return n
+}
+
+// A saved account that can be switched to has its Switch button on the
+// card, not only in the ⋯ menu; the account in use has none.
+func TestLimitsSwitchButton(t *testing.T) {
+	l := limitsApp(t)
+	h := canSwitch(t, l)
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
+	if n := count(l.tt, "Switch"); n != 1 {
+		t.Fatalf("%d Switch buttons, want 1 (bob's): %q", n, l.tt.Texts())
+	}
+	must(t, l.tt.Click("Switch"))
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("Switched to bob@example.com.") })
+	conf, _ := os.ReadFile(h.ClaudeJSON)
+	if !strings.Contains(string(conf), `"accountUuid":"bob"`) {
+		t.Errorf("~/.claude.json = %s", conf)
+	}
+}
+
+func TestLimitsSwitchButtonNotOffered(t *testing.T) {
+	l := limitsApp(t)
+	canSwitch(t, l)
+	l.book.Home = nil
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("bob@example.com") })
+	if count(l.tt, "Switch") > 0 {
+		t.Errorf("a Switch button outside Claude Code's default folder: %q", l.tt.Texts())
+	}
+}
+
+// A Pitboard-only account can't be switched to until its login is saved
+// here, so its card offers the sign-in that saves it.
+func TestLimitsPitboardAccountOffersAdd(t *testing.T) {
+	l := limitsApp(t)
+	l.book.Pitboard = func() ([]account.Account, error) {
+		return []account.Account{{AccountUUID: "carol", OrgUUID: "org", Email: "carol@example.com", Source: "Pitboard",
+			ReadAt: fixture.Now, Limits: []account.Limit{{Kind: "session", Percent: 5}}}}, nil
+	}
+	l.open(t)
+	waitFor(t, l.tt, func() bool { return l.tt.HasText("carol@example.com") })
+	if n := count(l.tt, "Add Account…"); n != 1 {
+		t.Errorf("%d Add Account buttons while the app can't switch, want the toolbar's only", n)
+	}
+	l.book.Home = &account.Home{}
+	must(t, l.tt.Click("Refresh"))
+	waitFor(t, l.tt, func() bool { return count(l.tt, "Add Account…") == 2 })
+}

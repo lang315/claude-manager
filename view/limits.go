@@ -214,6 +214,10 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 				ui.Text(c, "In a terminal").FontSize(11).Bold().TextColor(pal.muted)
 			}
 			ui.Spacer(c)
+			if b.Added && a.Accounts.CanSwitch() && !b.InUse && b.Terminal.Dir == "" &&
+				ui.Button(c, "Switch").Disabled(l.switching != "").Tooltip("Switch to "+b.Email).Clicked() {
+				l.startSwitch(a, b)
+			}
 			l.menu(c, a, b)
 		})
 		switch {
@@ -254,7 +258,12 @@ func (l *limits) block(c *ui.Context, a *App, pal *palette, b account.Account, n
 			})
 		}
 		if pitboardOnly := !b.Added && !b.InUse; pitboardOnly && a.Accounts.CanSwitch() {
-			ui.Text(c, "Add this account here to switch to it.").FontSize(12).TextColor(pal.muted)
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, "Add this account here to switch to it.").FontSize(12).TextColor(pal.muted)
+				if ui.Button(c, "Add Account…").Disabled(l.switching != "").Clicked() {
+					l.startAdd(a)
+				}
+			})
 		}
 		if l.switching == b.Key() {
 			ui.Text(c, "Switching…").FontSize(12).TextColor(pal.muted)
