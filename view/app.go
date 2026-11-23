@@ -13,6 +13,9 @@ import (
 // App is the window's state. The view reads and writes it on the main thread.
 type App struct {
 	Store *store.Store
+	// icon is TrayIcon's last PNG, for the shares in iconOf.
+	icon   []byte
+	iconOf [2]float64
 	// Go runs slow work (the disk) off the main thread; tests run it inline.
 	Go func(func())
 	// Update runs a change on the main thread and redraws: Window.Update in

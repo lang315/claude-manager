@@ -68,7 +68,11 @@ func windowsRead(b account.Account) (five float64, hasFive bool, seven float64, 
 // reading.
 func (a *App) TrayIcon() []byte {
 	b, _ := a.inUse()
-	return TrayIcon(shares(b))
+	five, seven := shares(b)
+	if k := [2]float64{five, seven}; a.icon == nil || k != a.iconOf {
+		a.icon, a.iconOf = TrayIcon(five, seven), k // the menu bar asks after every redraw: encode on a change only
+	}
+	return a.icon
 }
 
 // TrayTip is the menu bar item's tooltip: the account in use and both of
