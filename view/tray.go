@@ -32,7 +32,11 @@ func (a *App) Tray() (title string, items []TrayItem) {
 	title = "–"
 	can := a.Accounts != nil && a.Accounts.CanSwitch()
 	if a.Accounts == nil {
-		return title, []TrayItem{{Label: "Limits are unavailable.", Disabled: true}}
+		items = []TrayItem{{Label: "Limits are unavailable.", Disabled: true}}
+		if a.KeepAwake != nil {
+			items = append(items, TrayItem{}, a.awakeItem())
+		}
+		return title, items
 	}
 	now := a.Store.Now()
 	var read time.Time // cswap's active_usage_age: the account in use's own reading, not the last redraw
@@ -120,6 +124,9 @@ func (a *App) Tray() (title string, items []TrayItem) {
 				a.limits.toast(a, err)
 			}
 		}}, TrayItem{})
+	}
+	if a.KeepAwake != nil {
+		items = append(items, a.awakeItem(), TrayItem{})
 	}
 	for _, t := range []struct{ label, theme string }{{"Appearance: As macOS", ""}, {"Appearance: Light", "light"}, {"Appearance: Dark", "dark"}} {
 		on := a.prefs.Theme == t.theme || t.theme == "" && a.prefs.Theme == "auto"
@@ -267,6 +274,25 @@ func countdown(d time.Duration) string {
 // minutes; the 3-minute floor keeps it from asking more often.
 func (a *App) TrayTick() {
 	a.Update(func() { a.limits.load(a, false) })
+}
+
+// awakeItem is the menu bar's Keep Mac Awake row.
+func (a *App) awakeItem() TrayItem {
+	return TrayItem{Label: "Keep Mac Awake", Toggle: true, Checked: a.awake != nil, Do: func() { a.setAwake(a.awake == nil) }}
+}
+
+// setAwake turns Keep Mac Awake on or off. It is not saved: every launch
+// starts off, so a forgotten switch does not keep the Mac awake for good.
+func (a *App) setAwake(on bool) {
+	if a.KeepAwake == nil || on == (a.awake != nil) {
+		return
+	}
+	if on {
+		a.awake = a.KeepAwake("Keep Mac Awake is on in Claude Manager")
+		return
+	}
+	a.awake()
+	a.awake = nil
 }
 
 // setTheme saves ui.theme and redraws in it. Only the theme is saved:
