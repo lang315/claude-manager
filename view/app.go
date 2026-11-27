@@ -35,6 +35,9 @@ type App struct {
 	ChooseFolder func(message string) (string, error)
 	// Reveal shows a file or folder in the file manager: cswap's `open -R`.
 	Reveal func(path string) error
+	// KeepAwake keeps the Mac from idle sleep until release is called:
+	// mygo.Power.KeepAwake in the app. nil hides Keep Mac Awake.
+	KeepAwake func(reason string) (release func())
 	// OpenPath opens a file with its default app, where the user edits it.
 	OpenPath func(path string) error
 	// LogPath is the app's log, which the menu bar opens; "" for none.
@@ -48,6 +51,7 @@ type App struct {
 	busy   int    // loads the user started and moves in flight; not Usage's scan nor quiet reloads, which feed no Trash target
 	notice string // shown as a toast on the next frame
 	prefs  account.Prefs
+	awake  func()  // KeepAwake's release; non-nil while on
 	quiet  screens // the screen a quiet reload is starting for; 0 for a load the user started
 	live   live    // paces the reloads the watch asks for
 	shown  string  // the page live last heard of
@@ -99,18 +103,28 @@ func (a *App) View(c *ui.Context) {
 	}
 	live := a.sessions.live
 	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
-		ui.Sidebar(c, &a.page, func() {
-			ui.SidebarItem(c, "overview", iconOverview, "Overview")
-			ui.SidebarItem(c, "sessions", iconSessions, "Sessions").Children(func() {
-				if live > 0 {
-					lamp(c, pal).Tooltip(plural(live, "session") + " running")
+		ui.Column(c).Children(func() {
+			ui.Sidebar(c, &a.page, func() {
+				ui.SidebarItem(c, "overview", iconOverview, "Overview")
+				ui.SidebarItem(c, "sessions", iconSessions, "Sessions").Children(func() {
+					if live > 0 {
+						lamp(c, pal).Tooltip(plural(live, "session") + " running")
+					}
+				})
+				ui.SidebarItem(c, "history", iconHistory, "History")
+				ui.SidebarItem(c, "usage", iconUsage, "Usage")
+				ui.SidebarItem(c, "limits", iconLimits, "Limits")
+				ui.SidebarItem(c, "config", iconConfig, "Config")
+				ui.SidebarItem(c, "cleanup", iconCleanup, "Cleanup")
+			}).Grow(1).Background(pal.ground) // the sidebar paints its own Surface otherwise
+			if a.KeepAwake != nil {
+				on := a.awake != nil
+				ui.Checkbox(c, &on, "Keep Mac awake").Margin(12).Tooltip("The display may still turn off. Closing the lid still sleeps the Mac.")
+				if on != (a.awake != nil) {
+					a.setAwake(on)
+					a.Update(func() {}) // main redraws the menu bar only in Update
 				}
-			})
-			ui.SidebarItem(c, "history", iconHistory, "History")
-			ui.SidebarItem(c, "usage", iconUsage, "Usage")
-			ui.SidebarItem(c, "limits", iconLimits, "Limits")
-			ui.SidebarItem(c, "config", iconConfig, "Config")
-			ui.SidebarItem(c, "cleanup", iconCleanup, "Cleanup")
+			}
 		}).Width(200).Background(pal.ground)
 		ui.Divider(c)
 		ui.Column(c).Grow(1).MinWidth(0).PaddingX(24).PaddingY(18).Gap(16).Children(func() {

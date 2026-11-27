@@ -447,3 +447,104 @@ func TestTrayTipLeavesOutAWindowNotRead(t *testing.T) {
 		t.Errorf("tip %q", got)
 	}
 }
+
+// fakeAwake counts held activities.
+func fakeAwake(l *lim) *int {
+	held := 0
+	l.a.KeepAwake = func(reason string) func() {
+		if reason != "Keep Mac Awake is on in Claude Manager" {
+			panic(reason)
+		}
+		held++
+		return func() { held-- }
+	}
+	return &held
+}
+
+func TestTrayKeepAwake(t *testing.T) {
+	l := limitsApp(t)
+	held := fakeAwake(l)
+	it := trayItem(t, l, "Keep Mac Awake")
+	if !it.Toggle || it.Checked || *held != 0 {
+		t.Fatalf("starts off: %+v held %d", it, *held)
+	}
+	l.tt.Update(it.Do)
+	if !trayItem(t, l, "Keep Mac Awake").Checked || *held != 1 {
+		t.Fatalf("on: held %d", *held)
+	}
+	l.tt.Update(func() { l.a.setAwake(true) }) // on while on
+	if *held != 1 {
+		t.Fatalf("on twice holds %d", *held)
+	}
+	l.tt.Update(trayItem(t, l, "Keep Mac Awake").Do)
+	l.tt.Update(func() { l.a.setAwake(false) }) // off while off
+	if trayItem(t, l, "Keep Mac Awake").Checked || *held != 0 {
+		t.Fatalf("off: held %d", *held)
+	}
+}
+
+func TestWindowKeepAwake(t *testing.T) {
+	l := limitsApp(t)
+	held := fakeAwake(l)
+	l.tt.Frame()
+	update := l.a.Update
+	updated := false // main's setTray runs only in Update: the menu bar must hear of a window click
+	l.a.Update = func(f func()) { updated = true; update(f) }
+	must(t, l.tt.Click("Keep Mac awake"))
+	l.tt.Frame()
+	if *held != 1 || !trayItem(t, l, "Keep Mac Awake").Checked {
+		t.Fatalf("window on: held %d", *held)
+	}
+	if !updated {
+		t.Fatal("window click did not call Update: the menu bar row stays unchecked")
+	}
+	must(t, l.tt.Click("Keep Mac awake"))
+	l.tt.Frame()
+	if *held != 0 {
+		t.Fatalf("window off: held %d", *held)
+	}
+}
+
+func TestKeepAwakeHiddenWithoutPower(t *testing.T) {
+	l := limitsApp(t) // KeepAwake nil
+	l.tt.Frame()
+	if l.tt.HasText("Keep Mac awake") {
+		t.Error("window checkbox shown without KeepAwake")
+	}
+	l.tt.Update(func() {
+		_, items := l.a.Tray()
+		for _, it := range items {
+			if it.Label == "Keep Mac Awake" {
+				t.Error("tray row shown without KeepAwake")
+			}
+		}
+	})
+}
+
+func TestTrayKeepAwakeWithoutAccounts(t *testing.T) {
+	l := limitsApp(t)
+	fakeAwake(l)
+	l.a.Accounts = nil
+	trayItem(t, l, "Keep Mac Awake")
+}
+
+func TestSidebarOnGroundWithKeepAwake(t *testing.T) {
+	l := limitsApp(t)
+	fakeAwake(l)
+	l.tt.Frame()
+	r, g, b, _ := l.tt.Image().At(4, 400).RGBA() // beside the items, above the checkbox
+	if got := fmt.Sprintf("#%02X%02X%02X", r>>8, g>>8, b>>8); got != "#E3E3E1" {
+		t.Errorf("sidebar is %s, not the ground", got)
+	}
+}
+
+func TestKeepAwakeFitsAShortWindow(t *testing.T) {
+	l := limitsApp(t)
+	fakeAwake(l)
+	l.tt.SetSize(1200, 160) // the items scroll; the checkbox stays in view
+	l.tt.Frame()
+	r, ok := l.tt.Find("Keep Mac awake")
+	if !ok || r.Y+r.H > 160 {
+		t.Errorf("checkbox at %+v, below a 160px window", r)
+	}
+}

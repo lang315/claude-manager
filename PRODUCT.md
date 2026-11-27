@@ -35,6 +35,9 @@ accounts' logins, unencrypted, to a file the user names, readable by the user on
 Closing the window keeps the app in the menu bar, reading the accounts' limits
 from Anthropic every 5 minutes, and renewing the added accounts' saved logins
 as they near expiry, until the user quits it.
+Keep Mac Awake, off at every launch, stops the Mac's idle sleep while it is on,
+so a long Claude Code task runs on while the user is away; the display may still
+turn off, and quitting the app ends it.
 Open in Terminal writes a per-account profile folder under the app's own folder,
 whose links point into `~/.claude`. Opening one that kept its own chat history
 moves that history into `~/.claude` first (a copy that clashes with one there is
