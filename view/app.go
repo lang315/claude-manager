@@ -122,6 +122,7 @@ func (a *App) View(c *ui.Context) {
 				ui.Checkbox(c, &on, "Keep Mac awake").Margin(12).Tooltip("The display may still turn off. Closing the lid on battery still sleeps.")
 				if on != (a.awake != nil) {
 					a.setAwake(on)
+					a.Update(func() {}) // main redraws the menu bar only in Update
 				}
 			}
 		}).Width(200).Background(pal.ground)

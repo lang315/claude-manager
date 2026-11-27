@@ -487,10 +487,16 @@ func TestWindowKeepAwake(t *testing.T) {
 	l := limitsApp(t)
 	held := fakeAwake(l)
 	l.tt.Frame()
+	update := l.a.Update
+	updated := false // main's setTray runs only in Update: the menu bar must hear of a window click
+	l.a.Update = func(f func()) { updated = true; update(f) }
 	must(t, l.tt.Click("Keep Mac awake"))
 	l.tt.Frame()
 	if *held != 1 || !trayItem(t, l, "Keep Mac Awake").Checked {
 		t.Fatalf("window on: held %d", *held)
+	}
+	if !updated {
+		t.Fatal("window click did not call Update: the menu bar row stays unchecked")
 	}
 	must(t, l.tt.Click("Keep Mac awake"))
 	l.tt.Frame()
