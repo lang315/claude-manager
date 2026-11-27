@@ -527,3 +527,24 @@ func TestTrayKeepAwakeWithoutAccounts(t *testing.T) {
 	l.a.Accounts = nil
 	trayItem(t, l, "Keep Mac Awake")
 }
+
+func TestSidebarOnGroundWithKeepAwake(t *testing.T) {
+	l := limitsApp(t)
+	fakeAwake(l)
+	l.tt.Frame()
+	r, g, b, _ := l.tt.Image().At(4, 400).RGBA() // beside the items, above the checkbox
+	if got := fmt.Sprintf("#%02X%02X%02X", r>>8, g>>8, b>>8); got != "#E3E3E1" {
+		t.Errorf("sidebar is %s, not the ground", got)
+	}
+}
+
+func TestKeepAwakeFitsAShortWindow(t *testing.T) {
+	l := limitsApp(t)
+	fakeAwake(l)
+	l.tt.SetSize(1200, 160) // the items scroll; the checkbox stays in view
+	l.tt.Frame()
+	r, ok := l.tt.Find("Keep Mac awake")
+	if !ok || r.Y+r.H > 160 {
+		t.Errorf("checkbox at %+v, below a 160px window", r)
+	}
+}

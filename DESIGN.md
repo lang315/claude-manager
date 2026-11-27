@@ -244,7 +244,7 @@ Faces are softly rounded plates (12px). Keys and controls use the theme radius (
 - **Checkboxes:** native. Checked state uses selection graphite.
 
 ### Navigation
-- **Sidebar:** MyGo's native sidebar on the ground colour, 200px wide, with Lucide line icons (pie-chart, message-square, sliders-horizontal, trash-2; 24-unit viewBox, stroke 2, round caps). The selected item is selection graphite. Sessions carries a green lamp while any session runs.
+- **Sidebar:** MyGo's native sidebar on the ground colour, 200px wide, with Lucide line icons (pie-chart, message-square, sliders-horizontal, trash-2; 24-unit viewBox, stroke 2, round caps). The selected item is selection graphite. Sessions carries a green lamp while any session runs. At its bottom, on the same ground, the Keep Mac awake checkbox (12px margin), with the tooltip "The display may still turn off. Closing the lid still sleeps the Mac."
 
 ### Face
 Matte plate (`face`, 12px radius, 1px rule edge). It opens with a caption row: legend at the left and a muted note at the right. Rows below are separated by inset rules. Clickable rows fill with `panel` on hover and show a pointer cursor.

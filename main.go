@@ -94,7 +94,9 @@ func main() {
 		}
 		return mygo.Shell.OpenPath(path)
 	}
-	a.KeepAwake = func(reason string) func() { return mygo.Power.KeepAwake(reason, false) } // the display may still sleep
+	if runtime.GOOS == "darwin" { // a Mac feature: its labels say Mac
+		a.KeepAwake = func(reason string) func() { return mygo.Power.KeepAwake(reason, false) } // the display may still sleep
+	}
 	a.LogPath = filepath.Join(appDir(home), "claude-manager.log")
 	jsonFiles := []mygo.FileFilter{{Name: "JSON", Extensions: []string{"json"}}}
 	a.SaveFile = func(name, message string) (string, error) {

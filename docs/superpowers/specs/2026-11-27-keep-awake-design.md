@@ -17,8 +17,9 @@ when idle, as `caffeinate -i` does.
 - Keeping the display on.
 - Turning itself on or off with Claude sessions, or after a set time (approaches
   2 and 3 below; can come later).
-- Keeping the Mac awake with the lid closed: macOS sleeps on lid close on battery
-  whatever the app does.
+- Keeping the Mac awake with the lid closed: macOS sleeps on lid close, on battery
+  or on power, whatever the app does (only clamshell mode with an external
+  display stays awake).
 
 ## Anti-goals
 
@@ -51,7 +52,7 @@ child process.
   before the Appearance rows.
 - Window: a checkbox "Keep Mac awake" at the bottom of the sidebar, so every
   page shows it, with a tooltip: "The display may still turn off. Closing the
-  lid on battery still sleeps."
+  lid still sleeps the Mac."
 - Not saved: every launch starts off (anti-goal: a forgotten setting).
 - `PRODUCT.md` Positioning gets one line on it.
 

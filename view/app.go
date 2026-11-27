@@ -116,10 +116,10 @@ func (a *App) View(c *ui.Context) {
 				ui.SidebarItem(c, "limits", iconLimits, "Limits")
 				ui.SidebarItem(c, "config", iconConfig, "Config")
 				ui.SidebarItem(c, "cleanup", iconCleanup, "Cleanup")
-			}).Grow(1)
+			}).Grow(1).Background(pal.ground) // the sidebar paints its own Surface otherwise
 			if a.KeepAwake != nil {
 				on := a.awake != nil
-				ui.Checkbox(c, &on, "Keep Mac awake").Margin(12).Tooltip("The display may still turn off. Closing the lid on battery still sleeps.")
+				ui.Checkbox(c, &on, "Keep Mac awake").Margin(12).Tooltip("The display may still turn off. Closing the lid still sleeps the Mac.")
 				if on != (a.awake != nil) {
 					a.setAwake(on)
 					a.Update(func() {}) // main redraws the menu bar only in Update
